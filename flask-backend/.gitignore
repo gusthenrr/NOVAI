@@ -1,0 +1,20 @@
+# Certificados (se ainda não adicionou)
+Certificados/cert.pem
+Certificados/key.pem
+
+# Ambiente virtual do Python (não deve ir para o GitHub)
+flask-backend/venv/
+
+# Arquivos de cache do Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Configurações do ambiente
+.env
+*.env
+
+# Logs e arquivos temporários
+logs/
+*.log
+tmp/
