@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 
+
+
 export default function LoginPage() {
   const [email, setEmail] = useState<string>(""); // Estado do e-mail
   const [password, setPassword] = useState<string>(""); // Estado da senha
@@ -14,12 +16,32 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setErrorMessage(null);
-
-    setTimeout(() => {
+  
+    try {
+      const response = await fetch("./login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+  
+      const data = await response.json();
+  
+      if (response.ok) {
+        // Se o login for bem-sucedido, redireciona para /dashboard
+        router.push("");
+      } else {
+        // Se ocorrer erro, exibe a mensagem de erro retornada pela API
+        setErrorMessage(data.message || "Erro no login");
+      }
+    } catch (error) {
+      setErrorMessage("Erro ao se conectar com o servidor");
+    } finally {
       setLoading(false);
-      router.push("/dashboard");
-    }, 1000);
+    }
   };
+  
 
   return (
     <div
@@ -125,7 +147,27 @@ export default function LoginPage() {
         >
           {loading ? "Entrando..." : "Entrar"}
         </button>
+        <button
+  type="button"
+  onClick={() => router.push("/cadastro")} // Redireciona para a página de cadastro
+  style={{
+    width: "100%", 
+    padding: ".75rem",
+    backgroundColor: "#0070f3",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+    marginTop: "10px", // 🔥 Garante espaço entre os botões
+    display: "block", 
+  }}
+>
+  Criar Conta
+</button>
+
       </form>
     </div>
+
+  
   );
 }

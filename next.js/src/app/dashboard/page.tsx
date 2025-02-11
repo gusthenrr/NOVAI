@@ -1,8 +1,23 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 export default function DashboardPage() {
+  // Extrai o user_id dos parâmetros da URL (ex: ?user_id=123)
+  const searchParams = useSearchParams();
+  const userId = searchParams.get("user_id"); // Certifique-se de que o backend usa "user_id"
+  const router = useRouter();
+
+  // Estados para verificação e dados do usuário
+  const [userValid, setUserValid] = useState<boolean | null>(null);
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [accountName, setAccountName] = useState<string>("");
+
+  // Define a letra para o avatar: utiliza a primeira letra de accountName ou "U" como fallback
+  const avatarLetter = accountName ? accountName.charAt(0).toUpperCase() : "U";
+
+  // Estados para conversas e mensagens
   const [clientes, setClientes] = useState([
     {
       cliente: "Cliente 1",
@@ -18,266 +33,296 @@ export default function DashboardPage() {
       ],
     },
   ]);
+  const [selectedCliente, setSelectedCliente] = useState<string | null>(null);
+  const [modoManipulacao, setModoManipulacao] = useState<boolean>(false);
+  const [novaMensagem, setNovaMensagem] = useState<string>("");
 
-  const [selectedCliente, setSelectedCliente] = useState<string | null>(null); // Cliente selecionado
-  const [modoManipulacao, setModoManipulacao] = useState<boolean>(false); // Controle do modo de manipulação
-  const [novaMensagem, setNovaMensagem] = useState<string>(""); // Campo para nova mensagem
+  // useEffect: Envia o user_id para a rota /verificar_id no backend para validar o usuário
+  useEffect(() => {
+    async function verificarUsuario() {
+      console.log("🔍 useEffect acionado, verificando usuário...");
+      console.log("Valor de userId extraído:", userId);
+      if (userId) {
+        console.log("✅ Enviando requisição para verificar_id com user_id:", userId);
+        try {
+          const response = await fetch(
+            `https://7117-2804-7f0-7980-164f-e0db-9d26-59e2-43d6.ngrok-free.app/verificar_id`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: userId }),
+            }
+          );
+          console.log("📨 Resposta recebida:", response);
+          const data = await response.json();
+          console.log("📨 Dados retornados pelo backend:", data);
+          if (!response.ok) throw new Error("Erro na verificação do ID");
+          if (data.valid) {
+            setUserEmail(data.user_email);
+            setAccountName(data.account_name);
+            setUserValid(true);
+          } else {
+            setUserValid(false);
+            router.push("/login");
+          }
+        } catch (error) {
+          console.error("Erro ao verificar o ID:", error);
+          setUserValid(false);
+          router.push("/login");
+        }
+      } else {
+        router.push("/login");
+      }
+    }
+    verificarUsuario();
+  }, [userId, router]);
 
-  // Alterna entre modos (Manipulação ou Envio)
+  // Funções para manipulação de mensagens e conversas
   const alternarModoManipulacao = () => {
     setModoManipulacao((prev) => !prev);
   };
 
-  // Adicionar mensagem ao cliente
   const adicionarMensagem = () => {
     if (!selectedCliente) return;
-
-    const novaMensagem = prompt("Digite a nova mensagem:");
-    if (!novaMensagem) return;
-
+    const novaMsg = prompt("Digite a nova mensagem:");
+    if (!novaMsg) return;
     setClientes((prevClientes) =>
       prevClientes.map((cliente) =>
         cliente.cliente === selectedCliente
-          ? {
-              ...cliente,
-              mensagens: [
-                ...cliente.mensagens,
-                { remetente: "cliente", conteudo: novaMensagem, horario: "10:30" },
-              ],
-            }
+          ? { ...cliente, mensagens: [...cliente.mensagens, { remetente: "cliente", conteudo: novaMsg, horario: "10:30" }] }
           : cliente
       )
     );
   };
 
-  // Remover mensagem do cliente
   const removerMensagem = (index: number) => {
     if (!selectedCliente) return;
-
     setClientes((prevClientes) =>
       prevClientes.map((cliente) =>
         cliente.cliente === selectedCliente
-          ? {
-              ...cliente,
-              mensagens: cliente.mensagens.filter((_, i) => i !== index),
-            }
+          ? { ...cliente, mensagens: cliente.mensagens.filter((_, i) => i !== index) }
           : cliente
       )
     );
   };
 
-  // Enviar uma nova mensagem
   const enviarMensagem = () => {
     if (!selectedCliente || !novaMensagem.trim()) return;
-
     setClientes((prevClientes) =>
       prevClientes.map((cliente) =>
         cliente.cliente === selectedCliente
-          ? {
-              ...cliente,
-              mensagens: [
-                ...cliente.mensagens,
-                { remetente: "eu", conteudo: novaMensagem, horario: "10:30" },
-              ],
-            }
+          ? { ...cliente, mensagens: [...cliente.mensagens, { remetente: "eu", conteudo: novaMensagem, horario: "10:30" }] }
           : cliente
       )
     );
-    setNovaMensagem(""); // Limpa o campo de entrada
+    setNovaMensagem("");
   };
 
+  // Retorno sempre fixo, com renderização condicional dentro do JSX
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        fontFamily: "Arial, sans-serif",
-        backgroundColor: "#f0f2f5",
-      }}
-    >
-      {/* Sidebar */}
-      <div
-        style={{
-          width: "30%",
-          backgroundColor: "#ffffff",
-          borderRight: "1px solid #ddd",
-          overflowY: "auto",
-        }}
-      >
-        <div
-          style={{
-            padding: "1rem",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            backgroundColor: "#0070f3",
-            color: "#ffffff",
-          }}
-        >
-          <h3 style={{ margin: 0 }}>Conversas</h3>
-          <button
-            onClick={alternarModoManipulacao}
-            style={{
-              backgroundColor: modoManipulacao ? "#ff4d4d" : "#0056b3", // Vermelho para manipular, azul para envio
-              color: "#ffffff",
-              border: "none",
-              padding: "0.5rem 1rem",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            {modoManipulacao ? "Sair" : "Manipular"}
-          </button>
-        </div>
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {clientes.map((cliente, index) => (
-            <li
-              key={index}
-              onClick={() => setSelectedCliente(cliente.cliente)}
-              style={{
-                padding: "1rem",
-                cursor: "pointer",
-                backgroundColor: selectedCliente === cliente.cliente ? "#e6f7ff" : "transparent",
-                borderBottom: "1px solid #ddd",
-              }}
-            >
-              <strong>{cliente.cliente}</strong>
-              <p style={{ margin: "0.5rem 0 0 0", color: "#555", fontSize: "0.9rem" }}>
-                {cliente.mensagens[cliente.mensagens.length - 1]?.conteudo}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Área de Mensagens */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          backgroundColor: "#ffffff",
-        }}
-      >
-        {selectedCliente ? (
-          <>
-            <div
-              style={{
-                padding: "1rem",
-                backgroundColor: "#0070f3",
-                color: "#ffffff",
-                fontWeight: "bold",
-              }}
-            >
-              {selectedCliente} -{" "}
-              {modoManipulacao ? "Modo Manipulação" : "Visualizando Conversa"}
-            </div>
-            <div
-              style={{
-                flex: 1,
-                padding: "1rem",
-                overflowY: "auto",
-                borderTop: "1px solid #ddd",
-              }}
-            >
-              {clientes
-                .find((cliente) => cliente.cliente === selectedCliente)
-                ?.mensagens.map((msg, index) => (
-                  <div key={index} style={{ display: "flex", alignItems: "center" }}>
-                    <p
-                      style={{
-                        padding: "0.5rem",
-                        backgroundColor: msg.remetente === "cliente" ? "#f0f0f0" : "#0070f3",
-                        color: msg.remetente === "cliente" ? "#000000" : "#ffffff",
-                        borderRadius: "8px",
-                        maxWidth: "70%",
-                        marginBottom: "1rem",
-                        marginLeft: msg.remetente === "cliente" ? "0" : "auto",
-                        flex: 1,
-                      }}
-                    >
-                      {msg.conteudo}
-                    </p>
-                    {modoManipulacao && (
-                      <button
-                        onClick={() => removerMensagem(index)}
-                        style={{
-                          marginLeft: "10px",
-                          backgroundColor: "red",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: "4px",
-                          padding: "0.3rem",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Remover
-                      </button>
-                    )}
-                  </div>
-                ))}
-            </div>
-            {modoManipulacao ? (
-              <div style={{ padding: "1rem", borderTop: "1px solid #ddd" }}>
-                <button
-                  onClick={adicionarMensagem}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    backgroundColor: "#0070f3",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Adicionar Mensagem
-                </button>
-              </div>
-            ) : (
-              <div style={{ padding: "1rem", borderTop: "1px solid #ddd", display: "flex" }}>
-                <input
-                  type="text"
-                  placeholder="Digite sua mensagem..."
-                  value={novaMensagem}
-                  onChange={(e) => setNovaMensagem(e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: "0.5rem",
-                    border: "1px solid #ddd",
-                    borderRadius: "4px",
-                  }}
-                />
-                <button
-                  onClick={enviarMensagem}
-                  style={{
-                    marginLeft: "0.5rem",
-                    padding: "0.5rem 1rem",
-                    backgroundColor: "#0070f3",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Enviar
-                </button>
-              </div>
-            )}
-          </>
-        ) : (
+    <div style={{ height: "100vh", fontFamily: "Arial, sans-serif" }}>
+      {userValid === null ? (
+        <div>Verificando usuário...</div>
+      ) : (
+        <>
+          {/* Cabeçalho (Header) com avatar e userEmail */}
           <div
             style={{
               display: "flex",
-              justifyContent: "center",
               alignItems: "center",
-              flex: 1,
-              color: "#888",
+              padding: "1rem",
+              backgroundColor: "#0070f3",
+              color: "#ffffff",
             }}
           >
-            <p>Selecione uma conversa para começar.</p>
+            <div
+              style={{
+                width: "40px",
+                height: "40px",
+                borderRadius: "50%",
+                backgroundColor: "#ffffff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#0070f3",
+                fontWeight: "bold",
+                marginRight: "1rem",
+              }}
+            >
+              {avatarLetter}
+            </div>
+            <div>
+              <h2 style={{ margin: 0 }}>Dashboard</h2>
+              <p style={{ margin: 0 }}>{userEmail}</p>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Conteúdo Principal */}
+          <div style={{ display: "flex", height: "calc(100vh - 70px)", backgroundColor: "#f0f2f5" }}>
+            {/* Sidebar */}
+            <div style={{ width: "30%", backgroundColor: "#ffffff", borderRight: "1px solid #ddd", overflowY: "auto" }}>
+              <div
+                style={{
+                  padding: "1rem",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  backgroundColor: "#0070f3",
+                  color: "#ffffff",
+                }}
+              >
+                <h3 style={{ margin: 0 }}>Conversas</h3>
+                <button
+                  onClick={alternarModoManipulacao}
+                  style={{
+                    backgroundColor: modoManipulacao ? "#ff4d4d" : "#0056b3",
+                    color: "#ffffff",
+                    border: "none",
+                    padding: "0.5rem 1rem",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {modoManipulacao ? "Sair" : "Manipular"}
+                </button>
+              </div>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {clientes.map((cliente, index) => (
+                  <li
+                    key={index}
+                    onClick={() => setSelectedCliente(cliente.cliente)}
+                    style={{
+                      padding: "1rem",
+                      cursor: "pointer",
+                      backgroundColor: selectedCliente === cliente.cliente ? "#e6f7ff" : "transparent",
+                      borderBottom: "1px solid #ddd",
+                    }}
+                  >
+                    <strong>{cliente.cliente}</strong>
+                    <p style={{ margin: "0.5rem 0 0 0", color: "#555", fontSize: "0.9rem" }}>
+                      {cliente.mensagens[cliente.mensagens.length - 1]?.conteudo}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Área de Mensagens */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", backgroundColor: "#ffffff" }}>
+              {selectedCliente ? (
+                <>
+                  <div
+                    style={{
+                      padding: "1rem",
+                      backgroundColor: "#0070f3",
+                      color: "#ffffff",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    {selectedCliente} - {modoManipulacao ? "Modo Manipulação" : "Visualizando Conversa"}
+                  </div>
+                  <div style={{ flex: 1, padding: "1rem", overflowY: "auto", borderTop: "1px solid #ddd" }}>
+                    {clientes
+                      .find((cliente) => cliente.cliente === selectedCliente)
+                      ?.mensagens.map((msg, index) => (
+                        <div key={index} style={{ display: "flex", alignItems: "center" }}>
+                          <p
+                            style={{
+                              padding: "0.5rem",
+                              backgroundColor: msg.remetente === "cliente" ? "#f0f0f0" : "#0070f3",
+                              color: msg.remetente === "cliente" ? "#000000" : "#ffffff",
+                              borderRadius: "8px",
+                              maxWidth: "70%",
+                              marginBottom: "1rem",
+                              marginLeft: msg.remetente === "cliente" ? "0" : "auto",
+                              flex: 1,
+                            }}
+                          >
+                            {msg.conteudo}
+                          </p>
+                          {modoManipulacao && (
+                            <button
+                              onClick={() => removerMensagem(index)}
+                              style={{
+                                marginLeft: "10px",
+                                backgroundColor: "red",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "4px",
+                                padding: "0.3rem",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Remover
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                  {modoManipulacao ? (
+                    <div style={{ padding: "1rem", borderTop: "1px solid #ddd" }}>
+                      <button
+                        onClick={adicionarMensagem}
+                        style={{
+                          padding: "0.5rem 1rem",
+                          backgroundColor: "#0070f3",
+                          color: "#ffffff",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Adicionar Mensagem
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ padding: "1rem", borderTop: "1px solid #ddd", display: "flex" }}>
+                      <input
+                        type="text"
+                        placeholder="Digite sua mensagem..."
+                        value={novaMensagem}
+                        onChange={(e) => setNovaMensagem(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: "0.5rem",
+                          border: "1px solid #ddd",
+                          borderRadius: "4px",
+                        }}
+                      />
+                      <button
+                        onClick={enviarMensagem}
+                        style={{
+                          marginLeft: "0.5rem",
+                          padding: "0.5rem 1rem",
+                          backgroundColor: "#0070f3",
+                          color: "#ffffff",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Enviar
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    flex: 1,
+                    color: "#888",
+                  }}
+                >
+                  <p>Selecione uma conversa para começar.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
