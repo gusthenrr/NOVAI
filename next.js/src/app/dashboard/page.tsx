@@ -4,20 +4,63 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 export default function DashboardPage() {
-  // Extrai o user_id dos parâmetros da URL (ex: ?user_id=123)
-  const searchParams = useSearchParams();
-  const userId = searchParams.get("user_id"); // Certifique-se de que o backend usa "user_id"
   const router = useRouter();
 
   // Estados para verificação e dados do usuário
   const [userValid, setUserValid] = useState<boolean | null>(null);
+  const [jwt_token, setJwt_token] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   const [accountName, setAccountName] = useState<string>("");
-
   // Define a letra para o avatar: utiliza a primeira letra de accountName ou "U" como fallback
   const avatarLetter = accountName ? accountName.charAt(0).toUpperCase() : "U";
-
+  
   // Estados para conversas e mensagens
+  const [selectedCliente, setSelectedCliente] = useState<string | null>(null);
+  const [modoManipulacao, setModoManipulacao] = useState<boolean>(false);
+  const [novaMensagem, setNovaMensagem] = useState<string>("");
+  //useEffect: Envia o user_id para a rota /verificar_id no backend para validar o usuário
+  useEffect(() => {
+    async function verificarUsuario(){
+      const token = localStorage.getItem("authToken");
+      console.log("token pego do localstorage",token);
+      if(!token){
+        console.warn("Nenhum token jwt encontrado, redirecionando para /login");
+        window.location.replace("/");
+      }
+      console.log("enviando requisição para verificar token");
+      try{
+        const response = await fetch(`https://6028-2804-18-1856-9d4f-cd28-27c5-8f8e-dc8.ngrok-free.app/verificar_id`,{
+          method:"POST", 
+          headers:{'Content-Type':'application/json',
+          Authorization: `Bearer ${token}`,
+          },
+          body:JSON.stringify({}),
+        }
+      );
+      console.log("resposta recebida", response);
+      const data=await response.json();
+    if(!response.ok) throw new Error("erro na verificação do id");
+    if (data.valid){
+      localStorage.setItem("user_id", data.user_id);
+      localStorage.setItem("user_email", data.user_email);
+      localStorage.setItem("account_name",data.account_name);
+      setUserEmail(data.user_email);
+      setAccountName(data.accoun_Name);
+      setUserValid(true);
+    }
+    else{
+      setUserValid(false);
+      window.location.replace("/");
+    }
+    } catch(error){
+      console.error("erro ao verificar o id");
+      setUserValid(false);
+      window.location.replace("/");
+    }
+    };
+    verificarUsuario();
+  },[]);
+
   const [clientes, setClientes] = useState([
     {
       cliente: "Cliente 1",
@@ -33,49 +76,6 @@ export default function DashboardPage() {
       ],
     },
   ]);
-  const [selectedCliente, setSelectedCliente] = useState<string | null>(null);
-  const [modoManipulacao, setModoManipulacao] = useState<boolean>(false);
-  const [novaMensagem, setNovaMensagem] = useState<string>("");
-
-  // useEffect: Envia o user_id para a rota /verificar_id no backend para validar o usuário
-  useEffect(() => {
-    async function verificarUsuario() {
-      console.log("🔍 useEffect acionado, verificando usuário...");
-      console.log("Valor de userId extraído:", userId);
-      if (userId) {
-        console.log("✅ Enviando requisição para verificar_id com user_id:", userId);
-        try {
-          const response = await fetch(
-            `https://7117-2804-7f0-7980-164f-e0db-9d26-59e2-43d6.ngrok-free.app/verificar_id`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ user_id: userId }),
-            }
-          );
-          console.log("📨 Resposta recebida:", response);
-          const data = await response.json();
-          console.log("📨 Dados retornados pelo backend:", data);
-          if (!response.ok) throw new Error("Erro na verificação do ID");
-          if (data.valid) {
-            setUserEmail(data.user_email);
-            setAccountName(data.account_name);
-            setUserValid(true);
-          } else {
-            setUserValid(false);
-            router.push("/login");
-          }
-        } catch (error) {
-          console.error("Erro ao verificar o ID:", error);
-          setUserValid(false);
-          router.push("/login");
-        }
-      } else {
-        router.push("/login");
-      }
-    }
-    verificarUsuario();
-  }, [userId, router]);
 
   // Funções para manipulação de mensagens e conversas
   const alternarModoManipulacao = () => {
@@ -131,7 +131,8 @@ export default function DashboardPage() {
               display: "flex",
               alignItems: "center",
               padding: "1rem",
-              backgroundColor: "#0070f3",
+              backgroundColor: "#000",
+              borderBottomColor:"1px solid #efefe",
               color: "#ffffff",
             }}
           >
@@ -167,7 +168,7 @@ export default function DashboardPage() {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  backgroundColor: "#0070f3",
+                  backgroundColor: "#efefe",
                   color: "#ffffff",
                 }}
               >

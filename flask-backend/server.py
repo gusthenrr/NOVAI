@@ -10,8 +10,8 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import bcrypt
 import datetime
-
-
+from flask_jwt_extended import JWTManager, create_access_token,jwt_required,get_jwt_identity,decode_token
+import openai
 
 DB_HOST = "localhost"
 DB_PORT = "1737"
@@ -29,8 +29,8 @@ def get_db_connection():
     )
     return conn
 
-    
 app = Flask(__name__)
+SECRET_KEY = os.urandom(24)
 app.secret_key = os.urandom(24)
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
@@ -38,26 +38,32 @@ app.config['SESSION_USE_SIGNER'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # Impede que scripts acessem os cookies
 app.config['SESSION_COOKIE_SECURE'] = True  # Se True, só permite cookies via HTTPS
 app.config['SESSION_COOKIE_SAMESITE'] = "None"
+#Config do jwt
+app.config["JWT_SECRET_KEY"] = "aquiumachavebemsegura"
+jwt = JWTManager(app)
 
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True)
 
+url_global="https://6028-2804-18-1856-9d4f-cd28-27c5-8f8e-dc8.ngrok-free.app"
 # 🔑 Suas credenciais do Mercado Livre
 CLIENT_ID = "3414621845496970"
 CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
 # 🌎 URL de redirecionamento configurada no painel do Mercado Livre
-REDIRECT_URI = "https://7117-2804-7f0-7980-164f-e0db-9d26-59e2-43d6.ngrok-free.app/callback"
+REDIRECT_URI = f"{url_global}/callback"
 
 @app.route('/add-usuario', methods=['POST'])
 def add_usuario():
-    print('entrou no add-usuario')
-    email = request.form.get('email')
-    senha = request.form.get('senha')
-
-    if not email or not senha:
-        return jsonify({"error": "Email e senha são obrigatórios"}), 400
+    print('Entrou no add-usuario')
 
     try:
+        email = request.form.get('email')
+        senha = request.form.get('senha')
+        usuario = request.form.get('usuario')  # Novo campo
+
+        if not email or not senha or not usuario:
+            return jsonify({"error": "Usuário, email e senha são obrigatórios"}), 400
+
         # Gerando o hash da senha com bcrypt
         salt = bcrypt.gensalt()
         hashed_password = bcrypt.hashpw(senha.encode('utf-8'), salt).decode('utf-8')
@@ -65,28 +71,28 @@ def add_usuario():
         conn = get_db_connection()
         cur = conn.cursor()
 
+        # Verificar se o email já está cadastrado
         cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
         if cur.fetchone():
             cur.close()
             conn.close()
             return jsonify({"error": "Usuário já cadastrado"}), 400
 
+        # Inserir novo usuário no banco de dados
         cur.execute(
-            "INSERT INTO usuarios (email, senha) VALUES (%s, %s) RETURNING id;",
-            (email, hashed_password)
+            "INSERT INTO usuarios (usuario, email, senha) VALUES (%s, %s, %s) RETURNING id;",
+            (usuario, email, hashed_password)
         )
         novo_id = cur.fetchone()['id']
         print(f"Novo ID: {novo_id}")
+        session['novo_id']=novo_id
         conn.commit()
-
         cur.close()
         conn.close()
-
-        session['user_id'] = novo_id  # Salva o ID do usuário na sessão
-        print(f"ID do usuário na sessão: {session.get('user_id')}")
-        redire=f'https://7117-2804-7f0-7980-164f-e0db-9d26-59e2-43d6.ngrok-free.app/login'
-        response = redirect(redire)
-        return response
+        
+        redirect_uri='https://6028-2804-18-1856-9d4f-cd28-27c5-8f8e-dc8.ngrok-free.app/login'
+        return redirect(redirect_uri)      
+         # Redirecionar para a página de login
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -94,13 +100,20 @@ def add_usuario():
 @app.route('/verificar_id', methods=['POST'])
 def verificar_id():
     print("Entrou no verificar_id")
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
     # Obtém o user_id dos parâmetros da query string
-    data=request.get_json()
-    user_id = data.get('user_id')
-    print(user_id)
-    if not user_id:
-        return jsonify({"error": "Parâmetro user_id ausente"}), 400
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+    print("Token:", token)
+    
     try:
+        decoded_token=decode_token(token)
+        print(decoded_token)
+        user_id=decoded_token.get("sub")
+        print(user_id)
+        if not user_id:
+            return jsonify({"error": "Parâmetro user_id ausente"}), 400
         # Conecta ao banco de dados
         conn = get_db_connection()
         cur = conn.cursor()
@@ -143,28 +156,36 @@ def verificar_id():
         ml_user_data = ml_response.json()
         # Por exemplo, pegamos o 'nickname' como o nome da conta
         account_name = ml_user_data.get("nickname", "N/A")
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    finally:
-        # Certifique-se de fechar o cursor e a conexão
-        cur.close()
-        conn.close()
         print("Saiu do verificar_id, user_id: ", user_id, 'user_email: ', user_email, 'account_name: ', account_name)
         return jsonify({"valid": True, "user_id": user_id, "user_email": user_email, "account_name": account_name}), 200
 
+    except Exception as e:
+        print("Erro:", str(e))
+        return jsonify({"error": str(e),"valid":False}), 500
+
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 
 
-# 🔹 Função para gerar o `code_verifier` (PKCE)
+
+# 🔹 Função para gerar o code_verifier (PKCE)
 def generate_code_verifier():
     return base64.urlsafe_b64encode(os.urandom(64)).decode('utf-8').rstrip('=')
 
-# 🔹 Função para gerar o `code_challenge` baseado no `code_verifier`
+# 🔹 Função para gerar o code_challenge baseado no code_verifier
 def generate_code_challenge(code_verifier):
     sha256_hash = hashlib.sha256(code_verifier.encode()).digest()
     return base64.urlsafe_b64encode(sha256_hash).decode('utf-8').rstrip('=')
+def gerar_token(user_id):
+    print('entrou no gerar token')
+    token = create_access_token(identity=str(user_id), expires_delta=datetime.timedelta(hours=1))
+    return token
+
 
 
 # 🔥 1️⃣ Login de usuário com e-mail/senha (sistema interno)
@@ -193,16 +214,18 @@ def user_login():
             # Verifica se a senha fornecida bate com o hash armazenado
             if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
                 session['user_id'] = user['id'] # Salva o ID do usuário na sessão
+                jwt_token=gerar_token(user['id'])
                 return jsonify({
                     "message": "Login bem-sucedido",
                     "status": "success",
                     "user": {"id": user['id'], "email": user['email']},
-                    "token": "abc123xyz"  # Aqui você pode implementar a geração de um token real
+                    "token": jwt_token  # Aqui você pode implementar a geração de um token real
                 }), 200
             else:
                 return jsonify({"message": "Credenciais inválidas", "status": "error"}), 401
         else:
             return jsonify({"message": "Usuário não encontrado", "status": "error"}), 404
+        
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -210,9 +233,10 @@ def user_login():
 # 🔥 2️⃣ Rota para login com Mercado Livre (Autenticação com PKCE)
 @app.route('/login', methods=['GET'])
 def login():
-
     print("Entrou no login")
-    user_id = session.get('user_id')
+    user_id=session['novo_id']
+    print("encontrou o user_id no /login: ", user_id)
+    
     if not user_id:
         return "Usuário não autenticado", 401
 
@@ -330,9 +354,10 @@ def callback():
     finally:
         cur.close()
         conn.close()
+        token_jwt=gerar_token(usuario_id)
     # Após salvar os dados, redireciona para o dashboard ou outra página principal
-    print("Redirecionando para o dashboard", 'usuario_id: ', usuario_id)
-    return redirect(f"http://localhost:3000/dashboard?user_id={usuario_id}")
+    print("Redirecionando para o dashboard", 'usuario_id: ', token_jwt)
+    return redirect("http://localhost:3000/")
 
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
