@@ -11,8 +11,7 @@ export async function handleLogin(email: string, password: string) {
   
       const data = await response.json();
   
-      if (response.ok) {
-        console.log(data.token);
+      if (response.ok) {   
         // Retorna os dados em caso de sucesso
         return { success: true, data };
       } else {

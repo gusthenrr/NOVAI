@@ -1,6 +1,4 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# Dependencies (Pacotes do Node.js)
+# ✅ Dependências (Node.js, Yarn, PnP)
 node_modules/
 .pnp
 .pnp.*
@@ -10,47 +8,57 @@ node_modules/
 !.yarn/releases
 !.yarn/versions
 
-# Testes e cobertura de código
+# ✅ Testes e cobertura
 coverage/
 
-# Next.js (Arquivos gerados automaticamente)
+# ✅ Next.js (Arquivos gerados automaticamente)
 .next/
 out/
 next-env.d.ts
 
-# Produção (Builds gerados)
+# ✅ Produção (Builds gerados)
 build/
+dist/
 
-# Arquivos de configuração temporários
-.DS_Store
+# ✅ Tipos temporários do TypeScript
 *.tsbuildinfo
 
-# Certificados (Removendo arquivos sensíveis)
+# ✅ Certificados e chaves privadas ⚠️
 Certificados/
-Certificados/cert.pem
-Certificados/key.pem
+Certificados/*.pem
+*.crt
+*.key
+*.pem
 
-# Ambiente virtual do Python (Não deve ir para o GitHub)
+# ✅ Flask - Ambiente virtual e cache
 flask-backend/venv/
-
-# Arquivos de cache do Python
 __pycache__/
 *.pyc
 *.pyo
 
-# Arquivos de ambiente (Evita expor chaves API)
-.env*
+# ✅ Variáveis de ambiente ⚠️
+.env
+.env.*
 next.js/.env.local
 
-# Logs e arquivos temporários
+# ✅ Logs e arquivos temporários
 logs/
 *.log
 tmp/
 
-# Vercel (Se for usar Vercel para deploy)
-.vercel
+# ✅ Arquivos de sistema
+.DS_Store
+Thumbs.db
 
-# Debug (Arquivos de logs gerados por erros)
+# ✅ Vercel
+.vercel/
+
+# ✅ Debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Sessões Flask (temporárias)
+flask-backend/flask_session/
+flask-backend/flask_sessions/
+

@@ -5,13 +5,17 @@ import uuid
 import hashlib
 import base64
 import os
+from flask_socketio import SocketIO,emit
 from flask_session import Session
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import bcrypt
 import datetime
 from flask_jwt_extended import JWTManager, create_access_token,jwt_required,get_jwt_identity,decode_token
-import openai
+from openai import OpenAI
+import datetime
+from dotenv import load_dotenv
+
 
 DB_HOST = "localhost"
 DB_PORT = "1737"
@@ -30,6 +34,7 @@ def get_db_connection():
     return conn
 
 app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
 SECRET_KEY = os.urandom(24)
 app.secret_key = os.urandom(24)
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -45,12 +50,16 @@ jwt = JWTManager(app)
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True)
 
-url_global="https://6028-2804-18-1856-9d4f-cd28-27c5-8f8e-dc8.ngrok-free.app"
+url_global="https://257d-2804-7f0-7b43-e6bc-216c-8de1-47e0-48ba.ngrok-free.app"
 # 🔑 Suas credenciais do Mercado Livre
 CLIENT_ID = "3414621845496970"
 CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
 # 🌎 URL de redirecionamento configurada no painel do Mercado Livre
 REDIRECT_URI = f"{url_global}/callback"
+
+load_dotenv(".env.local")
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
 
 @app.route('/add-usuario', methods=['POST'])
 def add_usuario():
@@ -90,7 +99,7 @@ def add_usuario():
         cur.close()
         conn.close()
         
-        redirect_uri='https://6028-2804-18-1856-9d4f-cd28-27c5-8f8e-dc8.ngrok-free.app/login'
+        redirect_uri=f'{url_global}/login'
         return redirect(redirect_uri)      
          # Redirecionar para a página de login
 
@@ -117,7 +126,7 @@ def verificar_id():
         # Conecta ao banco de dados
         conn = get_db_connection()
         cur = conn.cursor()
-
+        print("entrou o banco de dados")
         # Consulta o e-mail do usuário na tabela 'usuarios'
         cur.execute("SELECT email FROM usuarios WHERE id = %s;", (user_id,))
         user_data = cur.fetchone()
@@ -126,9 +135,8 @@ def verificar_id():
             return jsonify({"error": "Usuário não encontrado"}), 404
 
         user_email = user_data['email']
-
         # Consulta o token de acesso na tabela 'contas_mercado_livre'
-        # (Note que usamos a coluna 'acess_token' conforme a sua criação)
+        # (Note que usamos a coluna 'acess' conforme a sua criação)
         cur.execute(
             "SELECT acess_token FROM contas_mercado_livre WHERE usuario_id = %s ORDER BY id DESC LIMIT 1;",
             (user_id,)
@@ -138,11 +146,11 @@ def verificar_id():
             print('Conta do Mercado Livre não encontrada para este usuário')
             return jsonify({"error": "Conta do Mercado Livre não encontrada para este usuário"}), 404
 
-        acess_token = token_row['acess_token']
-
+        access_token = token_row['acess_token']
+        print(access_token)
         # Faz uma requisição para a API do Mercado Livre para pegar os dados do usuário
         headers = {
-            "Authorization": f"Bearer {acess_token}"
+            "Authorization": f"Bearer {access_token}"
         }
         ml_response = requests.get("https://api.mercadolibre.com/users/me", headers=headers)
         if ml_response.status_code != 200:
@@ -152,10 +160,10 @@ def verificar_id():
                 "status_code": ml_response.status_code,
                 "details": ml_response.text
             }), ml_response.status_code
-
         ml_user_data = ml_response.json()
         # Por exemplo, pegamos o 'nickname' como o nome da conta
         account_name = ml_user_data.get("nickname", "N/A")
+        print(account_name)
         print("Saiu do verificar_id, user_id: ", user_id, 'user_email: ', user_email, 'account_name: ', account_name)
         return jsonify({"valid": True, "user_id": user_id, "user_email": user_email, "account_name": account_name}), 200
 
@@ -185,7 +193,26 @@ def gerar_token(user_id):
     print('entrou no gerar token')
     token = create_access_token(identity=str(user_id), expires_delta=datetime.timedelta(hours=1))
     return token
-
+def renovar_access_token(refresh_token):
+    print("entrou no renovar_token")
+    url = "https://api.mercadolibre.com/oauth/token"
+    payload = {
+        "grant_type": "refresh_token",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "refresh_token": refresh_token
+    }
+    response = requests.post(url, data=payload)
+    token_data = response.json()
+    if 'access_token' in token_data:
+        print("encontrou o accesstoken:", token_data["access_token"])
+        novo_access_token=token_data["access_token"]
+        novo_refresh_token=token_data.get('refresh_token',refresh_token)
+        print('novo refresh :',novo_refresh_token)
+        expires_in=token_data['expires_in']
+        nova_expiracao=datetime.datetime.now()+datetime.timedelta(seconds=expires_in)
+    print("retornou")
+    return {"access_token":novo_access_token,"novo_refresh_token":novo_refresh_token,"nova_expiracao":nova_expiracao}
 
 
 # 🔥 1️⃣ Login de usuário com e-mail/senha (sistema interno)
@@ -194,27 +221,43 @@ def user_login():
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
-
+    agora=datetime.datetime.now()
+    print("agora:",agora)
     if not email or not password:
         return jsonify({"error": "Email e senha são obrigatórios"}), 400
-
     try:
+        print("entrou no try")
         conn = get_db_connection()
-        cur = conn.cursor()
-
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        print("entrou no banco de dados")
         # Busca o usuário pelo e-mail no banco
         cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
         user = cur.fetchone()
-
-        cur.close()
-        conn.close()
-
+        print(user['id'])
+        cur.execute("SELECT expiracao_token FROM contas_mercado_livre WHERE usuario_id=%s",(user['id'],))
+        expiracao=cur.fetchone()
+        print("Valor de expiracao:", expiracao)
         if user:
+            if agora>expiracao["expiracao_token"]:
+                print("verificou que o token expirou")
+                cur.execute("SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s",(user['id'],))
+                refresh=cur.fetchone()
+                dados=renovar_access_token(refresh["refresh_token"])
+                print("retornando os dados:", dados)
+                access_token=dados["access_token"]
+                print(access_token)
+                refresh=dados["novo_refresh_token"]
+                print(refresh)
+                expiracao=dados["nova_expiracao"]
+                print(expiracao)
+                cur.execute("UPDATE contas_mercado_livre SET acess_token=%s,refresh_token=%s,expiracao_token=%s WHERE usuario_id=%s",(access_token,refresh,expiracao,user["id"]))
+                conn.commit()
             hashed_password = user['senha']
             # Verifica se a senha fornecida bate com o hash armazenado
             if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
                 session['user_id'] = user['id'] # Salva o ID do usuário na sessão
                 jwt_token=gerar_token(user['id'])
+                print("retornando front end tudo ok")
                 return jsonify({
                     "message": "Login bem-sucedido",
                     "status": "success",
@@ -222,13 +265,23 @@ def user_login():
                     "token": jwt_token  # Aqui você pode implementar a geração de um token real
                 }), 200
             else:
+                print("retornando erro 1")
                 return jsonify({"message": "Credenciais inválidas", "status": "error"}), 401
         else:
+            print('retornando erro 2')
             return jsonify({"message": "Usuário não encontrado", "status": "error"}), 404
         
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("Erro capturado:", str(e))
+        print("retornando erro 3")
+        return jsonify({"error": str(e)}),500
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 # 🔥 2️⃣ Rota para login com Mercado Livre (Autenticação com PKCE)
 @app.route('/login', methods=['GET'])
@@ -359,6 +412,114 @@ def callback():
     print("Redirecionando para o dashboard", 'usuario_id: ', token_jwt)
     return redirect("http://localhost:3000/")
 
+def chat(mensagem: str) -> str:
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Você é um assistente útil."},
+                {"role": "user",   "content": mensagem},
+            ],
+            temperature=0.7,
+            max_tokens=150,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        print("Erro na OpenAI:", e)
+        return ""
+
+@socketio.on("mensagem_cliente")
+def mensagem_cliente(data):
+    try:
+        user_id      = data["id"]
+        cliente_nome = data["cliente_nome"]
+        mensagem     = data["mensagem"]
+        autor        = data["autor"]
+        data_envio   = datetime.datetime.now()
+
+        # 1) salva no banco
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            "INSERT INTO mensagens_clientes (usuario_id, cliente_nome, mensagem, data_envio, autor) VALUES (%s, %s, %s, %s, %s)",
+            (user_id, cliente_nome, mensagem, data_envio, autor)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # 2) Se veio do cliente, chama a OpenAI e emite a resposta
+        if autor == "cliente":
+            resposta = chat(mensagem)  # devolve só a string
+            print(resposta)
+            # opcional: também salvar no banco a resposta do assistente
+            conn = get_db_connection()
+            cur  = conn.cursor()
+            cur.execute(
+                "INSERT INTO mensagens_clientes (usuario_id, cliente_nome, mensagem, data_envio, autor) VALUES (%s, %s, %s, %s, %s)",
+                (user_id, cliente_nome, resposta, datetime.datetime.now(), "vendedor")
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            # agora emite pro front-end
+        # 3) Por fim, atualiza a lista completa de mensagens (se for esse seu fluxo)
+        getMensagens(user_id)
+
+    except Exception as e:
+        print("erro ao armazenar mensagem:", str(e))
+
+
+@socketio.on("getMensagens")
+def getMensagens(payload):
+    try:
+        print(type(payload))
+        if type(payload)==str:
+            user_id = payload
+        else:
+            user_id = payload.get("user_id")
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT cliente_nome, mensagem, data_envio, autor
+              FROM mensagens_clientes
+             WHERE usuario_id = %s
+        """, (user_id,))
+        rows = cur.fetchall()
+        cur.execute("SELECT DISTINCT ON (cliente_nome) cliente_nome,mensagem,data_envio FROM mensagens_clientes WHERE usuario_id=%s ORDER BY cliente_nome,data_envio DESC", (user_id,))
+        rows_clientes=cur.fetchall()
+        cur.close()
+        conn.close()
+
+        # Converte cada row (RealDictRow) em dict puro e serializa o datetime
+        mensagens = []
+        for row in rows:
+            mensagens.append({
+                "cliente_nome": row["cliente_nome"],
+                "mensagem":     row["mensagem"],
+                "data_envio":   row["data_envio"].isoformat(),    # ou .strftime("%Y-%m-%d %H:%M:%S")
+                "autor":         row["autor"],
+            })
+        clientes=[]
+        for row in rows_clientes:
+            clientes.append({
+                "cliente_nome":row['cliente_nome'],
+                "mensagem":row['mensagem'],
+                "data_envio":row["data_envio"].isoformat(),
+            })
+        data={
+            "mensagens":mensagens,
+            "clientes":clientes,
+        }
+        print(clientes)
+        emit("respostaGetMensagens",data, broadcast=True)
+
+    except Exception as e:
+        print("Erro ao pegar os dados:", str(e))
+
+
+
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, debug=True, port=5000)
