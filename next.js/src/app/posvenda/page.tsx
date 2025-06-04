@@ -103,7 +103,7 @@ interface ItensDetalhes {
          localStorage.setItem("user_email", data.user_email);
          localStorage.setItem("account_name",data.account_name);
          setUserEmail(data.user_email);
-         setAccountName(data.accoun_Name);
+         setAccountName(data.account_name);
          setUserValid(true);
          sessionStorage.setItem('userValid', "true") 
          setDadosCarregados(true)
