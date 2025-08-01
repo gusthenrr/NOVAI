@@ -17,6 +17,7 @@ import LoadingRobotScreen from "../componentesGerais/LoadingRobotScreen";
 import CabecalhoOrganizado from "../componentesGerais/Header";
 import BotaoDeFiltro,{type FiltroOpcao} from "../componentesGerais/BotaoDeFiltro";
 import { useUser } from "../../../userContext";
+import SettingsPanel from "../componentesGerais/TreinarIA";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -32,6 +33,12 @@ export default function DashboardPage() {
   const {userValid,setUserValid}=useUser()
   const [dadosCarregados, setDadosCarregados] = useState(false);
   const [modo, setModo]=useState<boolean>()
+  const [isPanelOpen, setPanelOpen] = useState(false);
+
+  // 2. A FUNÇÃO para alterar o estado também vive aqui
+  const togglePanel = () => {
+    setPanelOpen(prevState => !prevState);
+  }
   //useEffect: Envia o user_id para a rota /verificar_id no backend para validar o usuário
   const socket=io(process.env.NEXT_PUBLIC_API_URL!,{
     transports:['websocket'],
@@ -89,7 +96,7 @@ interface LayoutProps {
       localStorage.setItem("user_email", data.user_email);
       localStorage.setItem("account_name",data.account_name);
       setUserEmail(data.user_email);
-      setAccountName(data.account_name);
+      setAccountName(data.accoun_Name);
       setUserValid(true);
       sessionStorage.setItem('userValid', "true") 
       setDadosCarregados(true)
@@ -117,7 +124,16 @@ interface LayoutProps {
     socket.on("respostaGetMensagens", (data:{mensagens: mensagem[],clientes:cliente_mensagem[]}) => {
     setMensagens(data.mensagens);
     setTodosClientes(data.clientes)
-    setClientes(data.clientes.filter((cliente)=>cliente.autor==='cliente'))
+     const agora = new Date();
+       const clientesPendentes = todosClientes.filter((cliente) => {
+    if (cliente.autor !== 'cliente') return false;
+
+    const dataMensagem = new Date(cliente.data_envio);
+    const diferencaEmDias = Math.floor((agora.getTime() - dataMensagem.getTime()) / (1000 * 60 * 60 * 24));
+
+    return diferencaEmDias < 6; // ou outro valor, como 6 dias = 8640 min
+  });
+      setClientes(clientesPendentes);
     console.log(data.clientes)
   });
   return () => { socket.off("respostaGetMensagens"); };
@@ -142,15 +158,24 @@ const [filtroAtualDaPagina, setFiltroAtualDaPagina] = useState<FiltroOpcao>("Pen
 
   };
    const mudarModoAutomatico =() =>{
-    socket.emit('mudarModo',(modo))
+    const token = localStorage.getItem("authToken")
+    socket.emit('mudarModo',{modo:!modo,token:token})
+    setModo((prev) => !prev);
   }
 const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
     console.log("Novo filtro selecionado na página:", filtroSelecionado);
     setFiltroAtualDaPagina(filtroSelecionado);
     if (filtroSelecionado==='Pendentes'){
-      if((todosClientes.filter((cliente)=>cliente.autor==='cliente'))){
-      }
-      setClientes(todosClientes.filter((cliente) => cliente.autor==='cliente'));
+      const agora = new Date();
+       const clientesPendentes = todosClientes.filter((cliente) => {
+    if (cliente.autor !== 'cliente') return false;
+
+    const dataMensagem = new Date(cliente.data_envio);
+    const diferencaEmDias = Math.floor((agora.getTime() - dataMensagem.getTime()) / (1000 * 60 * 60 * 24));
+
+    return diferencaEmDias < 6; // ou outro valor, como 6 dias = 8640 min
+  });
+      setClientes(clientesPendentes);
     }
     else if (filtroSelecionado==='Respondidas pela NOVAI'){
       setClientes(todosClientes.filter((cliente)=>cliente.autor==='novai'))
@@ -158,7 +183,7 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
     else if(filtroSelecionado==='Todos'){
       setClientes(todosClientes)
     }
-
+    console.log("modo:",modo)
     // Aqui você faria a lógica para recarregar ou filtrar seus dados
     // com base no 'filtroSelecionado'.
   };
@@ -170,6 +195,7 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
 
   };
   // Retorno sempre fixo, com renderização condicional dentro do JSX
+  
   return (
   <div style={{ height: "100vh", fontFamily: "Arial, sans-serif" }}>
     {!userValid ? (
@@ -181,7 +207,15 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
             mostrarAvatar={true} // Agora você controla aqui se o avatar aparece
             avatarLetra={avatarLetter}
             userEmail={userEmail}
+            onSettingsClick={togglePanel} 
+            isPanelActive={isPanelOpen}
           />
+          <SettingsPanel 
+            isOpen={isPanelOpen} 
+            onClose={togglePanel} 
+            isAutoReplyOn={!!modo} // Passa o estado 'modo' (!! converte undefined para false)
+            onAutoReplyToggle={mudarModoAutomatico} // Passa a sua função
+        />
         {/* ======== ÁREA PRINCIPAL ======== */}
         <div
           style={{
@@ -190,6 +224,7 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
             backgroundColor: " #f0f2f5",
           }}
         >
+           
           {/* ======== COLUNA ESQUERDA ======== */}
           <div style={{ width: "20%", padding: "1rem" }}>
             <div
@@ -306,20 +341,6 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
           ? "Modo Manipulação"
           : "Visualizando Conversa"}
       </div>
-      <button
-        onClick={()=>{
-          setModo((prev) => !prev)
-          mudarModoAutomatico;}}
-         style={{
-          padding: '10px 15px',
-          backgroundColor: '#ffe600', // Azul vibrante e clean para o botão de ação
-          color: '#000000',
-          border: 'none',
-          borderRadius: '25px', // Bordas arredondadas para combinar com o input
-          cursor: 'pointer',
-          fontSize: '0.95rem',
-          fontWeight: '500',
-        }}>Resposta Automatica da NOVAI: {modo ? 'ON' : 'OFF'}</button>
       {/* Mensagens */}
       <div
         style={{
