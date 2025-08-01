@@ -18,6 +18,7 @@ import CabecalhoOrganizado from "../componentesGerais/Header";
 import BotaoDeFiltro,{type FiltroOpcao} from "../componentesGerais/BotaoDeFiltro";
 import { useUser } from "../../../userContext";
 import ContentCard from "../componentesGerais/contentCard";
+import SettingsPanel from "../componentesGerais/TreinarIA";
 
 export default function PosVendaPage() {
   const router = useRouter();
@@ -29,11 +30,17 @@ export default function PosVendaPage() {
   const avatarLetter = accountName ? accountName.charAt(0).toUpperCase() : "U";
   // Estados para conversas e mensagens
   const [selectedCliente, setSelectedCliente] = useState<string | null>(null);
-  const [modoManipulacao, setModoManipulacao] = useState<boolean>(false);
+  const [modoManipulacao, setModoManipulacao] = useState<boolean>(true);
   const [novaMensagem, setNovaMensagem] = useState<string>("");
   const {userValid,setUserValid}=useUser()
   const [dadosCarregados, setDadosCarregados] = useState(false);
   const [modo, setModo]=useState<boolean>()
+  const [isPanelOpen, setPanelOpen] = useState(false);
+  
+    // 2. A FUNÇÃO para alterar o estado também vive aqui
+    const togglePanel = () => {
+      setPanelOpen(prevState => !prevState);
+    }
   //useEffect: Envia o user_id para a rota /verificar_id no backend para validar o usuário
   const socket=io(process.env.NEXT_PUBLIC_API_URL!,{
     transports:['websocket'],
@@ -68,7 +75,6 @@ interface ItensDetalhes {
   preco_original: number;
   preco_base: number;
 }
-
   const [todosClientes,setTodosClientes]=useState<cliente_mensagem[]>([])
   const [clientes, setClientes]=useState<cliente_mensagem[]>([])
   const [mensagens, setMensagens]=useState<mensagem[]>([])
@@ -103,8 +109,9 @@ interface ItensDetalhes {
          localStorage.setItem("user_email", data.user_email);
          localStorage.setItem("account_name",data.account_name);
          setUserEmail(data.user_email);
-         setAccountName(data.account_name);
+         setAccountName(data.accoun_Name);
          setUserValid(true);
+         setModo(data.modo_automatico);
          sessionStorage.setItem('userValid', "true") 
          setDadosCarregados(true)
         }
@@ -130,9 +137,19 @@ interface ItensDetalhes {
     const token = localStorage.getItem("authToken")
     socket.emit('getMensagens',{token:token,tipo:"posvenda"})
     socket.on("respostaGetMensagens", (data:{mensagens: mensagem[],clientes:cliente_mensagem[]}) => {
+    console.log("dados recebidos do servidor:", data);
     setMensagens(data.mensagens);
     setTodosClientes(data.clientes)
-    setClientes(data.clientes.filter((cliente)=>cliente.autor==='cliente'))
+    const agora = new Date();
+       const clientesPendentes = todosClientes.filter((cliente) => {
+    if (cliente.autor !== 'cliente') return false;
+
+    const dataMensagem = new Date(cliente.data_envio);
+    const diferencaEmDias = Math.floor((agora.getTime() - dataMensagem.getTime()) / (1000 * 60 * 60 * 24));
+
+    return diferencaEmDias < 6; // ou outro valor, como 6 dias = 8640 min
+  });
+      setClientes(clientesPendentes);
     console.log("dados do cliente:",data.clientes)
   });
     socket.emit('getItens',{token:token})
@@ -140,8 +157,7 @@ interface ItensDetalhes {
       setItensDetalhes(item_detalhes.itens);
       console.log("item detalhes:",item_detalhes.itens)
     })
-  return () => { socket.off("respostaGetMensagens"); };
-}, [dadosCarregados]);
+}, [dadosCarregados,]);
   // Funções para manipulação de mensagens e conversas
   const alternarModoManipulacao = () => {
     setModoManipulacao((prev) => !prev);
@@ -151,9 +167,16 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
     console.log("Novo filtro selecionado na página:", filtroSelecionado);
     setFiltroAtualDaPagina(filtroSelecionado);
     if (filtroSelecionado==='Pendentes'){
-      if((todosClientes.filter((cliente)=>cliente.autor==='cliente'))){
-      }
-      setClientes(todosClientes.filter((cliente) => cliente.autor==='cliente'));
+      const agora = new Date();
+       const clientesPendentes = todosClientes.filter((cliente) => {
+    if (cliente.autor !== 'cliente') return false;
+
+    const dataMensagem = new Date(cliente.data_envio);
+    const diferencaEmDias = Math.floor((agora.getTime() - dataMensagem.getTime()) / (1000 * 60 * 60 * 24));
+
+    return diferencaEmDias < 6; // ou outro valor, como 6 dias = 8640 min
+  });
+      setClientes(clientesPendentes);
     }
     else if (filtroSelecionado==='Respondidas pela NOVAI'){
       setClientes(todosClientes.filter((cliente)=>cliente.autor==='novai'))
@@ -161,7 +184,7 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
     else if(filtroSelecionado==='Todos'){
       setClientes(todosClientes)
     }
-
+    console.log("modo:",modo)
     // Aqui você faria a lógica para recarregar ou filtrar seus dados
     // com base no 'filtroSelecionado'.
   };
@@ -169,9 +192,11 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
   const adicionarMensagem = () => {
     if (!selectedCliente) return;
     const token = localStorage.getItem("authToken")
-    const novaMsg = prompt("Digite a nova mensagem:");
+    const novaMsg = prompt("Digite a nova mensagem:");;
+    console.log("nova mensagem:",novaMsg)
     if (!novaMsg) return;
-      socket.emit("mensagem_cliente",{mensagem:novaMsg,cliente_nome:selectedCliente,autor:'cliente',token:token,tipo:'posvenda'});
+      socket.emit("mensagem_cliente",{mensagem:novaMsg,cliente_nome:selectedCliente,autor:'cliente',token:token,tipo:'posvenda',item_id: todosClientes.find((c) => c.cliente_nome === selectedCliente)?.item_id
+});
   };
 
   const removerMensagem = (index: number) => {
@@ -187,7 +212,10 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
 
   };
   const mudarModoAutomatico =() =>{
-    socket.emit('mudarModo',(modo))
+    const token = localStorage.getItem("authToken")
+    console.log("mudarModoAutomatico chamado, modo atual:", modo);
+    socket.emit('mudarModo',{modo:!modo,token:token})
+    setModo((prev) => !prev);
   }
   // Retorno sempre fixo, com renderização condicional dentro do JSX
   return (
@@ -198,10 +226,18 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
       <>
         {/* ======== HEADER ======== */}
         <CabecalhoOrganizado
-        mostrarAvatar={true} // Agora você controla aqui se o avatar aparece
+            mostrarAvatar={true} // Agora você controla aqui se o avatar aparece
             avatarLetra={avatarLetter}
-            userEmail={userEmail}/>
-
+            userEmail={userEmail}
+            onSettingsClick={togglePanel} 
+            isPanelActive={isPanelOpen}
+          />
+          <SettingsPanel 
+            isOpen={isPanelOpen} 
+            onClose={togglePanel} 
+            isAutoReplyOn={!!modo} // Passa o estado 'modo' (!! converte undefined para false)
+            onAutoReplyToggle={mudarModoAutomatico} // Passa a sua função
+        />
         {/* ======== ÁREA PRINCIPAL ======== */}
         <div
           style={{
@@ -355,11 +391,15 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
         {modoManipulacao
           ? "Modo Manipulação"
           : "Visualizando Conversa"}
+          {" "}
+      <div style={{color:'rgb(165, 165, 165)', fontSize:'0.8rem', marginTop:'0.5rem'}}>
+          Data: 
+        {(clientes.filter((c)=>c.cliente_nome===selectedCliente))[0]?.data_envio}
+        </div>
       </div>
         <button
         onClick={()=>{
-          setModo((prev) => !prev)
-          mudarModoAutomatico;}}
+          mudarModoAutomatico();}}
          style={{
           padding: '10px 15px',
           backgroundColor: '#ffe600', // Azul vibrante e clean para o botão de ação
@@ -423,6 +463,18 @@ const aplicarFiltroNaPagina = (filtroSelecionado: FiltroOpcao) => {
               >
                 {msg.mensagem}
               </p>
+              <p
+                style={{
+                  color: "rgb(165, 165, 165)",
+                  fontSize: "0.8rem",
+                  marginLeft: "8px",
+                  flexShrink: 0, // Para o horário não encolher
+                }}>
+                {new Date(msg.data_envio).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                </p>
               {modoManipulacao && (
                 <button
                   onClick={() => removerMensagem(idx)}
