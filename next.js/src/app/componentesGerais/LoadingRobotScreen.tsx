@@ -1,10 +1,10 @@
-import React from 'react';
+import React, {FC} from 'react';
 
 interface LoadingRobotScreenProps {
   message?: string;
 }
 
-const LoadingRobotScreen: React.FC<LoadingRobotScreenProps> = ({ message = "Carregando..." }) => {
+const LoadingRobotScreen = ({ message = "Carregando..." }:LoadingRobotScreenProps) => {
   const primaryYellow = "rgb(253, 244, 110)";
   const primaryBlack = "#1A1A1A";
   const primaryWhite = "#FFFFFF";

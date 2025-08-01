@@ -6,8 +6,8 @@ import { usePathname } from 'next/navigation'; // <<<< ADIÇÃO IMPORTANTE
 // CORES (como definido antes)
 const CORES = {
   fundoCabecalho: 'black',
-  textoPrincipal: '#FFFFFF',
-  amareloLightDetalhe: '#FFEEA9',
+  textoPrincipal: ' #FFFFFF',
+  amareloLightDetalhe: ' #FFEEA9',
   brancoSutilListra: 'rgba(255, 255, 255, 0.15)',
   sombraCabecalho: 'rgba(0, 0, 0, 0.3)',
   avatarFundo: '#FFFFFF',
@@ -15,7 +15,36 @@ const CORES = {
   popupFundo: '#333333',
   popupTexto: '#FFFFFF',
 };
+interface SettingsGearIconProps {
+  onClick: () => void;
+  isActive: boolean;
+}
 
+const SettingsGearIcon: React.FC<SettingsGearIconProps> = ({ onClick, isActive }) => {
+  const [isHovered, setIsHovered] = useState(false);
+
+  const buttonStyle: React.CSSProperties = {
+    background: 'none', border: 'none', padding: '0.5rem', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  };
+
+  const showHighlight = isHovered || isActive;
+
+  const iconStyle: React.CSSProperties = {
+    width: '24px', height: '24px',
+    fill: showHighlight ? CORES.amareloLightDetalhe : CORES.textoPrincipal,
+    transition: 'fill 0.3s ease',
+  };
+
+  return (
+    <button style={buttonStyle} onClick={onClick} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} aria-label="Abrir configurações">
+      <svg style={iconStyle} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+        {/* O caminho (path) abaixo foi corrigido para evitar o corte */}
+        <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84 c-0.24,0-0.43,0.17-0.47,0.41L9.2,5.29C8.61,5.53,8.08,5.85,7.58,6.23L5.2,5.27C5,5.19,4.75,5.26,4.63,5.48L2.71,8.8 c-0.12,0.2-0.07,0.47,0.12,0.61l2.03,1.58C4.82,11.36,4.8,11.68,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0.01,0.59-0.22l1.92-3.32c0.12-0.2,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.5c-1.93,0-3.5-1.57-3.5-3.5 c0-1.93,1.57-3.5,3.5-3.5s3.5,1.57,3.5,3.5C15.5,13.93,13.93,15.5,12,15.5z" />
+      </svg>
+    </button>
+  );
+};
 // --- Componente StyledLink (COM LÓGICA DE LINK ATIVO) ---
 interface StyledLinkProps {
   href: string;
@@ -97,12 +126,16 @@ interface CabecalhoOrganizadoProps {
   avatarLetra?: string;
   userEmail?: string;
   mostrarAvatar?: boolean;
+  onSettingsClick: () => void; // Função para avisar o pai que o ícone foi clicado
+  isPanelActive: boolean;
 }
 
 const CabecalhoOrganizado: React.FC<CabecalhoOrganizadoProps> = ({
   avatarLetra,
   userEmail,
   mostrarAvatar = false,
+  onSettingsClick, // Recebe a função do pai
+  isPanelActive,   // Recebe o estado do pai
 }) => {
   const currentPath = usePathname();
 
@@ -145,8 +178,12 @@ const CabecalhoOrganizado: React.FC<CabecalhoOrganizadoProps> = ({
               {link.label}
             </StyledLink>
           ))}
+          {/* AQUI USAMOS A ENGRENAGEM, PASSANDO AS PROPS CORRETAS */}
         </nav>
-
+        <SettingsGearIcon 
+            onClick={onSettingsClick} // Chama a função do pai ao clicar
+            isActive={isPanelActive} // A cor depende do estado do pai
+          />
         {mostrarAvatar && avatarLetra && userEmail && (
           <AvatarDisplay letra={avatarLetra} email={userEmail} />
         )}
