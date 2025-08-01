@@ -24,7 +24,7 @@ export default function LoginPage() {
         console.log("token do login:",result.data.token)
         setToken(result.data.token)
         setUserValid(false)
-        window.location.replace("/prevenda"); // Ou router.push('/prevend') se preferir a navegação do Next
+        window.location.replace("/Manager"); // Ou router.push('/prevend') se preferir a navegação do Next
       } else {
         setErrorMessage(result.message || "E-mail ou senha inválidos."); // Mensagem mais específica
       }
