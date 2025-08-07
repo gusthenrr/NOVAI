@@ -848,7 +848,7 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
         else:
             mensagens_contexto_com_usuario=''
             for mensagem in mensagens_contexto:
-              mensagens_contexto_com_usuario += f'{mensagem['author']}: mensagem:{mensagem['message']}\n'
+              mensagens_contexto_com_usuario += f"{mensagem['author']}: mensagem:{mensagem['message']}\n"
             print("data de envio:", data_envio)
             read_existe = message_date.get('read', False)
             read = True if read_existe else False
