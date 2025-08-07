@@ -63,7 +63,7 @@ jwt = JWTManager(app)
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True)
 
-url_global="15.228.243.197"
+url_global="http://15.228.243.197:5000"
 # 🔑 Suas credenciais do Mercado Livre
 CLIENT_ID = "3414621845496970"
 CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
