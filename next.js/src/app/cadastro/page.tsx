@@ -305,7 +305,7 @@ const App = () => {
       <header className="header-bar">
          <div style={{width:"8rem", marginLeft:"3rem"}}>
           <img
-            src="/novai_sem_fundo_branco.png" // Caminho da imagem na pasta "public"
+            src="/Novai_sem_fundo_branco.png" // Caminho da imagem na pasta "public"
             alt="Logo Novai"
             style={{ width: "100%", height: "auto", justifyContent:"center", alignItems:"center"}}
           />
