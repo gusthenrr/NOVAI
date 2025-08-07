@@ -2242,7 +2242,7 @@ def campanhas_e_anuncios(user_id, access_token):
                     print(f"Campanha não encontrada {campanha_id}, continuando...")
                     continue
                     
-            url = f'https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark'
+            url = f'''https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark'''
             response_campanha = requests.get(url, headers=headers_url)
             if response_campanha.status_code not in [200, 206]:
                 print(f"Erro ao buscar campanha {campanha_id}:", response_campanha.text)
@@ -2271,7 +2271,7 @@ def campanhas_e_anuncios(user_id, access_token):
             conn.commit()
             #metricas diarias por campanha
             if status == 'active':
-                url_campanhas_diaria = f"https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"
+                url_campanhas_diaria = f"""https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"""
                 response_campanhas_diaria = requests.get(url_campanhas_diaria, headers=headers_url)
                 if response_campanhas_diaria.status_code not in [200, 206]:
                     print("Erro ao buscar métricas diárias da campanha:", response_campanhas_diaria.text)
