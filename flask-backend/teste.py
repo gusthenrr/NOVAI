@@ -70,8 +70,8 @@ CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
 # 🌎 URL de redirecionamento configurada no painel do Mercado Livre
 REDIRECT_URI = f"{url_global}/callback"
 
-load_dotenv(".env.local")
-api_key = os.getenv("OPENAI_API_KEY")
+#load_dotenv(".env.local")
+api_key = os.environ.get("OPENAI_API_KEY")
 LangChainTracer(project_name="novo_projeto")
 client = OpenAI(api_key=api_key)
     
