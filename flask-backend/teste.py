@@ -1432,7 +1432,7 @@ def pegar_dados_gerais():
         
         emit('status_loading', {'message': 'Pegando as promoções...'})
         promocoes(user_id, access_token,seller_id)
-        
+        emit('status_loading', {'message': 'Concluído!', 'status': True})
     except Exception as e:
         print("Erro ao pegar dados gerais:", str(e))
 
@@ -3755,7 +3755,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
-    socketio.run(app, debug=True, port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
 
 
 
