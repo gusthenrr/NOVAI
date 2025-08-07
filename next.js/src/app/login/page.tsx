@@ -70,7 +70,7 @@ export default function LoginPage() {
           }}
         >
           <img
-            src="/novai_sem_fundo_branco.png" // Certifique-se que o caminho está correto
+            src="/Novai_sem_fundo_branco.png" // Certifique-se que o caminho está correto
             alt="Logo Novai"
             style={{ width: "80%", height: "auto", marginTop: "2rem", marginBottom:"1rem" }} // Ajuste de margem e tamanho
           />
