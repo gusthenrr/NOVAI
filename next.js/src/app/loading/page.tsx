@@ -181,7 +181,11 @@ export default function App() {
     socket.on('status_loading', (dados)=>{
       console.log(dados)
       setMensagem(dados.message)
+      if (dados.status){
+      window.location.replace("/Manager");
+    }
     })
+    
   }, []);
 
   // Estilo para o conteúdo principal da página
