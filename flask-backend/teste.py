@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, redirect, session
+from flask import Flask, request, jsonify, redirect, session, make_response
 from flask_cors import CORS
 import requests
 import uuid
@@ -63,7 +63,7 @@ jwt = JWTManager(app)
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True)
 
-url_global="https://e17e24b00471.ngrok-free.app"
+url_global="http://localhost:5000"
 # 🔑 Suas credenciais do Mercado Livre
 CLIENT_ID = "3414621845496970"
 CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
@@ -113,7 +113,6 @@ def add_usuario():
         conn.commit()
         cur.close()
         conn.close()
-        
         redirect_uri=f'{url_global}/login'
         return redirect(redirect_uri)      
          # Redirecionar para a página de login
@@ -137,7 +136,7 @@ def login():
     state = str(uuid.uuid4())
     code_verifier = generate_code_verifier()
     code_challenge = generate_code_challenge(code_verifier)
-
+    
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -147,7 +146,8 @@ def login():
     conn.commit()
     cur.close()
     conn.close()
-    session['code_verifier'] = code_verifier
+    time.sleep(10) 
+    session['code_verifier'] = code_verifier 
     auth_url = f"https://auth.mercadolivre.com.br/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state={state}&code_challenge={code_challenge}&code_challenge_method=S256"
     return redirect(auth_url)
 
@@ -232,7 +232,7 @@ def callback():
             """
             INSERT INTO contas_mercado_livre 
             (usuario_id, acess_token, refresh_token, expiracao_token,id_ml)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id;
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (
                 usuario_id,
@@ -242,14 +242,6 @@ def callback():
                 id_ml,
             )
         )
-        
-        # Obtém o id da conta inserida
-        result = cur.fetchone()
-        if result is None:
-            print("Falha ao inserir a conta do Mercado Livre")
-            conn.rollback()
-            return jsonify({"error": "Falha ao inserir a conta do Mercado Livre"}), 500
-        conta_id = result['id']
         
         # Deleta o registro da tabela verifier relacionado ao usuário
         cur.execute("DELETE FROM verifier WHERE user_id = %s", (usuario_id,))
@@ -265,9 +257,18 @@ def callback():
         cur.close()
         conn.close()
         token_jwt=gerar_token(usuario_id)
-    # Após salvar os dados, redireciona para o dashboard ou outra página principal
-    print("Redirecionando para o dashboard", 'usuario_id: ', token_jwt)
-    return redirect("http://localhost:3000/")
+    print('chegou aqui')
+    response = make_response(redirect("http://localhost:3000/loading"))
+    response.set_cookie(
+    key="token",
+    value=token_jwt,
+    httponly=True,         # ✅ proteção contra XSS
+    secure=False,          # ⚠️ use True em produção com HTTPS
+    samesite='Lax',        # ✅ permite envio com navegação direta + WebSocket
+    max_age=60 * 60 * 24
+    )
+    return response
+
 
 
 #@app.route('/webhook/ml/messages', methods=['POST'])
@@ -503,7 +504,7 @@ def public_offers_notifications(data, acess_token_data):
                                 discount_percentage, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
                                 min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
                                 seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                discount_percentage, user_id,))  
+                                discount_percentage, user_id,))
 
 
 def claims_notifications(data, acess_token_data):
@@ -1129,6 +1130,20 @@ def verificar_id():
 ###TODAS AS ROTAS SOCKET.ON ###
 ###                         ###
 
+@socketio.on('connect')
+def handle_connect():
+    print('entrou no connect')
+    token = request.cookies.get('token')
+    if not token:
+        print("Conexão sem token")
+        handle_disconnect()
+        return  
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('usuario desconectado')
+
+
 @socketio.on("getMensagens")
 def getMensagens(payload):
     try:
@@ -1252,11 +1267,11 @@ def mudar_modo_automatico(modo):
         #t.start()
         #t = threading.Thread(target=dados_vendedor, args=(access_token,user_id))
         #t.start()
-        t = threading.Thread(target=campanhas_e_anuncios, args=(user_id,access_token))
-        t.start()
+        #t = threading.Thread(target=campanhas_e_anuncios, args=(user_id,access_token))
+        #t.start()
         #chat('Conforme imagem do carregador e logo vou testar com o multímetro as baterias.','Lava Jato Portátil Alta Pressão Recarregável 2 Bateria Carro','Descrição: ATENÇÃO: Para o primeiro uso, conecte diretamente à torneira para remover o ar da máquina. Após isso, utilize normalmente no balde. Antes de usar o produto, carregue por 12 horas para uma carga completa. Transforme a limpeza em uma tarefa simples e sem esforço com a nossa Lavadora Jato Portátil de Alta Pressão, agora disponível para você! Seja em casa, no jardim, no carro ou em qualquer lugar que precise de uma limpeza poderosa, esta lavadora portátil é sua melhor aliada. Características Principais: -Alta Pressão Onde Você Precisa: Ajuste a intensidade conforme a necessidade da limpeza, de sujeiras leves a resistentes. -Portátil e Recarregável: Equipada com duas baterias recarregáveis para total liberdade de movimento. -Acessórios Completos: Bico extensor, dispenser de sabão, mangueira e mais para uma limpeza eficaz. -Fácil de Transportar e Armazenar: Guardada em uma maleta resistente e prática. -Ecológica e Econômica: Utilize apenas a quantidade necessária de água, evitando desperdícios. Conteúdo do Pacote: 1 Lavadora Jato Portátil de Alta Pressão 1 Filtro 2 Bicos (Alta Pressão/Spray) 1 Bico Extensor 1 Dispenser de Sabão 1 Mangueira 1 Fonte de Carregamento 2 Baterias 1 Maleta Resistente Ficha Técnica: -Consumo: 4L por minuto -Tensão do Carregador: 110V/220V (bivolt) -Bateria: 48v -Tempo de Recarga: 2-3 horas -Tempo de Uso: 1-3 horas -Funcionalidades: 3 -Bocal de Alta Pressão -Níveis de Pressão: Alto, Médio, Baixo - Com níveis de Pressão: Desde lavar carros até regar plantas. Material: Plástico com circuitos elétricos CUIDADOS: Quanto tempo dura a bateria? R: Até 1 hora. Esse modelo vem com os acessórios? R: Sim, com todos os descritos na descrição do produto. Qual é a pressão da máquina? R: 870 Psi de pressão. Pode usar com a mangueira em um balde com água? R: Sim, pode ser usada conectada à torneira ou em um balde com água. A carga dela é bivolt? R: Sim, o carregador pode ser usado em 110V ou 220V. A bateria vem junto e qual a amperagem dela? R: Sim, vem com a bateria de 4000mAh. Tensão do carregador: 110V/220V, 50Hz/60Hz. Vocês têm bateria separada? R: Sim temos, só solicitar o link ou ir em "Ver mais anúncios do vendedor" Não utilize sem água. Mantenha longe do alcance de crianças e animais. Evite contato com o corpo quando utilizada com altas pressões. Não desmonte o produto. Verifique o encaixe correto da bateria. Evite quedas do produto. Certifique-se de que o produto está devidamente carregado antes de usar.','Boa noite, recebi o produto, porém nao esta certo, na descricao diz que ele e de 48 volts, mas oque veio na verdade e de 21 volts',)
         #chat_novai_manager_separador_de_pergunta('quais produtos eu vendo melhor?',user_id)
-
+        
     except Exception as e:
         print("Erro no mudarmodo:", str(e))
 
@@ -1369,6 +1384,58 @@ def mensagem_cliente(data):
 ###                         ###
 ### FUNÇÕES A SEREM CHAMADAS###
 ###                         ###
+@socketio.on('pegar_dados_inicias')
+def pegar_dados_gerais():
+    print("Entrou na função pegar_dados_gerais")
+    token = request.cookies.get('token')  # funciona mesmo com HttpOnly
+    if not token:
+        print("Conexão sem token")
+        return False  # ou disconnect()
+
+    try:
+        decoded_token = decode_token(token)
+        user_id= decoded_token.get('sub')
+        print(f"Usuário conectado via WebSocket: {user_id}")
+        
+    except jwt.InvalidTokenError:
+        print("Token JWT inválido na conexão Socket.IO")
+        
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT acess_token FROM contas_mercado_livre WHERE usuario_id=%s",(user_id,))
+        token_access=cur.fetchone()
+        access_token=token_access['acess_token']
+        cur.execute("SELECT id_ml FROM contas_mercado_livre WHERE usuario_id=%s",(user_id,))
+        seller=cur.fetchone()
+        seller_id=seller['id_ml']
+        socketio.emit('status_loading', {'message': 'Pegando os itens do vendedor'})
+        listar_todos_itens(user_id, seller_id, access_token)
+        
+        emit('status_loading', {'message': 'Analisando os anuncios e campanhas'})
+        campanhas_e_anuncios(user_id, access_token)
+        
+        emit('status_loading', {'message': 'Sincronizando os dados do vendedor...'})
+        dados_vendedor(access_token, user_id)
+
+        emit('status_loading', {'message': 'Armazenando informações dos pedidos...'})
+        faturamento_por_pedidos(user_id)
+
+        emit('status_loading', {'message': 'Pegando as mensagens pós-venda...'})
+        listar_conversas_pos_venda(user_id, seller_id, access_token)
+       
+        emit('status_loading', {'message': 'Pegando as perguntas da pré-venda...'})
+        listar_conversas_pre_venda(user_id,seller_id,access_token)
+        
+        emit('status_loading', {'message': 'Pegando as reclamações...'})
+        reclamacoes(access_token, user_id)
+        
+        emit('status_loading', {'message': 'Pegando as promoções...'})
+        promocoes(user_id, access_token,seller_id)
+        
+    except Exception as e:
+        print("Erro ao pegar dados gerais:", str(e))
+
 
 def buscar_item(item_id,access_token):
     url=f"https://api.mercadolibre.com/items/{item_id}"
@@ -1437,7 +1504,6 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
                     conn.commit()
     cur.close()
     conn.close()
-    return True
 
 
 
@@ -1816,7 +1882,7 @@ def faturamento_por_pedidos(user_id):
                                  item_id, item_title, warranty, listing_type_id, category_name, unit_price, sale_fee, quantity, result.get('buyer', {}).get('id', 'Sem comprador'),
                                     result.get('tags', []), fulfilled, pack_id, user_id,))
                     conn.commit()
-                
+                   
                 except Exception as e:
                     print(f"Erro ao inserir pedido {id_order}: {e}")
         
@@ -2025,6 +2091,7 @@ def dados_vendedor(access_token,user_id):
 
     cur.execute('UPDATE contas_mercado_livre SET site_status = %s WHERE usuario_id = %s', (site_status, user_id,))
     conn.commit()
+    
     cur.close()
     conn.close()
 
@@ -2133,16 +2200,16 @@ def campanhas_e_anuncios(user_id, access_token):
                 ctr = resumo.get('ctr', 0.0)
                 cvr = resumo.get('cvr', 0.0)
                 roas = resumo.get('roas', 0.0)
-                date = resumo.get('date', 'N/A')
+                date = resumo.get('date', 'N/A')    
                 
 
                 cur.execute('''
                 INSERT INTO anuncios_metricas_diarias (id_anuncio, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, 
                 indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos,
-                organic_amount,sov, ctr, cvr, roas, date, usuario_id_anuncios_metricas_diarias) VALUES (%s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s)
+                organic_amount,sov, ctr, cvr, roas, date,title, usuario_id_anuncios_metricas_diarias) VALUES (%s,%s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s)
                 ''', (
                 item_id, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity,
-                indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos, organic_units_amount,sov, ctr, cvr, roas, date, user_id,))
+                indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos, organic_units_amount,sov, ctr, cvr, roas, date, title, user_id,))
             conn.commit()
             print('----------------------------------------\n\n')
         
@@ -2254,12 +2321,12 @@ def campanhas_e_anuncios(user_id, access_token):
                     INSERT INTO campanhas_metricas_diarias (campanha_id, clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,
                     total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,
                     organic_units_quantity, organic_amount, organic_items_quantity, acos,cvr, roas, sov, impression_share, top_impression_share,
-                    lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, date, usuario_id_campanhas_metricas_diarias)
+                    lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark,nome, date, usuario_id_campanhas_metricas_diarias)
                     VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s)''', (
+                    %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s)''', (
                     campanha_id, clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,
                     direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_units_amount, organic_items_quantity, acos,
-                    cvr, roas, sov, impression_share, top_impression_share,lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, date, user_id,))
+                    cvr, roas, sov, impression_share, top_impression_share,lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, name,date, user_id,))
 
 
 
@@ -2276,6 +2343,7 @@ def campanhas_e_anuncios(user_id, access_token):
         conn.commit()
         conn.close()
         cur.close()
+        
     except Exception as e:
         print(f"Erro ao buscar campanhas e anúncios: {e}")
         return 500
@@ -2312,11 +2380,12 @@ def campanhas_e_anuncios_periodico():
             "Authorization": f"Bearer {access_token}",
             'api-version': '2',
         }
-        cur.execute("SELECT item_id FROM itens WHERE usuario_id_item = %s", (usuario_id,))
+        cur.execute("SELECT item_id, nome_item FROM itens WHERE usuario_id_item = %s", (usuario_id,))
         itens_dict = cur.fetchall()
         ontem = agora - timedelta(days=1)
-        for item in []:
+        for item in itens_dict:
             item_id = item['item_id']
+            title = item['nome_item']
             print(f"Processando item_id: {item_id}")
             antes_de_ontem = agora - timedelta(days=2)
             print("ontem:", ontem)
@@ -2352,11 +2421,11 @@ def campanhas_e_anuncios_periodico():
                 date = resumo.get('date', 'N/A')
 
                 cur.execute('''
-                INSERT INTO anuncios_metricas_diarias (id_anuncio, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, 
+                INSERT INTO anuncios_metricas_diarias (id_anuncio, item_id, title,clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, 
                 indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos,
-                organic_amount,sov, ctr, cvr, roas, date, usuario_id_anuncios_metricas_diarias) VALUES (%s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s)
+                organic_amount,sov, ctr, cvr, roas, date, usuario_id_anuncios_metricas_diarias) VALUES (%s,%s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s)
                 ''', (
-                item_id, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity,
+                item_id, item_id, title,clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity,
                 indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos, organic_units_amount,sov, ctr, cvr, roas, date, usuario_id,))
             conn.commit()
             print('----------------------------------------\n\n')
@@ -2422,9 +2491,10 @@ def campanhas_e_anuncios_periodico():
                         print(f'campanha: {campanha_id}, atualizada com sucesso')
                     conn.commit()
                     #Campanhas Metricas diarias abaixo:
-        cur.execute('SELECT campanha_id FROM campanhas WHERE usuario_id_campanhas = %s', (usuario_id,))
+        cur.execute('SELECT campanha_id,nome FROM campanhas WHERE usuario_id_campanhas = %s', (usuario_id,))
         for campanhas in cur.fetchall():
             campanha_id = campanhas['campanha_id']
+            nome = campanhas['nome']
             if status == 'active':
                 url_campanhas_diaria = f"https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={ontem.strftime('%Y-%m-%d')}&date_to={ontem.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"
                 response_campanhas_diaria = requests.get(url_campanhas_diaria, headers=headers)
@@ -2473,23 +2543,23 @@ def campanhas_e_anuncios_periodico():
 
                     
                     cur.execute('''
-                    INSERT INTO campanhas_metricas_diarias (campanha_id, clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,
+                    INSERT INTO campanhas_metricas_diarias (campanha_id, nome,clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,
                     total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,
                     organic_units_quantity, organic_amount, organic_items_quantity, acos,cvr, roas, sov, impression_share, top_impression_share,
                     lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, date, usuario_id_campanhas_metricas_diarias)
                     VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s)''', (
-                    campanha_id, clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,
+                    %s, %s, %s, %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s)''', (
+                    campanha_id, nome,clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,
                     direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_units_amount, organic_items_quantity, acos,
                     cvr, roas, sov, impression_share, top_impression_share,lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, date, usuario_id,))
-                    
+                    conn.commit()
         
 
 
 def promocoes(user_id, access_token,id_ml):
     print(f"Consultando promoções do usuário")
     conn= get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor() 
     url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2"
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -3093,6 +3163,14 @@ Table "messages": armazena mensagens trocadas entre o vendedor e o cliente, Util
 Table "ponte_item_promotions": armazena informações sobre itens que estão em promoções, servindo como uma ponte entre a tabela de promoções e itens, Utilização: ligar promoções com itens específicos, acessar detalhes sobre promoções de itens, status e preços promocionais, etc. - Relacionamentos: promotion(N:1), itens(N:1).
 
 Table "promotion": armazena informações sobre promoções ativas ou pendentes ou candidatas do vendedor, Utilização: acessar promoções do vendedor, detalhes sobre promoções, status, tipo de promoção, benefícios, etc.
+
+Table "marketplace_campaign_type_promotion": armazena informações especificas sobre promoções do tipo "Marketplace Campaign", Utilização: acessar promoções do tipo "Marketplace Campaign" - Relacionamentos: promotion(N:1).
+
+Table "pre_negotiated_type_promotion_offers": armazena informações especificas sobre promoções do tipo "Pre Negotiated", Utilização: acessar promoções do tipo "Pre Negotiated" - Relacionamentos: promotion(N:1).
+
+Table "seller_coupon_campaign_type_promotion": armazena informações especificas sobre promoções do tipo "Seller Coupon Campaign", Utilização: acessar promoções do tipo "Seller Coupon Campaign" - Relacionamentos: promotion(N:1).
+    
+Table "volume_type_promotion": armazena informações especificas sobre promoções do tipo "Volume", Utilização: acessar promoções do tipo "Volume" - Relacionamentos: promotion(N:1).    
     '''
     guardar_mensagem=mensagem
     mensagem += '''
@@ -3205,164 +3283,166 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     model = ChatOpenAI(model='gpt-4o')
     
     descricao_table = {
-    "campanhas": """Tabela: campanhas
+    "campanhas": """Tabela: 'campanhas'
     Descrição: Representa campanhas de publicidade criadas pelo vendedor.
     Colunas:
-    - campanha_id: BIGINT, PRIMARY KEY
-    - nome: TEXT
-    - status: TEXT (valores possíveis: active, paused, archived, scheduled, pending)
-    - strategy: TEXT (valores possíveis: profitability, visibility, increase)
-    - budget: NUMERIC(10,2)
-    - currency_id: TEXT
-    - last_updated: TIMESTAMP
-    - date_created: TIMESTAMP
-    - usuario_id_campanhas: INTEGER, FOREIGN KEY → usuarios(id)
-    - channel: TEXT (marketplace, mshops)
-    - acos_target: NUMERIC(10,2)
+    - 'campanha_id': BIGINT, PRIMARY KEY
+    - 'nome': TEXT
+    - 'status': TEXT (valores possíveis: active, paused, archived, scheduled, pending)
+    - 'strategy': TEXT (valores possíveis: profitability, visibility, increase)
+    - 'budget': NUMERIC(10,2)
+    - 'currency_id': TEXT
+    - 'last_updated': TIMESTAMP
+    - 'date_created': TIMESTAMP
+    - 'usuario_id_campanhas': INTEGER, FOREIGN KEY → usuarios(id)
+    - 'channel': TEXT (marketplace, mshops)
+    - 'acos_target': NUMERIC(10,2)
     Relacionamentos:
     - campanhas → campanhas_metricas_diarias (1:N)
     - campanhas → anuncios (1:N)
     """,
 
-        "anuncios": """Tabela: anuncios
+        "anuncios": """Tabela: 'anuncios'
     Descrição: Anúncios ativos ou pausados, relacionados a campanhas e itens.
     Colunas:
-    - id_anuncio: TEXT, PRIMARY KEY
-    - item_id: TEXT, FOREIGN KEY → itens(item_id)
-    - title: TEXT,
-    - price: NUMERIC(10,2),
-    - campanha_id: INTEGER, FOREIGN KEY → campanhas(campanha_id)
-    - status: TEXT (valores possíveis: active, paused, hold)
-    - has_discount: BOOLEAN
-    - catalog_listing: BOOLEAN
-    - logistic_type: TEXT (default, fulfillment, drop_off, cross_docking, xd_drop_off)
-    - listing_type_id: TEXT (gold_pro (explicação: categoria de maior visibilidade e destaque, possibilidades de upgrades(videos, destaques, etc)), gold_special(explicação: categoria classica, padrao mais simples), free(nao pago))
-    - date_created: TIMESTAMP
-    - buy_box_winner: BOOLEAN
-    - channel: TEXT
-    - condition: TEXT (new, used)
-    - current_level: TEXT (unknown,geen , yellow, red, newbie)(reputação do anuncio)
-    - recomended: BOOLEAN (se Mercado Livre recomenda esse item para publicidade neste momento)
-    - image_quality: TEXT (high, medium, low)
-    - usuario_id_anuncios: INTEGER, FOREIGN KEY → usuarios(id)
+    - 'id_anuncio': TEXT, PRIMARY KEY
+    - 'item_id': TEXT, FOREIGN KEY → itens(item_id)
+    - 'title': TEXT,
+    - 'price': NUMERIC(10,2),
+    - 'campanha_id': INTEGER, FOREIGN KEY → campanhas(campanha_id)
+    - 'status': TEXT (valores possíveis: active, paused, hold)
+    - 'has_discount': BOOLEAN
+    - 'catalog_listing': BOOLEAN
+    - 'logistic_type': TEXT (default, fulfillment, drop_off, cross_docking, xd_drop_off)
+    - 'listing_type_id': TEXT (gold_pro (explicação: categoria de maior visibilidade e destaque, possibilidades de upgrades(videos, destaques, etc)), gold_special(explicação: categoria classica, padrao mais simples), free(nao pago))
+    - 'date_created': TIMESTAMP
+    - 'buy_box_winner': BOOLEAN
+    - 'channel': TEXT
+    - 'condition': TEXT (new, used)
+    - 'current_level': TEXT (unknown,geen , yellow, red, newbie)(reputação do anuncio)
+    - 'recomended': BOOLEAN (se Mercado Livre recomenda esse item para publicidade neste momento)
+    - 'image_quality': TEXT (high, medium, low)
+    - 'usuario_id_anuncios': INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - anuncios → anuncios_metricas_diarias (1:N)
     """,
 
-        "campanhas_metricas_diarias": """Tabela: campanhas_metricas_diarias
+        "campanhas_metricas_diarias": """Tabela: 'campanhas_metricas_diarias'
     Descrição: Métricas de desempenho diário das campanhas.
     Colunas:
-    - campanha_id: INTEGER, FOREIGN KEY → campanhas(campanha_id)
-    - clicks: INTEGER
-    - prints: INTEGER
-    - cost: NUMERIC(10,2)
-    - cpc: NUMERIC(6,2)
-    - ctr: NUMERIC(10,2) → (clicks/prints)*100
-    - direct_amount: NUMERIC(10,2)
-    - indirect_amount: NUMERIC(10,2)
-    - organic_amount: NUMERIC(10,2)
-    - direct_units_quantity: INTEGER
-    - indirect_units_quantity: INTEGER
-    - organic_units_quantity: INTEGER
-    - direct_items_quantity: INTEGER
-    - indirect_items_quantity: INTEGER
-    - organic_items_quantity: INTEGER
-    - advertising_items_quantity: INTEGER -- (Total de anúncios ativos na campanha)
-    - acos: NUMERIC(10,2)
-    - cvr: NUMERIC(10,2)
-    - roas: NUMERIC(10,2)
-    - sov: NUMERIC(10,2)
-    - impression_share: NUMERIC(10,2) -- (%, de impressões que seu anúncio obteve em relação ao total possível)
-    - top_impression_share: NUMERIC(10,2) -- (%, de impressões no topo dos resultados)
-    - lost_impression_share_by_budget: NUMERIC(10,2) -- (%, de impressões perdidas por orçamento insuficiente)
-    - lost_impression_share_by_ad_rank: NUMERIC(10,2) -- (%, de impressões perdidas por ranking baixo (relevância/lance))
-    - acos_benchmark: NUMERIC(10,2) -- (ACOS médio do mercado para comparação)
-    - date: TIMESTAMP
-    - usuario_id_campanhas_metricas_diarias: INTEGER, FOREIGN KEY → usuarios(id)
+    - 'campanha_id': INTEGER, FOREIGN KEY → campanhas(campanha_id)
+    - 'nome': TEXT
+    - 'clicks': INTEGER
+    - 'prints': INTEGER
+    - 'cost': NUMERIC(10,2)
+    - 'cpc': NUMERIC(6,2)
+    - 'ctr': NUMERIC(10,2) → (clicks/prints)*100
+    - 'direct_amount': NUMERIC(10,2)
+    - 'indirect_amount': NUMERIC(10,2)
+    - 'organic_amount': NUMERIC(10,2)
+    - 'direct_units_quantity': INTEGER
+    - 'indirect_units_quantity': INTEGER
+    - 'organic_units_quantity': INTEGER
+    - 'direct_items_quantity': INTEGER
+    - 'indirect_items_quantity': INTEGER
+    - 'organic_items_quantity': INTEGER
+    - 'advertising_items_quantity': INTEGER -- (Total de anúncios ativos na campanha)
+    - 'acos': NUMERIC(10,2)
+    - 'cvr': NUMERIC(10,2)
+    - 'roas': NUMERIC(10,2)
+    - 'sov': NUMERIC(10,2)
+    - 'impression_share': NUMERIC(10,2) -- (%, de impressões que seu anúncio obteve em relação ao total possível)
+    - 'top_impression_share': NUMERIC(10,2) -- (%, de impressões no topo dos resultados)
+    - 'lost_impression_share_by_budget': NUMERIC(10,2) -- (%, de impressões perdidas por orçamento insuficiente)
+    - 'lost_impression_share_by_ad_rank': NUMERIC(10,2) -- (%, de impressões perdidas por ranking baixo (relevância/lance))
+    - 'acos_benchmark': NUMERIC(10,2) -- (ACOS médio do mercado para comparação)
+    - 'date': TIMESTAMP
+    - 'usuario_id_campanhas_metricas_diarias': INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - campanhas_metricas_diarias → campanhas (N:1)
     """,
 
-        "anuncios_metricas_diarias": """Tabela: anuncios_metricas_diarias
+        "anuncios_metricas_diarias": """Tabela: 'anuncios_metricas_diarias'
     Descrição: Métricas de desempenho diário dos anúncios.
     Colunas:
-    - id_anuncio: TEXT, FOREIGN KEY → anuncios(id_anuncio)
-    - item_id: TEXT, FOREIGN KEY → itens(item_id)
-    - clicks: INTEGER
-    - prints: INTEGER
-    - cost: NUMERIC(10,2)
-    - cpc: NUMERIC(10,2)
-    - direct_amount: NUMERIC(10,2)
-    - indirect_amount: NUMERIC(10,2)
-    - organic_amount: NUMERIC(10,2)
-    - direct_units_quantity: INTEGER
-    - indirect_units_quantity: INTEGER
-    - organic_units_quantity: INTEGER
-    - direct_items_quantity: INTEGER
-    - indirect_items_quantity: INTEGER
-    - organic_items_quantity: INTEGER
-    - advertising_items_quantity: INTEGER -- (Total de anúncios ativos na campanha)
-    - acos: NUMERIC(10,2)
-    - sov: NUMERIC(10,2)
-    - ctr: NUMERIC(10,2)
-    - cvr: NUMERIC(10,2)
-    - roas: NUMERIC(10,2)
-    - date: TIMESTAMP
-    - usuario_id_anuncios_metricas_diarias: INTEGER, FOREIGN KEY → usuarios(id)
+    - 'id_anuncio': TEXT, FOREIGN KEY → anuncios(id_anuncio)
+    - 'item_id': TEXT, FOREIGN KEY → itens(item_id)
+    - 'title': TEXT
+    - 'clicks': INTEGER
+    - 'prints': INTEGER
+    - 'cost': NUMERIC(10,2)
+    - 'cpc': NUMERIC(10,2)
+    - 'direct_amount': NUMERIC(10,2)
+    - 'indirect_amount': NUMERIC(10,2)
+    - 'organic_amount': NUMERIC(10,2)
+    - 'direct_units_quantity': INTEGER
+    - 'indirect_units_quantity': INTEGER
+    - 'organic_units_quantity': INTEGER
+    - 'direct_items_quantity': INTEGER
+    - 'indirect_items_quantity': INTEGER
+    - 'organic_items_quantity': INTEGER
+    - 'advertising_items_quantity': INTEGER -- (Total de anúncios ativos na campanha)
+    - 'acos': NUMERIC(10,2)
+    - 'sov': NUMERIC(10,2)
+    - 'ctr': NUMERIC(10,2)
+    - 'cvr': NUMERIC(10,2)
+    - 'roas': NUMERIC(10,2)
+    - 'date': TIMESTAMP
+    - 'usuario_id_anuncios_metricas_diarias': INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - anuncios_metricas_diarias → anuncios (N:1)
     """,
 
-    'pedidos_resumo': """Tabela: pedidos_resumo
+    'pedidos_resumo': """Tabela: 'pedidos_resumo'
     Descrição: Todos os pedidos feitos por clientes.
     Colunas:
-    - id_order: TEXT, PRIMARY KEY
-    - date_created: TIMESTAMP
-    - date_closed: TIMESTAMP
-    - date_approved: TIMESTAMP
-    - last_updated: TIMESTAMP
-    - status: TEXT (valores possíveis: approved, in_mediation, rejected, charged_back, refunded, cancelled)
-    - total_amount: NUMERIC(10,2)
-    - paid_amount: NUMERIC(10,2)
-    - shipping_cost: NUMERIC(10,2)
-    - payment_method: TEXT (valores possíveis: credit_card, debit_card, bank_transfer, boleto, cash_on_delivery)
-    - payment_type: TEXT (valores possíveis: regular_payment, pre_authorized_payment, deferred_payment)
-    - installments: INTEGER
-    - installment_amount: NUMERIC(10,2)
-    - item_id: TEXT, FOREIGN KEY → itens(item_id)
-    - item_title: TEXT
-    - item_condition: TEXT (new, used)
-    - item_warranty: TEXT (valores possíveis: no_warranty, warranty, extended_warranty)
-    - listing_type_id: TEXT (valores possíveis: gold_pro, gold_special, free)
-    - category_name: TEXT
-    - unit_price: NUMERIC(10,2)
-    - sale_fee: BOOLEAN
-    - quantity: INTEGER
-    - buyer_id: TEXT, FOREIGN KEY → usuarios(id)
-    - tags: TEXT[] (array de tags associadas ao pedido)
-    - fullfiled: BOOLEAN (indica se o pedido foi totalmente entregue)
-    - pack_id: TEXT, FOREIGN KEY → packs(pack_id)
-    - usuario_id_pedidos_resumo: INTEGER, FOREIGN KEY → usuarios(id)
+    - 'id_order': TEXT, PRIMARY KEY
+    - 'date_created': TIMESTAMP
+    - 'date_closed': TIMESTAMP
+    - 'date_approved': TIMESTAMP
+    - 'last_updated': TIMESTAMP
+    - 'status': TEXT (valores possíveis: approved, in_mediation, rejected, charged_back, refunded, cancelled)
+    - 'total_amount': NUMERIC(10,2)
+    - 'paid_amount': NUMERIC(10,2)
+    - 'shipping_cost': NUMERIC(10,2)
+    - 'payment_method': TEXT (valores possíveis: credit_card, debit_card, bank_transfer, boleto, cash_on_delivery)
+    - 'payment_type': TEXT (valores possíveis: regular_payment, pre_authorized_payment, deferred_payment)
+    - 'installments': INTEGER
+    - 'installment_amount': NUMERIC(10,2)
+    - 'item_id': TEXT, FOREIGN KEY → itens(item_id)
+    - 'item_title': TEXT
+    - 'item_condition': TEXT (new, used)
+    - 'item_warranty': TEXT (valores possíveis: no_warranty, warranty, extended_warranty)
+    - 'listing_type_id': TEXT (valores possíveis: gold_pro, gold_special, free)
+    - 'category_name': TEXT
+    - 'unit_price': NUMERIC(10,2)
+    - 'sale_fee': BOOLEAN
+    - 'quantity': INTEGER
+    - 'buyer_id': TEXT, FOREIGN KEY → usuarios(id)
+    - 'tags': TEXT[] (array de tags associadas ao pedido)
+    - 'fullfiled': BOOLEAN (indica se o pedido foi totalmente entregue)
+    - 'pack_id': TEXT, FOREIGN KEY → packs(pack_id)
+    - 'usuario_id_pedidos_resumo': INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - pedidos_resumo → itens (N:1)
     - pedidos_resumo → packs (N:1)
     - pedidos_resumo → reclamacoes (1:1) através de packs
     """,
-        "itens": """Tabela: itens
+        "itens": """Tabela: 'itens'
     Descrição: Catálogo de produtos cadastrados pelo vendedor.
     Colunas:
-    - usuario_id_item: INTEGER, FOREIGN KEY → usuarios(id)
-    - item_id: TEXT, PRIMARY KEY
-    - nome_item: TEXT
-    - quantidade: INTEGER
-    - preco: NUMERIC(9,2)
-    - descricao: TEXT
-    - imagem: TEXT[] (array de URLs)
-    - preco_original: NUMERIC(9,2)
-    - preco_base: NUMERIC(9,2)
-    - disponivel: BOOLEAN
-    - tipo_ad: TEXT
-    - categoria: TEXT
+    - 'usuario_id_item': INTEGER, FOREIGN KEY → usuarios(id)
+    - 'item_id': TEXT, PRIMARY KEY
+    - 'nome_item': TEXT
+    - 'quantidade': INTEGER
+    - 'preco': NUMERIC(9,2)
+    - 'descricao': TEXT
+    - 'imagem': TEXT[] (array de URLs)
+    - 'preco_original': NUMERIC(9,2)
+    - 'preco_base': NUMERIC(9,2)
+    - 'disponivel': BOOLEAN
+    - 'tipo_ad': TEXT
+    - 'categoria': TEXT
     Relacionamentos:
     - itens → anuncios (1:N)
     - itens → orders (1:N)
@@ -3370,144 +3450,212 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     - itens → mensagens_clientes (1:N)
     - itens → payments (1:N)
     """,
-    "reputacao_vendedor": '''Tabela: reputacao_vendedor
+    "reputacao_vendedor": '''Tabela: "reputacao_vendedor"
     Descrição: Armazena informações sobre a reputação do vendedor.
     Colunas:
-    - level_id: TEXT
-    - power_seller_status: TEXT 
-    - period: TEXT(EX: historic)
-    - total_transactions: INTEGER
-    - completed_transactions: INTEGER
-    - canceled_transactions: INTEGER
-    - positive_reviews: NUMERIC(3,2)
-    - neutral_reviews: NUMERIC(3,2)
-    - negative_reviews: NUMERIC(3,2)
-    - tags : TEXT[]
-    - seller_experience: TEXT 
-    - usuario_id_reputacao_vendedor: INTEGER, FOREIGN KEY → usuarios(id)
-    - consumed_credit: NUMERIC(10,2)
-    - credit_level_id: TEXT
-    - user_type: TEXT
+    - "level_id": TEXT
+    - "power_seller_status": TEXT 
+    - "period": TEXT(EX: historic)
+    - "total_transactions": INTEGER
+    - "completed_transactions": INTEGER
+    - "canceled_transactions": INTEGER
+    - "positive_reviews": NUMERIC(3,2)
+    - "neutral_reviews": NUMERIC(3,2)
+    - "negative_reviews": NUMERIC(3,2)
+    - "tags" : TEXT[]
+    - "seller_experience": TEXT 
+    - "usuario_id_reputacao_vendedor": INTEGER, FOREIGN KEY → usuarios(id)
+    - "consumed_credit": NUMERIC(10,2)
+    - "credit_level_id": TEXT
+    - "user_type": TEXT
     ''',
-    "dados_vendedor": '''Tabela: dados_vendedor
+    "dados_vendedor": '''Tabela: "dados_vendedor"
     Descrição: Armazena informações gerais e sensiveis do vendedor
     Colunas:
-    - id_ml: BIGINT
-    - first_name: TEXT
-    - last_name: TEXT
-    - email: TEXT
-    - identification_type: TEXT
-    - identification_number: BIGINT
-    - state: TEXT
-    - city: TEXT
-    - address: TEXT
-    - zip_code: BIGINT
-    - phone_number: BIGINT
-    - verified : BOOLEAN
-    - usuario_id_dados_vendedor: INTEGER, FOREIGN KEY → usuarios(id)
-    - nickname: TEXT
-    - registration_date: TIMESTAMP
-    - site_id: TEXT
-    - permalink: TEXT
-    - shipping_mode: TEXT[]
-    - logo : TEXT (URL da imagem)
+    - "id_ml": BIGINT
+    - "first_name": TEXT
+    - "last_name": TEXT
+    - "email": TEXT
+    - "identification_type": TEXT
+    - "identification_number": BIGINT
+    - "state": TEXT
+    - "city": TEXT
+    - "address": TEXT
+    - "zip_code": BIGINT
+    - "phone_number": BIGINT
+    - "verified": BOOLEAN
+    - "usuario_id_dados_vendedor": INTEGER, FOREIGN KEY → usuarios(id)
+    - "nickname": TEXT
+    - "registration_date": TIMESTAMP
+    - "site_id": TEXT
+    - "permalink": TEXT
+    - "shipping_mode": TEXT[]
+    - "logo": TEXT (URL da imagem)
     ''',
-    "packs": '''Tabela: packs
+    "packs": '''Tabela: "packs"
     Descrição: Armazena pack_id para relacionar mensagens com pedidos.
     Colunas:
-    - pack_id: TEXT, PRIMARY KEY
-    - usuario_id_packs: INTEGER, FOREIGN KEY → usuarios(id)
+    - "pack_id": TEXT, PRIMARY KEY
+    - "usuario_id_packs": INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - packs → mensagens_clientes (1:N)
     - packs → orders (1:N)
     ''',
-    "messages": '''Tabela: messages
+    "messages": '''Tabela: "messages"
     Descrição: Armazena mensagens trocadas entre o vendedor e o cliente.
     Colunas:
-    - pack_id: TEXT, FOREIGN KEY → packs(pack_id), obs: (apenas para type = 'post_sale')
-    - client_name: TEXT
-    - message: TEXT
-    - date_created: TIMESTAMP
-    - author: TEXT (seller, buyer,AI)
-    - type: TEXT (post_sale, pre_sale)
-    - read: BOOLEAN
-    - is_first_message: TEXT, obs:(apenas para type = 'post_sale')
-    - item_id: TEXT, FOREIGN KEY → itens(item_id), obs:(apenas para type = 'pre_sale')
-    - status: TEXT (answered,active,etc), obs:(apenas para type = 'pre_sale')
-    - usuario_id_messages: INTEGER, FOREIGN KEY → usuarios(id)
+    - "pack_id": TEXT, FOREIGN KEY → packs(pack_id), obs: (apenas para type = 'post_sale')
+    - "client_name": TEXT
+    - "message": TEXT
+    - "date_created": TIMESTAMP
+    - "author": TEXT (seller, buyer,AI)
+    - "type": TEXT (post_sale, pre_sale)
+    - "read": BOOLEAN
+    - "is_first_message": TEXT, obs:(apenas para type = 'post_sale')
+    - "item_id": TEXT, FOREIGN KEY → itens(item_id), obs:(apenas para type = 'pre_sale')
+    - "status": TEXT (answered,active,etc), obs:(apenas para type = 'pre_sale')
+    - "usuario_id_messages": INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - messages → packs (N:1)
     - messages → itens (N:1)
     ''',
-    "ponte_item_promotions": '''Tabela: ponte_item_promotions
+    "promotion": '''Tabela: "promotion"
+    Descrição: Armazena informações sobre promoções ativas ou pendentes ou candidatas do vendedor.
+    Colunas:
+    - "id_promotion": TEXT, PRIMARY KEY
+    - "name": TEXT
+    - "status": TEXT (active, pending, candidate)
+    - "start_date": TIMESTAMP
+    - "finish_date": TIMESTAMP
+    - "deadline_date": TIMESTAMP
+    - "type_promotion": TEXT
+    - "usuario_id_promotion": INTEGER, FOREIGN KEY → usuarios(id)
+    Relacionamentos:
+    - promotion → ponte_item_promotions (1:N)
+    ''',
+    "marketplace_campaign_type_promotion": '''Tabela: "marketplace_campaign_type_promotion"
+    Descrição: Armazena informações de promoções do tipo "marketplace_campaign_type_promotion".
+    Colunas:
+    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
+    - "type_promotioin": TEXT
+    - "type_benefits": TEXT
+    - "meli_percentage": NUMERIC(10,2)
+    - "seller_percentage": NUMERIC(10,2)
+    - "usuario_id_marketplace_campaign_type_promotion": INTEGER, FOREIGN KEY → usuarios(id)
+    Relacionamentos:
+    - marketplace_campaign_type_promotion → promotion (N:1)
+    ''',
+    "pre_negotiated_type_promotion_offers": '''Tabela: "pre_negotiated_type_promotion_offers"
+    Descrição: Armazena informações de promoções do tipo "pre_negotiated_type_promotion_offers".
+    Colunas:
+    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
+    - "type_promotion": TEXT
+    - "offer_id": TEXT
+    - "type_benefits": TEXT
+    - "meli_percent": NUMERIC(10,2)
+    - "seller_percent": NUMERIC(10,2)
+    - "start_date": TIMESTAMP
+    - "end_date": TIMESTAMP
+    - "status": TEXT 
+    - "original_price": NUMERIC(10,2)
+    - "new_price": NUMERIC(10,2)
+    - "usuario_id_pre_negotiated_type_promotion_offers": INTEGER, FOREIGN KEY → usuarios(id)
+    Relacionamentos:
+    - pre_negotiated_type_promotion_offers → promotion (N:1)
+    ''',
+    "seller_coupon_campaign_type_promotion": '''Tabela: "seller_coupon_campaign_type_promotion"
+    Descrição: Armazena informações de promoções do tipo "seller_coupon_campaign_type_promotion".
+    Colunas:
+    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
+    - "type_promotion": TEXT
+    - "sub_type": TEXT
+    - "fixed_amount": NUMERIC(10,2)
+    - "fixed_percentage": NUMERIC(10,2)
+    - "min_purchase_amount": INTEGER 
+    - "max_purchase_amount": INTEGER
+    - "redeems_per_user": INTEGER
+    - "budget": NUMERIC(10,2)
+    - "remaining_budget": NUMERIC(10,2)
+    - "coupon_code": TEXT
+    - "used_coupons": INTEGER
+    - "usuario_id_seller_coupon_campaign_type_promotion": INTEGER, FOREIGN KEY → usuarios(id)
+    Relacionamentos:
+    - seller_coupon_campaign_type_promotion → promotion (N:1)
+    ''',
+    "volume_type_promotion": '''Tabela: "volume_type_promotion"
+    Descrição: Armazena informações de promoções do tipo "volume_type_promotion".
+    Colunas:
+    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
+    - "buy_quantity": INTEGER
+    - "pay_quantity": INTEGER
+    - "allow_combination": BOOLEAN
+    - "sub_type": TEXT
+    - "type_promotion": TEXT
+    - "usuario_id_volume_type_promotion": INTEGER, FOREIGN KEY → usuarios(id)
+    Relacionamentos:
+    - volume_type_promotion → promotion (N:1)
+    ''',
+      "ponte_item_promotions": '''Tabela: "ponte_item_promotions"
     Descrição: Armazena informações sobre itens que estão em promoções, servindo como uma ponte entre a tabela de promoções e itens.
     Colunas:
-    - id_promotion: INTEGER, FOREIGN KEY → promotion(id)
-    - item_id: TEXT, FOREIGN KEY → itens(item_id)
-    - status: TEXT (active, pending, candidate)
-    - price: NUMERIC(10,2)
-    - original_price: NUMERIC(10,2)
-    - min_discounted_price: NUMERIC(10,2)
-    - max_discounted_price: NUMERIC(10,2)
-    - suggested_discounted_price: NUMERIC(10,2)
-    - usuario_id_ponte_item_promotions: INTEGER, FOREIGN KEY → usuarios(id)
+    - "id_promotion": TEXT, FOREIGN KEY → promotion(id)
+    - "item_id": TEXT, FOREIGN KEY → itens(item_id)
+    - "status": TEXT (active, pending, candidate)
+    - "price": NUMERIC(10,2)
+    - "original_price": NUMERIC(10,2)
+    - "min_discounted_price": NUMERIC(10,2)
+    - "max_discounted_price": NUMERIC(10,2)
+    - "suggested_discounted_price": NUMERIC(10,2)
+    - "start_date": TIMESTAMP
+    - "end_date": TIMESTAMP
+    - "sub_type": TEXT
+    - "offer_id": TEXT
+    - "meli_percentage": NUMERIC(10,2)
+    - "seller_percentage": NUMERIC(10,2)
+    - "buy_quantity": INTEGER
+    - "pay_quantity": INTEGER
+    - "allow_combination": BOOLEAN
+    - "fixed_amount": NUMERIC(10,2)
+    - "fixed_percentage": NUMERIC(10,2)
+    - "top_deal_price": NUMERIC(10,2)
+    - "discount_percentage": NUMERIC(10,2)
+    - "usuario_id_ponte_item_promotions": INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - ponte_item_promotions → promotion (N:1)
     - ponte_item_promotions → itens (N:1)
     ''',
-    "promotion": '''Tabela: promotion
-    Descrição: Armazena informações sobre promoções ativas ou pendentes ou candidatas do vendedor.
-    Colunas:
-    - id_promotion: INTEGER, PRIMARY KEY
-    - name: TEXT
-    - status: TEXT (active, pending, candidate)
-    - start_date: TIMESTAMP
-    - finish_date: TIMESTAMP
-    - deadline_date: TIMESTAMP
-    - type_promotion: TEXT
-    - meli_percentage: NUMERIC(10,2)
-    - seller_percentage: NUMERIC(10,2)
-    - name_benefit: TEXT
-    - buy_quantity: INTEGER
-    - pay_quantity: INTEGER
-    - item_discount_percent: NUMERIC(10,2)
-    - type_benefit: TEXT
-    - usuario_id_promotion: INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - promotion → ponte_item_promotions (1:N)
-    ''',
-    'reclamacoes': '''Tabela: reclamacoes
+    'reclamacoes': '''Tabela: "reclamacoes"
     Descrição: Armazena informações sobre reclamações feitas pelos clientes.
     Colunas:
-    - claim_id: BIGINT, PRIMARY KEY
-    - resource_id: BIGINT
-    - status : TEXT (unicos valores: open, closed)
-    - tipo : TEXT
-    - stage : TEXT
-    - parent_id: BIGINT
-    - pack_id: TEXT
-    - reason_id: TEXT
-    - fulfilled: BOOLEAN
-    - quantity_type: TEXT
-    - site_id: TEXT
-    - date_created: TIMESTAMP (apenas a data em que a reclamação foi feita)
-    - last_updated: TIMESTAMP
-    - comprador_id: BIGINT
-    - acoes_disponiveis: TEXT[]
-    - name_reason: TEXT
-    - expected_solutions: TEXT[]
-    - problem: TEXT
-    - description: TEXT
-    - due_date: TIMESTAMP
-    - title: TEXT
-    - action_responsible: TEXT
-    - reason_resolution: TEXT
-    - date_resolution: TIMESTAMP
-    - benefited: TEXT[]
-    - resolution_closed_by: TEXT
-    - apllied_coverage: BOOLEAN
-    - usuario_id_reclamacoes: INTEGER, FOREIGN KEY → usuarios(id)
-    - pack_id: TEXT, FOREIGN KEY → packs(pack_id)
+    - "claim_id": BIGINT, PRIMARY KEY
+    - "resource_id": BIGINT
+    - "status": TEXT (unicos valores: open, closed)
+    - "tipo": TEXT
+    - "stage": TEXT
+    - "parent_id": BIGINT
+    - "pack_id": TEXT
+    - "reason_id": TEXT
+    - "fulfilled": BOOLEAN
+    - "quantity_type": TEXT
+    - "site_id": TEXT
+    - "date_created": TIMESTAMP (apenas a data em que a reclamação foi feita)
+    - "last_updated": TIMESTAMP
+    - "comprador_id": BIGINT
+    - "acoes_disponiveis": TEXT[]
+    - "name_reason": TEXT
+    - "expected_solutions": TEXT[]
+    - "problem": TEXT
+    - "description": TEXT
+    - "due_date": TIMESTAMP
+    - "title": TEXT
+    - "action_responsible": TEXT
+    - "reason_resolution": TEXT
+    - "date_resolution": TIMESTAMP
+    - "benefited": TEXT[]
+    - "resolution_closed_by": TEXT
+    - "apllied_coverage": BOOLEAN
+    - "usuario_id_reclamacoes": INTEGER, FOREIGN KEY → usuarios(id)
+    - "pack_id": TEXT, FOREIGN KEY → packs(pack_id)
     Relacionamentos:
     - reclamacoes → usuarios (N:1)
     - reclamacoes → packs (N:1)
