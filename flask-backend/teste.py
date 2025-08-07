@@ -72,7 +72,7 @@ REDIRECT_URI = f"{url_global}/callback"
 
 #load_dotenv(".env.local")
 api_key = os.environ.get("OPENAI_API_KEY")
-LangChainTracer(project_name="novo_projeto")
+#LangChainTracer(project_name="novo_projeto")
 client = OpenAI(api_key=api_key)
     
 # CRIAR CONTA DE USUARIO DA NOVAI
