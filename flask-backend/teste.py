@@ -348,7 +348,7 @@ def processar_notificacao_ml(data: dict):
         elif topic == 'public_offers':
             public_offers_notifications(data, cred)
         elif topic == 'post_purchase':
-            claims_notifications(data, cred)
+            claims_notifications(data, cred)    
         # elif topic == 'payments':
         #     payments_notifications(data, cred)
 
@@ -1561,7 +1561,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
     conn = get_db_connection()
     cur = conn.cursor()
  
-    cur.execute("SELECT pack_id FROM orders WHERE usuario_id_orders = %s AND date_last_updated_order>= NOW() - INTERVAL '2 month'", (user_id,))
+    cur.execute("SELECT pack_id FROM pedidos_resumo WHERE usuario_id_orders = %s AND date_last_updated_order>= NOW() - INTERVAL '2 month'", (user_id,))
     pack_id_lista = cur.fetchall()
     pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -1768,7 +1768,7 @@ def reclamacoes(access_token, user_id):
             if resource_id=='order':
                 resource_id = 'pack_id'
                 order_id=claim.get("resource")
-                cur.execute("SELECT pack_id from orders WHERE order_id=%s",(order_id,))
+                cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
                 pack_id_dict = cur.fetchone()
                 pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
             elif resource_id=='shipment':
@@ -1779,7 +1779,7 @@ def reclamacoes(access_token, user_id):
                 if response_order_shipment.status_code in [200,206]:
                     order_data = response_order_shipment.json()
                     order_id = order_data.get("order_id")
-                    cur.execute("SELECT pack_id from orders WHERE order_id=%s",(order_id,))
+                    cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
                     print(f"Pack ID encontrado: {pack_id}")
@@ -3258,17 +3258,17 @@ Table "anuncios_metricas_diarias": armazena métricas diárias de anúncios, é 
 
 Table "pedidos_resumo": todos os pedidos de clientes, Utilização: acessar pedidos de clientes, vendas, status, detalhes do pedido, itens_vendidos, categoria do item, etc. - Relacionamentos : itens(N:1), packs(N:1), reclamacoes(1:1) 
 
-Table "itens": armazena informações e mais detalhes sobre itens disponíveis pelo vendedor, Utilização: detalhes do item - Relacionamentos : pedidos(1:N), payments(1:N) , anuncios(1:N), anuncios_metricas_diarias(1:N), mensagens_clientes(1:N).
+Table "itens": armazena informações e mais detalhes sobre itens disponíveis pelo vendedor, Utilização: detalhes do item - Relacionamentos : pedidos_resumo(1:N), anuncios(1:N), anuncios_metricas_diarias(1:N), mensagens_clientes(1:N).
 
 Table "reputacao_vendedor": armazena informações sobre a reputação, numeros de transacoes, e avaliações do vendedor, Utilização: acessar reputação do vendedor, transações totais,canceladas,completas, experiencia do vendedor,informações de creditos, nivel de conta, etc.
 
 Table "dados_vendedor": armazena informações gerais e sensiveis do vendedor, Utilização: acessar dados como nome, email, telefone, endereço etc. 
 
-Table "packs": armazena pack_id. Utilização: relacionar mensagens com pedidos. RELACIONAMENTOS : mensagens_clientes(1:N), orders(1:N).
+Table "packs": armazena pack_id. Utilização: relacionar mensagens com pedidos. RELACIONAMENTOS : mensagens_clientes(1:N), pedidos_resumo(1:N).
 
-Table "reclamacoes" : armazena reclamações feitas por clientes, Utilização: acessar reclamações de clientes, detalhes sobre a reclamação, status, etc. - Relacionamentos: para relacionar ela com a table orders, use a table packs como ponte.
+Table "reclamacoes" : armazena reclamações feitas por clientes, Utilização: acessar reclamações de clientes, detalhes sobre a reclamação, status, etc. - Relacionamentos: para relacionar ela com a table pedidos_resumo, use a table packs como ponte.
 
-Table "messages": armazena mensagens trocadas entre o vendedor e o cliente, Utilização: acessar conversas com clientes pos e pre venda - Relacionamentos: para relacionar ela com a table orders, use a table packs como ponte.
+Table "messages": armazena mensagens trocadas entre o vendedor e o cliente, Utilização: acessar conversas com clientes pos e pre venda - Relacionamentos: para relacionar ela com a table pedidos_resumo, use a table packs como ponte.
 
 Table "ponte_item_promotions": armazena informações sobre itens que estão em promoções, servindo como uma ponte entre a tabela de promoções e itens, Utilização: ligar promoções com itens específicos, acessar detalhes sobre promoções de itens, status e preços promocionais, etc. - Relacionamentos: promotion(N:1), itens(N:1).
 
@@ -3292,7 +3292,7 @@ Seja extremamente direto.
     exemplos = [
         {
             "pergunta": "Como posso aumentar minhas vendas?",
-            "pensamento": "analisando a descrição das tables, é possivel agregar essa informação atraves da table orders que contem informações dos pedidos e/ ou atraves da table anuncios_metricas_diarias que contem informações sobre os anuncios e suas metricas e vendas diarias"
+            "pensamento": "analisando a descrição das tables, é possivel agregar essa informação atraves da table pedidos_resumo que contem informações dos pedidos e/ ou atraves da table anuncios_metricas_diarias que contem informações sobre os anuncios e suas metricas e vendas diarias"
         },
         {
             "pergunta": "Qual minha reputação no Mercado Livre?",
@@ -3331,7 +3331,7 @@ Responda com base apenas na descrição das tables.
     class Simplificador(BaseModel):
         '''Decide se é possível agregar dados com as tabelas disponíveis.'''
         possibilidade: bool = Field(description='True se for possível buscar dados nas tabelas para responder a pergunta. False se não for possível.')
-        tables: Optional[List[str]] = Field(description='Lista com nomes exatos das tabelas que podem ser usadas, exemplo: ["orders", "itens"]. Deixe como null se possibilidade for False.')
+        tables: Optional[List[str]] = Field(description='Lista com nomes exatos das tabelas que podem ser usadas, exemplo: ["pedidos_resumo", "itens"]. Deixe como null se possibilidade for False.')
     return_final = None
 
     def route(output: Simplificador):
@@ -3555,10 +3555,9 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     - 'categoria': TEXT
     Relacionamentos:
     - itens → anuncios (1:N)
-    - itens → orders (1:N)
+    - itens → pedidos_resumo (1:N)
     - itens → anuncios_metricas_diarias (1:N)
     - itens → mensagens_clientes (1:N)
-    - itens → payments (1:N)
     """,
     "reputacao_vendedor": '''Tabela: "reputacao_vendedor"
     Descrição: Armazena informações sobre a reputação do vendedor.
@@ -3609,7 +3608,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     - "usuario_id_packs": INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - packs → mensagens_clientes (1:N)
-    - packs → orders (1:N)
+    - packs → pedidos_resumo (1:N)
     ''',
     "messages": '''Tabela: "messages"
     Descrição: Armazena mensagens trocadas entre o vendedor e o cliente.
