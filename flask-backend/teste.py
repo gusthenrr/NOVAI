@@ -31,7 +31,7 @@ from langchain.prompts.prompt import PromptTemplate
 from typing import Optional, List
 
 DB_HOST = "localhost"
-DB_PORT = "1737"
+DB_PORT = "5432"
 DB_NAME = 'novai'
 DB_USER = 'postgres'
 DB_PASSWORD = 'S3t3mbro41'
@@ -264,74 +264,100 @@ def callback():
     )
     return response
 
-
-
 @app.route('/webhook/ml/messages', methods=['POST'])
 def webhook_mercado_livre_messages():
-    data = request.get_json()
-    print("🔔 Nova notificação:", data)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    agora=datetime.now()
-    cur.execute("SELECT expiracao_token FROM contas_mercado_livre WHERE id_ml = %s", (data['user_id'],))
-    expiracao_token_data_dict = cur.fetchone()
-    if agora>expiracao_token_data_dict["expiracao_token"]:
-        print("Token expirado, renovando...")
-        print("verificou que o token expirou")
-        cur.execute("SELECT refresh_token FROM contas_mercado_livre WHERE id_ml=%s",(data['user_id'],))
-        refresh=cur.fetchone()
-        dados=renovar_access_token(refresh["refresh_token"])
-        print("retornando os dados:", dados)
-        access_token=dados["access_token"]
-        print(access_token)
-        refresh=dados["novo_refresh_token"]
-        print(refresh)
-        expiracao=dados["nova_expiracao"]
-        print(expiracao)
-        cur.execute("UPDATE contas_mercado_livre SET acess_token=%s,refresh_token=%s,expiracao_token=%s WHERE id_ml=%s",(access_token,refresh,expiracao,data['user_id'],))
-        conn.commit()
+    data = request.get_json(force=True) or {}
+    user_id = data.get('user_id')
+
+    # 1) Sempre persistir e ACK rápido
+    with get_db_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO notification (notificacao, topic) VALUES (%s, %s)",
+            (json.dumps(data), str(data.get('topic','')))
+        )
+
+    # 2) Se há sync em andamento para esse usuário, não processe agora
+    if user_id is not None:
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s) AS got", (int(user_id),))
+            got = cur.fetchone()["got"]
+        if not got:
+            return jsonify({"status": "queued"}), 202
+        # liberar imediatamente (foi só teste de lock)
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (int(user_id),))
+
+    # 3) disparar processamento leve em background
+    socketio.start_background_task(processar_notificacao_ml, data)
+    return jsonify({"status": "ok"}), 200
+
+def processar_notificacao_ml(data: dict):
+    user_id = data.get('user_id')
+    # tente respeitar exclusividade por usuário
+    got_lock = False
+    if user_id is not None:
+        got_lock = sync_lock_acquire(int(user_id))
+        if not got_lock:
+            app.logger.info(f"[notif] sync em andamento para {user_id}; notificação já persistida, saindo.")
+            return
     try:
-        cur.execute("SELECT acess_token, usuario_id FROM contas_mercado_livre WHERE id_ml = %s", (data['user_id'],))
-        acess_token_data = cur.fetchone()
-        print("acess_token: ", acess_token_data['acess_token'])
-        topico = data.get('topic', '')
-        print("topico: ", topico)
-        cur.execute("INSERT INTO notification (notificacao, topic) VALUES (%s, %s)", (json.dumps(data), str(topico)))
-        conn.commit()
-        if topico == 'messages':
-            pos_venda_notifications(data,acess_token_data,json.dumps(data))
-        elif topico == 'questions':
-            pre_venda_notifications(data, acess_token_data)
-        elif topico == 'items':
-            itens_notifications(data,acess_token_data)
-        elif topico == 'orders_v2':
-            print('entoru no orders_v2')
-            orders_notifications(data.get('resource', ''), acess_token_data,json.dumps(data))
-        elif topico == 'public_offers':
-            ###a fazer###
-            ###a fazer### public_offers
-            ###a fazer###
-            print('entrou no public_offers')
-            public_offers_notifications(data, acess_token_data)
-        elif topico == 'post_purchase':
-            print('entrou no post_purchase')
-            claims_notifications(data, acess_token_data)
-        elif topico == 'payments':
-            print('entrou no shipments')
-            payments_notifications(data, acess_token_data)
-        return jsonify({"status": "ignored"}), 200
+        now = datetime.utcnow()
+
+        # renovar token se expirado e pegar credenciais
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT expiracao_token, refresh_token
+                FROM contas_mercado_livre
+                WHERE id_ml = %s
+            """, (user_id,))
+            row = cur.fetchone()
+
+            if row and row.get("expiracao_token") and now > row["expiracao_token"]:
+                app.logger.info("Token expirado, renovando...")
+                dados = renovar_access_token(row["refresh_token"])
+                cur.execute("""
+                    UPDATE contas_mercado_livre
+                       SET acess_token=%s,
+                           refresh_token=%s,
+                           expiracao_token=%s
+                     WHERE id_ml=%s
+                """, (dados["access_token"], dados["novo_refresh_token"],
+                      dados["nova_expiracao"], user_id))
+
+            cur.execute("""
+                SELECT acess_token, usuario_id
+                  FROM contas_mercado_livre
+                 WHERE id_ml = %s
+            """, (user_id,))
+            cred = cur.fetchone()
+
+        if not cred:
+            app.logger.warning(f"[notif] credenciais não encontradas para id_ml={user_id}")
+            return
+
+        topic = str(data.get('topic',''))
+
+        if topic == 'messages':
+            pos_venda_notifications(data, cred, json.dumps(data))
+        elif topic == 'questions':
+            pre_venda_notifications(data, cred)
+        elif topic == 'items':
+            itens_notifications(data, cred)
+        elif topic == 'orders_v2':
+            orders_notifications(data.get('resource', ''), cred, json.dumps(data))
+        elif topic == 'public_offers':
+            public_offers_notifications(data, cred)
+        elif topic == 'post_purchase':
+            claims_notifications(data, cred)
+        # elif topic == 'payments':
+        #     payments_notifications(data, cred)
+
     except Exception as e:
-        print("Erro ao processar notificação:", str(e))
-        return jsonify({"error": str(e)}), 500
+        app.logger.exception("Erro no worker de notificação: %s", e)
     finally:
-        # Garantir que conexão seja sempre fechada
-        try:
-            if 'cur' in locals():
-                cur.close()
-            if 'conn' in locals():
-                conn.close()
-        except:
-            pass
+        if user_id is not None and got_lock:
+            sync_lock_release(int(user_id))
+
 
 def payments_notifications(data, acess_token_data):
     print("🔔 Notificação de envios recebida:", data)
@@ -1422,60 +1448,103 @@ def mensagem_cliente(data):
         print("erro ao armazenar mensagem:", str(e))
 
 
+def sync_lock_acquire(user_id: int) -> bool:
+    with get_db_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_lock(%s) AS got", (int(user_id),))
+        row = cur.fetchone()
+        return bool(row["got"])
+
+def sync_lock_release(user_id: int):
+    with get_db_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_unlock(%s) AS done", (int(user_id),))
+
 ###                         ###
 ### FUNÇÕES A SEREM CHAMADAS###
 ###                         ###
 @socketio.on('pegar_dados_inicias')
 def pegar_dados_gerais():
-    print("Entrou na função pegar_dados_gerais")
-    token = request.cookies.get('token')  # funciona mesmo com HttpOnly
+    token = request.cookies.get('token')
     if not token:
-        print("Conexão sem token")
-        return False  # ou disconnect()
+        return False
 
     try:
-        decoded_token = decode_token(token)
-        user_id= decoded_token.get('sub')
-        print(f"Usuário conectado via WebSocket: {user_id}")
-        
+        decoded = decode_token(token)
+        user_id = int(decoded.get('sub'))
     except jwt.InvalidTokenError:
-        print("Token JWT inválido na conexão Socket.IO")
-        
+        return False
+
+    sid = request.sid  # guarde o socket do cliente
+    socketio.start_background_task(run_pipeline, user_id, sid)
+    emit('status_loading', {'message': 'Iniciando sincronização...'}, to=sid)
+
+def run_pipeline(user_id, sid):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT acess_token FROM contas_mercado_livre WHERE usuario_id=%s",(user_id,))
-        token_access=cur.fetchone()
-        access_token=token_access['acess_token']
-        cur.execute("SELECT id_ml FROM contas_mercado_livre WHERE usuario_id=%s",(user_id,))
-        seller=cur.fetchone()
-        seller_id=seller['id_ml']
-        socketio.emit('status_loading', {'message': 'Pegando os itens do vendedor'})
+        # garante exclusividade por usuário
+        if not sync_lock_acquire(user_id):
+            socketio.emit('status_loading',
+                          {'message': 'Já existe sincronização em andamento.', 'status': False},
+                          to=sid)
+            return
+
+        # pegue tudo o que precisa em UMA consulta
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT acess_token, id_ml
+                FROM contas_mercado_livre
+                WHERE usuario_id = %s
+            """, (user_id,))
+            row = cur.fetchone()
+
+        if not row:
+            socketio.emit('status_loading',
+                          {'message': 'Conta não encontrada.', 'status': False},
+                          to=sid)
+            return
+
+        access_token = row['acess_token']
+        seller_id    = row['id_ml']
+
+        # etapas com yields para cooperar com eventlet
+        socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, to=sid)
         listar_todos_itens(user_id, seller_id, access_token)
-        
-        emit('status_loading', {'message': 'Analisando os anuncios e campanhas'})
+        socketio.sleep(0)
+
+        socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, to=sid)
         campanhas_e_anuncios(user_id, access_token)
-        
-        emit('status_loading', {'message': 'Sincronizando os dados do vendedor...'})
+        socketio.sleep(0)
+
+        socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, to=sid)
         dados_vendedor(access_token, user_id)
+        socketio.sleep(0)
 
-        emit('status_loading', {'message': 'Armazenando informações dos pedidos...'})
+        socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, to=sid)
         faturamento_por_pedidos(user_id)
+        socketio.sleep(0)
 
-        emit('status_loading', {'message': 'Pegando as mensagens pós-venda...'})
+        socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, to=sid)
         listar_conversas_pos_venda(user_id, seller_id, access_token)
-       
-        emit('status_loading', {'message': 'Pegando as perguntas da pré-venda...'})
-        listar_conversas_pre_venda(user_id,seller_id,access_token)
-        
-        emit('status_loading', {'message': 'Pegando as reclamações...'})
+        socketio.sleep(0)
+
+        socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, to=sid)
+        listar_conversas_pre_venda(user_id, seller_id, access_token)
+        socketio.sleep(0)
+
+        socketio.emit('status_loading', {'message': 'Reclamações...'}, to=sid)
         reclamacoes(access_token, user_id)
-        
-        emit('status_loading', {'message': 'Pegando as promoções...'})
-        promocoes(user_id, access_token,seller_id)
-        emit('status_loading', {'message': 'Concluído!', 'status': True})
+        socketio.sleep(0)
+
+        socketio.emit('status_loading', {'message': 'Promoções...'}, to=sid)
+        promocoes(user_id, access_token, seller_id)
+        socketio.sleep(0)
+
+        socketio.emit('status_loading', {'message': 'Concluído!', 'status': True}, to=sid)
+
     except Exception as e:
-        print("Erro ao pegar dados gerais:", str(e))
+        socketio.emit('status_loading',
+                      {'message': f'Erro: {e}', 'status': False},
+                      to=sid)
+    finally:
+        sync_lock_release(user_id)
 
 
 def buscar_item(item_id,access_token):
