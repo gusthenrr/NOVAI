@@ -36,15 +36,10 @@ DB_NAME = 'novai'
 DB_USER = 'postgres'
 DB_PASSWORD = 'S3t3mbro41'
 def get_db_connection():
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        cursor_factory=RealDictCursor  # Retorna resultados como dicionários
-    )
-    return conn
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL não definido")
+    return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
