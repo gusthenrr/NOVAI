@@ -1561,7 +1561,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
     conn = get_db_connection()
     cur = conn.cursor()
  
-    cur.execute("SELECT pack_id FROM pedidos_resumo WHERE usuario_id_orders = %s AND date_last_updated_order>= NOW() - INTERVAL '2 month'", (user_id,))
+    cur.execute("SELECT pack_id FROM pedidos_resumo WHERE usuario_id_pedidos_resumo = %s AND last_updated>= NOW() - INTERVAL '2 month'", (user_id,))
     pack_id_lista = cur.fetchall()
     pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
     headers = {"Authorization": f"Bearer {access_token}"}
