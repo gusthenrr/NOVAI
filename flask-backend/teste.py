@@ -63,7 +63,7 @@ jwt = JWTManager(app)
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True)
 
-url_global="http://15.228.243.197:5000"
+url_global="https://nossopoint-backend-flask-server.com"
 # 🔑 Suas credenciais do Mercado Livre
 CLIENT_ID = "3414621845496970"
 CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
@@ -258,7 +258,7 @@ def callback():
         conn.close()
         token_jwt=gerar_token(usuario_id)
     print('chegou aqui')
-    response = make_response(redirect("http://localhost:3000/loading"))
+    response = make_response(redirect("https://app.nossopoint-backend-flask-server.com/loading"))
     response.set_cookie(
     key="token",
     value=token_jwt,
@@ -271,7 +271,7 @@ def callback():
 
 
 
-#@app.route('/webhook/ml/messages', methods=['POST'])
+@app.route('/webhook/ml/messages', methods=['POST'])
 def webhook_mercado_livre_messages():
     data = request.get_json()
     print("🔔 Nova notificação:", data)
@@ -963,11 +963,57 @@ def itens_notifications(data,acess_token_data):
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,(item_id,nome_item,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,acess_token_data['usuario_id'],))
         print('Item inserido com sucesso no banco de dados.')
+        pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'])
     conn.commit()
     cur.close()
     conn.close()
     return jsonify({"message": "Item processado com sucesso"}), 200
     
+def pegar_anuncio_novo(item_id, acess_token,user_id):
+    print("Pegando anuncio novo")
+    conn = get_db_connection()
+    cur = conn.cursor()
+    url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
+    headers = {"Authorization": f"Bearer {acess_token}"}
+    response = requests.get(url, headers=headers)
+    if response.status_code not in [200, 206]:
+        print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {response.text}")
+        cont_certos +=1
+        data = response.json()
+        listingtype_id = data.get('listing_type_id', 'N/A')
+        price = data.get('price', 0.0)
+        title = data.get('title', 'N/A')
+        campanha_id = data.get('campaign_id', 'N/A')
+        status = data.get('status', 'N/A')
+        has_discount = data.get('has_discount', False)
+        catalog_listing = data.get('catalog_listing', False)
+        condition = data.get('condition', 'N/A')
+        logistic_type = data.get('logistic_type', 'N/A')
+        domain_id = data.get('domain_id', 'N/A')
+        date_created = data.get('date_created', 'N/A')
+        buy_box_winner = data.get('buy_box_winner', False)
+        channel = data.get('channel', 'N/A')
+        brand_value_id = data.get('brand_value_id', 'N/A')
+        brand_value_name = data.get('brand_value_name', 'N/A')
+        thumbnail = data.get('thumbnail', 'N/A')
+        current_level = data.get('current_level', 'N/A')
+        diferred_stock = data.get('diferred_stock', False)
+        permalink = data.get('permalink', 'N/A')
+        recomended = data.get('recommended', False)
+        image_quality = data.get('image_quality', 'N/A')
+        
+        
+        cur.execute('''
+        INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
+        channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
+        (%s ,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', (item_id,item_id ,listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
+        logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, user_id,))
+    cur.close()
+    conn.close()
+
+
+
+
 
 # LOGIN, SISTEMA DE VERIFICAÇÃO DE CONTA
 @app.route('/user-login', methods=['POST'])
@@ -3755,7 +3801,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
 
 
 
