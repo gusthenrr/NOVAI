@@ -768,7 +768,7 @@ def orders_notifications(resource,acess_token, data_ant):
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(order_data), 'dados_existentes',data_ant,))
         else:
             print("Pedido não existe, inserindo novo registro.")
-            cur.execute("INSERT INTO packs (pack_id, usuario_id_packs) VALUES (%s, %s)", (pack_id, acess_token['usuario_id'],))
+            cur.execute("INSERT INTO packs (pack_id, usuario_id_packs) VALUES (%s, %s) ON CONFLICT (pack_id) DO NOTHING", (pack_id, acess_token['usuario_id'],))
             conn.commit()
             cur.execute("""INSERT INTO pedidos_resumo (id_order, date_created, date_closed, date_approved, last_updated, total_amount, paid_amount, status, shipping_cost,
                         payment_method, payment_type, installments, installment_amount, item_id, item_title, item_warranty, listing_type_id, category_id, unit_price, sale_fee, 
@@ -1506,7 +1506,7 @@ def run_pipeline(user_id, sid):
 
         # etapas com yields para cooperar com eventlet
         socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, to=sid)
-        listar_todos_itens(user_id, seller_id, access_token)
+        #listar_todos_itens(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, to=sid)
@@ -1514,7 +1514,7 @@ def run_pipeline(user_id, sid):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, to=sid)
-        dados_vendedor(access_token, user_id)
+        #dados_vendedor(access_token, user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, to=sid)
@@ -1530,11 +1530,11 @@ def run_pipeline(user_id, sid):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Reclamações...'}, to=sid)
-        reclamacoes(access_token, user_id)
+        #reclamacoes(access_token, user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Promoções...'}, to=sid)
-        promocoes(user_id, access_token, seller_id)
+        #promocoes(user_id, access_token, seller_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Concluído!', 'status': True}, to=sid)
@@ -1965,10 +1965,13 @@ def faturamento_por_pedidos(user_id):
                 date_last_updated_order = result.get('date_last_updated', 'Sem data de atualização')
                 total_amount = result.get('total_amount', 0)
                 paid_amount = result.get('paid_amount', 0)
-                pack_id = result.get('pack_id')
+                pack_id = result.get('pack_id', None)
+                print('pack_id:', pack_id)
                 if not pack_id:
                    pack_id = id_order
+                print(f"pack_id depois = {pack_id}")
                 cur.execute("INSERT INTO packs (pack_id,usuario_id_packs) VALUES (%s,%s) ON CONFLICT (pack_id) DO NOTHING", (pack_id,user_id,))
+                conn.commit()
                 if item.get('category_id'):
                     url_categoria=f"https://api.mercadolibre.com/categories/{item.get('category_id')}"
                     response= requests.get(url_categoria, headers=headers)
