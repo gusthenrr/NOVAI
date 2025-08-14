@@ -268,7 +268,7 @@ def callback():
 def webhook_mercado_livre_messages():
     data = request.get_json(force=True) or {}
     user_id = data.get('user_id')
-
+    print("🔔 Notificação de mensagens recebida:", data)
     # 1) Sempre persistir e ACK rápido
     with get_db_connection() as conn, conn.cursor() as cur:
         cur.execute(
