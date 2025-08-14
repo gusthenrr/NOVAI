@@ -292,71 +292,72 @@ def webhook_mercado_livre_messages():
     return jsonify({"status": "ok"}), 200
 
 def processar_notificacao_ml(data: dict):
-    user_id = data.get('user_id')
-    # tente respeitar exclusividade por usuário
-    got_lock = False
-    if user_id is not None:
-        got_lock = sync_lock_acquire(int(user_id))
-        if not got_lock:
-            app.logger.info(f"[notif] sync em andamento para {user_id}; notificação já persistida, saindo.")
-            return
-    try:
-        now = datetime.utcnow()
+    with app.app_context():
+        user_id = data.get('user_id')
+        # tente respeitar exclusividade por usuário
+        got_lock = False
+        if user_id is not None:
+            got_lock = sync_lock_acquire(int(user_id))
+            if not got_lock:
+                app.logger.info(f"[notif] sync em andamento para {user_id}; notificação já persistida, saindo.")
+                return
+        try:
+            now = datetime.utcnow()
 
-        # renovar token se expirado e pegar credenciais
-        with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT expiracao_token, refresh_token
-                FROM contas_mercado_livre
-                WHERE id_ml = %s
-            """, (user_id,))
-            row = cur.fetchone()
-
-            if row and row.get("expiracao_token") and now > row["expiracao_token"]:
-                app.logger.info("Token expirado, renovando...")
-                dados = renovar_access_token(row["refresh_token"])
+            # renovar token se expirado e pegar credenciais
+            with get_db_connection() as conn, conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE contas_mercado_livre
-                       SET acess_token=%s,
-                           refresh_token=%s,
-                           expiracao_token=%s
-                     WHERE id_ml=%s
-                """, (dados["access_token"], dados["novo_refresh_token"],
-                      dados["nova_expiracao"], user_id))
+                    SELECT expiracao_token, refresh_token
+                    FROM contas_mercado_livre
+                    WHERE id_ml = %s
+                """, (user_id,))
+                row = cur.fetchone()
 
-            cur.execute("""
-                SELECT acess_token, usuario_id
-                  FROM contas_mercado_livre
-                 WHERE id_ml = %s
-            """, (user_id,))
-            cred = cur.fetchone()
+                if row and row.get("expiracao_token") and now > row["expiracao_token"]:
+                    app.logger.info("Token expirado, renovando...")
+                    dados = renovar_access_token(row["refresh_token"])
+                    cur.execute("""
+                        UPDATE contas_mercado_livre
+                        SET acess_token=%s,
+                            refresh_token=%s,
+                            expiracao_token=%s
+                        WHERE id_ml=%s
+                    """, (dados["access_token"], dados["novo_refresh_token"],
+                        dados["nova_expiracao"], user_id))
 
-        if not cred:
-            app.logger.warning(f"[notif] credenciais não encontradas para id_ml={user_id}")
-            return
+                cur.execute("""
+                    SELECT acess_token, usuario_id
+                    FROM contas_mercado_livre
+                    WHERE id_ml = %s
+                """, (user_id,))
+                cred = cur.fetchone()
 
-        topic = str(data.get('topic',''))
+            if not cred:
+                app.logger.warning(f"[notif] credenciais não encontradas para id_ml={user_id}")
+                return
 
-        if topic == 'messages':
-            pos_venda_notifications(data, cred, json.dumps(data))
-        elif topic == 'questions':
-            pre_venda_notifications(data, cred)
-        elif topic == 'items':
-            itens_notifications(data, cred)
-        elif topic == 'orders_v2':
-            orders_notifications(data.get('resource', ''), cred, json.dumps(data))
-        elif topic == 'public_offers':
-            public_offers_notifications(data, cred)
-        elif topic == 'post_purchase':
-            claims_notifications(data, cred)    
-        # elif topic == 'payments':
-        #     payments_notifications(data, cred)
+            topic = str(data.get('topic',''))
 
-    except Exception as e:
-        app.logger.exception("Erro no worker de notificação: %s", e)
-    finally:
-        if user_id is not None and got_lock:
-            sync_lock_release(int(user_id))
+            if topic == 'messages':
+                pos_venda_notifications(data, cred, json.dumps(data))
+            elif topic == 'questions':
+                pre_venda_notifications(data, cred)
+            elif topic == 'items':
+                itens_notifications(data, cred)
+            elif topic == 'orders_v2':
+                orders_notifications(data.get('resource', ''), cred, json.dumps(data))
+            elif topic == 'public_offers':
+                public_offers_notifications(data, cred)
+            elif topic == 'post_purchase':
+                claims_notifications(data, cred)    
+            # elif topic == 'payments':
+            #     payments_notifications(data, cred)
+
+        except Exception as e:
+            app.logger.exception("Erro no worker de notificação: %s", e)
+        finally:
+            if user_id is not None and got_lock:
+                sync_lock_release(int(user_id))
 
 
 def payments_notifications(data, acess_token_data):
@@ -925,81 +926,94 @@ def pre_venda_notifications(data, acess_token_data):
 
 
 def itens_notifications(data,acess_token_data):
-    print("🔔 Notificação de itens recebida:", data)
-    resource_id = data.get('resource')
-    conn= get_db_connection()
-    cur = conn.cursor()
-    headers = {"Authorization": f"Bearer {acess_token_data['acess_token']}"}
-    url = f"https://api.mercadolibre.com/{resource_id}"
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200 and response.status_code != 206:
-        print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
-        return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
-    item_data = response.json()
-    item_id = item_data.get('id')
-    nome_item = item_data.get('title')
-    quantidade= item_data.get('available_quantity', 0)
-    preco=item_data.get('price')
-    url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
-    response_descricao = requests.get(url_descricao, headers=headers)
-    resposta_descricao = response_descricao.json()
-    descricao = resposta_descricao.get('plain_text', 'Descrição não disponível')
-    imagens = item_data.get('pictures', [])
-    imagem = [img['url'] for img in imagens] if imagens else ['Sem imagem'] 
-    preco_original = item_data.get('original_price', preco)
-    preco_base = item_data.get('base_price', preco)
-    disponivel = True
-    tipo_ad = item_data.get('listing_type_id')
-    category_id = item_data.get('category_id')
-    url_cateogira=f'https://api.mercadolibre.com/categories/{category_id}'
-    categoria_dados= requests.get(url_cateogira, headers=headers)
-    categoria_json = categoria_dados.json()
-    categoria = categoria_json.get('name', 'N/A')
-    print("item_id:", item_id)
-    print("nome_item:", nome_item)
-    print("quantidade:", quantidade)
-    print("preco:", preco)
-    print("descricao:", descricao)
-    print("imagem:", imagem)
-    print("preco_original:", preco_original)
-    print("preco_base:", preco_base)
-    print("disponivel:", disponivel)
-    print("tipo_ad:", tipo_ad)
-    print("categoria:", categoria)
+    try:
+        print("🔔 Notificação de itens recebida:", data)
+        resource_id = data.get('resource')
+        conn= get_db_connection()
+        cur = conn.cursor()
+        headers = {"Authorization": f"Bearer {acess_token_data['acess_token']}"}
+        url = f"https://api.mercadolibre.com/{resource_id}"
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            # levanta exceção para qualquer código != 2xx
+            response.raise_for_status()
+        except requests.RequestException as e:
+            print("Erro ao acessar a API do Mercado Livre:", e)
+            # Aqui você pode atualizar a tabela notification marcando erro, se quiser.
+            return {"ok": False, "error": f"Erro ML API: {e}"}
+        item_data = response.json()
+        item_id = item_data.get('id')
+        nome_item = item_data.get('title')
+        quantidade= item_data.get('available_quantity', 0)
+        preco=item_data.get('price')
+        print('pegando descrição')
+        url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
+        response_descricao = requests.get(url_descricao, headers=headers)
+        resposta_descricao = response_descricao.json()
+        descricao = resposta_descricao.get('plain_text', 'Descrição não disponível')
+        imagens = item_data.get('pictures', [])
+        imagem = [img['url'] for img in imagens] if imagens else ['Sem imagem'] 
+        preco_original = item_data.get('original_price', preco)
+        preco_base = item_data.get('base_price', preco)
+        disponivel = True
+        tipo_ad = item_data.get('listing_type_id')
+        category_id = item_data.get('category_id')
+        url_cateogira=f'https://api.mercadolibre.com/categories/{category_id}'
+        categoria_dados= requests.get(url_cateogira, headers=headers)
+        categoria_json = categoria_dados.json()
+        categoria = categoria_json.get('name', 'N/A')
+        print("item_id:", item_id)
+        print("nome_item:", nome_item)
+        print("quantidade:", quantidade)
+        print("preco:", preco)
+        print("descricao:", descricao)
+        print("imagem:", imagem)
+        print("preco_original:", preco_original)
+        print("preco_base:", preco_base)
+        print("disponivel:", disponivel)
+        print("tipo_ad:", tipo_ad)
+        print("categoria:", categoria)
 
-    cur.execute("SELECT * FROM itens WHERE item_id = %s", (item_id,))
-    item_realdict = cur.fetchall()
-    if item_realdict:
-        print("Item já existe no banco de dados, atualizando item.")
-        cur.execute("""
-    UPDATE itens SET nome_item = %s, quantidade = %s, preco = %s, descricao = %s, imagem = %s, preco_original = %s, preco_base = %s, disponivel = %s, tipo_ad = %s, categoria = %s
-    WHERE item_id = %s AND usuario_id_item = %s             
-""",(nome_item,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,item_id,acess_token_data['usuario_id'],))
-        print('Item atualizado com sucesso no banco de dados.')
-        cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(item_data), 'item_existe',json.dumps(data),))
-    else :
-        print("Item não existe no banco de dados, inserindo item.")
-        cur.execute("""
-                    INSERT INTO itens (item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base, disponivel, tipo_ad, categoria, usuario_id_item) 
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """,(item_id,nome_item,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,acess_token_data['usuario_id'],))
-        print('Item inserido com sucesso no banco de dados.')
-        pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'])
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"message": "Item processado com sucesso"}), 200
+        cur.execute("SELECT * FROM itens WHERE item_id = %s", (item_id,))
+        item_realdict = cur.fetchall()
+        if item_realdict:
+            print("Item já existe no banco de dados, atualizando item.")
+            cur.execute("""
+        UPDATE itens SET nome_item = %s, quantidade = %s, preco = %s, descricao = %s, imagem = %s, preco_original = %s, preco_base = %s, disponivel = %s, tipo_ad = %s, categoria = %s
+        WHERE item_id = %s AND usuario_id_item = %s             
+    """,(nome_item,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,item_id,acess_token_data['usuario_id'],))
+            print('Item atualizado com sucesso no banco de dados.')
+            cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(item_data), 'item_existe',json.dumps(data),))
+        else :
+            print("Item não existe no banco de dados, inserindo item.")
+            cur.execute("""
+                        INSERT INTO itens (item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base, disponivel, tipo_ad, categoria, usuario_id_item) 
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """,(item_id,nome_item,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,acess_token_data['usuario_id'],))
+            print('Item inserido com sucesso no banco de dados.')
+            pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'])
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"ok": True, "message": "Item processado com sucesso"}
+    except Exception as e:
+        print("Deu tudo errrado:", str(e))
+        
+
     
 def pegar_anuncio_novo(item_id, acess_token,user_id):
-    print("Pegando anuncio novo")
-    conn = get_db_connection()
-    cur = conn.cursor()
-    url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
-    headers = {"Authorization": f"Bearer {acess_token}"}
-    response = requests.get(url, headers=headers)
-    if response.status_code not in [200, 206]:
-        print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {response.text}")
-        cont_certos +=1
+    try:
+        print("Pegando anuncio novo")
+        conn = get_db_connection()
+        cur = conn.cursor()
+        url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
+        headers = {"Authorization": f"Bearer {acess_token}"}
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {e}")
+            return
         data = response.json()
         listingtype_id = data.get('listing_type_id', 'N/A')
         price = data.get('price', 0.0)
@@ -1029,8 +1043,11 @@ def pegar_anuncio_novo(item_id, acess_token,user_id):
         channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
         (%s ,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', (item_id,item_id ,listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
         logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, user_id,))
-    cur.close()
-    conn.close()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Erro ao pegar anúncio novo: {str(e)}")
+        return {"ok": False, "error": str(e)}
 
 
 
@@ -1474,10 +1491,10 @@ def pegar_dados_gerais():
         return False
 
     sid = request.sid  # guarde o socket do cliente
-    socketio.start_background_task(run_pipeline, user_id, sid)
+    socketio.start_background_task(run_pipeline, user_id, sid, token)
     emit('status_loading', {'message': 'Iniciando sincronização...'}, to=sid)
 
-def run_pipeline(user_id, sid):
+def run_pipeline(user_id, sid, token):
     try:
         # garante exclusividade por usuário
         if not sync_lock_acquire(user_id):
@@ -1518,15 +1535,15 @@ def run_pipeline(user_id, sid):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, to=sid)
-        faturamento_por_pedidos(user_id)
+        #faturamento_por_pedidos(user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, to=sid)
-        listar_conversas_pos_venda(user_id, seller_id, access_token)
+        #listar_conversas_pos_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, to=sid)
-        listar_conversas_pre_venda(user_id, seller_id, access_token)
+        #listar_conversas_pre_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Reclamações...'}, to=sid)
@@ -1537,7 +1554,7 @@ def run_pipeline(user_id, sid):
         #promocoes(user_id, access_token, seller_id)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Concluído!', 'status': True}, to=sid)
+        socketio.emit('status_loading', {'message': 'Concluído!'}, to=sid)
 
     except Exception as e:
         socketio.emit('status_loading',
@@ -1545,6 +1562,16 @@ def run_pipeline(user_id, sid):
                       to=sid)
     finally:
         sync_lock_release(user_id)
+        response = make_response(redirect("https://app.nossopoint-backend-flask-server.com/Manager"))
+        response.set_cookie(
+        key="token",
+        value=token,
+        httponly=True,         # ✅ proteção contra XSS
+        secure=False,          # ⚠️ use True em produção com HTTPS
+        samesite='Lax',        # ✅ permite envio com navegação direta + WebSocket
+        max_age=60 * 60 * 24
+        )
+        return response
 
 
 def buscar_item(item_id,access_token):
@@ -3230,17 +3257,16 @@ async def chat_novai_manager_requisicao():
     data = request.get_json()
     print(data)
     mensagem = data.get('message')
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
-    # Obtém o user_id dos parâmetros da query string
-    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
-    print("Token:", token)
-    decoded_token=decode_token(token)
-    print(decoded_token)
-    user_id=decoded_token.get("sub")
-    print(user_id)
-    exp_timestamp = decoded_token.get("exp")
+    token = request.cookies.get('token')
+    if not token:
+        return False
+
+    try:
+        decoded = decode_token(token)
+        user_id = int(decoded.get('sub'))
+    except jwt.InvalidTokenError:
+        return False
+    exp_timestamp = decoded.get("exp")
     now = int(time.time())
     if exp_timestamp and exp_timestamp < now:
         return jsonify({"error": "Token expirado"}), 333
