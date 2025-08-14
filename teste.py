@@ -1535,15 +1535,15 @@ def run_pipeline(user_id, sid, token):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, to=sid)
-        faturamento_por_pedidos(user_id)
+        #faturamento_por_pedidos(user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, to=sid)
-        listar_conversas_pos_venda(user_id, seller_id, access_token)
+        #listar_conversas_pos_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, to=sid)
-        listar_conversas_pre_venda(user_id, seller_id, access_token)
+        #listar_conversas_pre_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Reclamações...'}, to=sid)
