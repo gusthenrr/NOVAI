@@ -259,7 +259,9 @@ def callback():
     value=token_jwt,
     httponly=True,         # ✅ proteção contra XSS
     secure=True,          # ⚠️ use True em produção com HTTPS
-    samesite='Lax',        # ✅ permite envio com navegação direta + WebSocket
+    samesite='None',
+    domain='.nossopoint-backend-flask-server.com',
+    path='/',
     max_age=60 * 60 * 24
     )
     return response
@@ -3888,6 +3890,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
