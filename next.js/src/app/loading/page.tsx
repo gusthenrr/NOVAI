@@ -182,7 +182,15 @@ export default function App() {
       console.log(dados)
       setMensagem(dados.message)
       if (dados.status){
-      window.location.replace("/Manager");
+      if (window.__redirecting__) return;
+      window.__redirecting__ = true;
+
+    // 1) desconecta o socket
+    socket.once('disconnect', () => {
+      // 2) redireciona após desconectar
+      window.location.replace('/manager');
+    });
+    socket.disconnect(); // ou socket.close()
     }
     })
     
@@ -210,4 +218,5 @@ export default function App() {
       )}
     </div>
   );
+
 }
