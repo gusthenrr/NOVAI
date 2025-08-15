@@ -3249,14 +3249,17 @@ async def chat_novai_manager_requisicao():
     print(data)
     mensagem = data.get('message')
     token = request.cookies.get('token')
+    
     if not token:
-        return False
+        print('sem token')
+        return jsonify{'erro':False}
+    print('token', token)
 
     try:
         decoded = decode_token(token)
         user_id = int(decoded.get('sub'))
     except jwt.InvalidTokenError:
-        return False
+        return jsonify{'erro':False}
     exp_timestamp = decoded.get("exp")
     now = int(time.time())
     if exp_timestamp and exp_timestamp < now:
@@ -3885,6 +3888,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
