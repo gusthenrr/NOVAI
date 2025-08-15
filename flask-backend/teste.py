@@ -1491,10 +1491,10 @@ def pegar_dados_gerais():
         return False
 
     sid = request.sid  # guarde o socket do cliente
-    socketio.start_background_task(run_pipeline, user_id, sid, token)
+    socketio.start_background_task(run_pipeline, user_id, sid)
     emit('status_loading', {'message': 'Iniciando sincronização...'}, to=sid)
 
-def run_pipeline(user_id, sid, token):
+def run_pipeline(user_id, sid):
     try:
         # garante exclusividade por usuário
         if not sync_lock_acquire(user_id):
@@ -1562,16 +1562,7 @@ def run_pipeline(user_id, sid, token):
                       to=sid)
     finally:
         sync_lock_release(user_id)
-        response = make_response(redirect("https://app.nossopoint-backend-flask-server.com/Manager"))
-        response.set_cookie(
-        key="token",
-        value=token,
-        httponly=True,         # ✅ proteção contra XSS
-        secure=False,          # ⚠️ use True em produção com HTTPS
-        samesite='Lax',        # ✅ permite envio com navegação direta + WebSocket
-        max_age=60 * 60 * 24
-        )
-        return response
+        
 
 
 def buscar_item(item_id,access_token):
