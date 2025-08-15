@@ -3247,6 +3247,10 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
 
 @app.route('/chat_novai_manager', methods=['POST'])
 async def chat_novai_manager_requisicao():
+    print("HOST:", request.host)
+    print("ORIGIN:", request.headers.get("Origin"))
+    print("COOKIE HEADER:", request.headers.get("Cookie"))
+
     token = request.cookies.get('token')
     data = request.get_json()
     print(data)
@@ -3891,6 +3895,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
