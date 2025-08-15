@@ -131,7 +131,7 @@ export default function NovaiApp(): JSX.Element {
 
       const result = await response.json();
       
-      if (result) {
+      if (result.resposta_final) {
         const aiResponseText = result.resposta_final;
         // Atualiza o histórico para manter a conversa fluindo
         chatHistoryRef.current.push({ role: "user", parts: [{ text: prompt }] });
@@ -390,4 +390,5 @@ messageList: {
     display: 'flex',
     gap: '4px',
   },
+
 };
