@@ -56,7 +56,7 @@ app.config["JWT_SECRET_KEY"] = "aquiumachavebemsegura"
 jwt = JWTManager(app)
 
 Session(app)  # Inicializa a sessão
-CORS(app, supports_credentials=True)
+CORS(app, origins=["https://app.nossopoint-backend-flask-server.com"], supports_credentials=True)
 
 url_global="https://nossopoint-backend-flask-server.com"
 # 🔑 Suas credenciais do Mercado Livre
@@ -3895,6 +3895,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
