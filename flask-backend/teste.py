@@ -42,7 +42,8 @@ def get_db_connection():
     return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+ALLOWED_ORIGIN = "https://app.nossopoint-backend-flask-server.com"
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN)
 SECRET_KEY = os.urandom(24)
 app.secret_key = os.urandom(24)
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -56,7 +57,7 @@ app.config["JWT_SECRET_KEY"] = "aquiumachavebemsegura"
 jwt = JWTManager(app)
 
 Session(app)  # Inicializa a sessão
-CORS(app, origins=["https://app.nossopoint-backend-flask-server.com","https://nossopoint-backend-flask-server"], supports_credentials=True)
+CORS(app, origins=[ALLOWED_ORIGIN], supports_credentials=True)
 
 url_global="https://nossopoint-backend-flask-server.com"
 # 🔑 Suas credenciais do Mercado Livre
@@ -260,7 +261,7 @@ def callback():
     httponly=True,         # ✅ proteção contra XSS
     secure=True,          # ⚠️ use True em produção com HTTPS
     samesite='None',
-    domain='.nossopoint-backend-flask-server.com',
+    #domain='.nossopoint-backend-flask-server.com',
     path='/',
     max_age=60 * 60 * 24
     )
@@ -3246,10 +3247,11 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     return return_final
 
 @app.route('/chat_novai_manager', methods=['POST'])
-async def chat_novai_manager_requisicao():
+@cross_origin(origins=ALLOWED_ORIGIN, supports_credentials=True)
+def chat_novai_manager_requisicao():
     print("HOST:", request.host)
     print("ORIGIN:", request.headers.get("Origin"))
-    print("COOKIE HEADER:", request.headers.get("Cookie"))
+    
 
     token = request.cookies.get('token')
     data = request.get_json()
@@ -3895,6 +3897,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
