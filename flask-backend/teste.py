@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, redirect, session, make_response
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import requests
 import uuid
 from uuid import UUID
@@ -3898,6 +3898,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
