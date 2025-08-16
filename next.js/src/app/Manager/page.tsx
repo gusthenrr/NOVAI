@@ -46,7 +46,14 @@ export default function NovaiApp(): JSX.Element {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const chatHistoryRef = useRef<ChatHistory[]>([]); // Mantém o histórico para a API
   const [token, setToken] = useState('')
-
+  const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
+  transports: ['websocket'],
+  withCredentials: true, // ✅ necessário para enviar cookies (incl. HttpOnly)
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 2000,
+  timeout: 20000 // 20s
+});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Efeito inicial para a mensagem de boas-vindas
@@ -118,9 +125,9 @@ export default function NovaiApp(): JSX.Element {
     setIsLoading(true);
     console.log("Chamando a API com o prompt:", prompt);
     try {
-      
-      
-      if (result.resposta_final) {
+      socketio.emit('chat_novai_manager',{message:prompt})
+      socketio.on('resposta_mensagem', (resp)=>{
+        if (resp) {
         const aiResponseText = result.resposta_final;
         // Atualiza o histórico para manter a conversa fluindo
         chatHistoryRef.current.push({ role: "user", parts: [{ text: prompt }] });
@@ -130,9 +137,9 @@ export default function NovaiApp(): JSX.Element {
         // Se a resposta for bloqueada por segurança ou vier vazia
         return "Não consegui processar essa informação. Podemos tentar de outra forma?";
       }
-
+      })
     } catch (error) {
-      console.error("Gemini API call failed:", error);
+      console.error("Chat_novai_manager failed:", error);
       return "Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.";
     } finally {
       setIsLoading(false);
@@ -381,4 +388,5 @@ messageList: {
   },
 
 };
+
 
