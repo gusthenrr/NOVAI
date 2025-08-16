@@ -1549,7 +1549,7 @@ def run_pipeline(user_id, sid):
 
         # etapas com yields para cooperar com eventlet
         socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, to=sid)
-        #listar_todos_itens(user_id, seller_id, access_token)
+        listar_todos_itens(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, to=sid)
@@ -3937,6 +3937,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
