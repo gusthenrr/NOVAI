@@ -176,49 +176,31 @@ export default function App() {
 
   // Simula o carregamento de dados
  useEffect(() => {
-  console.log('Tela de loading');
-  socket.emit('pegar_dados_inicias');
-
-  const onStatus = (dados: any) => {
-    // snapshot pra garantir que o que você loga é o que chegou
-    const p = JSON.parse(JSON.stringify(dados));
-    console.log('status_loading:', p);
-
-    // Mostra a mensagem na UI
-    if (p?.message) setMensagem(p.message);
-
-    // Salve o token assim que ele aparecer (em QUALQUER passo)
-    if (typeof p?.token === 'string' && p.token.length > 0) {
-      console.log('dados.token:', p.token);
-      try {
-        localStorage.setItem('authToken', p.token); // <<<<<<<<<< AQUI o fix
-      } catch (e) {
-        console.warn('Falha ao salvar token:', e);
-      }
+    console.log('Tela de loadig')
+    socket.emit('pegar_dados_inicias');
+    socket.on('guardar_token', (resp)=>{
+    if (resp){
+      console.log(resp)
+      localStorage.setItem("authToken", resp.token);    
     }
+    })
+    socket.on('status_loading', (dados)=>{
+      console.log(dados)
+      setMensagem(dados.message)
+      if (dados.status){
+      if (window.__redirecting__) return;
+      window.__redirecting__ = true;
 
-    // Só redireciona quando status=true
-    if (p?.status === true) {
-      if ((window as any).__redirecting__) return;
-      (window as any).__redirecting__ = true;
-
-      // dá 1 tick pra garantir flush do log antes de sair
-      requestAnimationFrame(() => {
-        socket.once('disconnect', () => {
-          window.location.replace('/manager');
-        });
-        socket.disconnect();
-      });
+    // 1) desconecta o socket
+    socket.once('disconnect', () => {
+      // 2) redireciona após desconectar
+      window.location.replace('/manager');
+    });
+    socket.disconnect(); // ou socket.close()
     }
-  };
+    })
 
-  // use on (progresso múltiplo) — mas limpe no unmount
-  socket.on('status_loading', onStatus);
-
-  return () => {
-    socket.off('status_loading', onStatus);
-  };
-}, [socket]);
+  }, []);
 
   // Estilo para o conteúdo principal da página
   const mainContentStyle = {
@@ -244,6 +226,7 @@ export default function App() {
   );
 
 }
+
 
 
 
