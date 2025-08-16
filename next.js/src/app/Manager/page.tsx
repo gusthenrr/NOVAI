@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import RespostaFormatada from '../componentesGerais/respostaFormatada'; 
+import { io } from 'socket.io-client';
 
 // --- Tipos para maior segurança e clareza ---
 interface Message {
@@ -388,5 +389,6 @@ messageList: {
   },
 
 };
+
 
 
