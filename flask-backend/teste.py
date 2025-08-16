@@ -1514,10 +1514,11 @@ def pegar_dados_gerais():
         return False
 
     sid = request.sid  # guarde o socket do cliente
-    socketio.start_background_task(run_pipeline, user_id, sid, token)
-    emit('status_loading', {'message': 'Iniciando sincronização...', 'token':token}, to=sid)
+    emit('guardar_token', {'token':token})
+    socketio.start_background_task(run_pipeline, user_id, sid)
+    emit('status_loading', {'message': 'Iniciando sincronização...'}, to=sid)
 
-def run_pipeline(user_id, sid, token):
+def run_pipeline(user_id, sid):
     try:
         # garante exclusividade por usuário
         if not sync_lock_acquire(user_id):
@@ -3912,6 +3913,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
