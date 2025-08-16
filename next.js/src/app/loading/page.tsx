@@ -177,6 +177,7 @@ export default function App() {
   // Simula o carregamento de dados
  useEffect(() => {
     console.log('Tela de loadig')
+    console.log('mudou alguma coisa nessa desgraça')
     socket.emit('pegar_dados_inicias');
     socket.on('guardar_token', (resp)=>{
     console.log('entrou no guardar_token')
@@ -228,6 +229,7 @@ export default function App() {
   );
 
 }
+
 
 
 
