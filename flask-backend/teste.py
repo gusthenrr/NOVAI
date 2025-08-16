@@ -1503,7 +1503,7 @@ def sync_lock_release(user_id: int):
 def pegar_dados_gerais():
     print('pegar_dados_geraisF')
     token = request.cookies.get("__Host-token")
-
+    
     if not token:
         return False
     print('token', token)
@@ -3266,7 +3266,7 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     print('return pilot:', return_final)
     return return_final
 
-@socketio.on('/chat_novai_manager')
+@socketio.on('chat_novai_manager')
 def chat_novai_manager_requisicao(data):
     print("HOST:", request.host)
     print("ORIGIN:", request.headers.get("Origin"))
@@ -3913,6 +3913,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
