@@ -179,7 +179,9 @@ export default function App() {
     console.log('Tela de loadig')
     socket.emit('pegar_dados_inicias');
     socket.on('guardar_token', (resp)=>{
+    console.log('entrou no guardar_token')
     if (resp){
+      console.log('entrou no if do resp')
       console.log(resp)
       localStorage.setItem("authToken", resp.token);    
     }
@@ -226,6 +228,7 @@ export default function App() {
   );
 
 }
+
 
 
 
