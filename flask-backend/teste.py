@@ -3268,7 +3268,15 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     chain.invoke(pensamento)
     print('return pilot:', return_final)
     return return_final
-
+    
+class Simplificador(BaseModel):
+    """Decide se é possível agregar dados com as tabelas disponíveis."""
+    possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
+    tables: Optional[List[str]] = Field(
+        default=None,
+        description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"]; ou null.'
+    )
+    
 def _coerce_simplificador(v: Any) -> Simplificador:
     """Aceita dict ou já-instância e retorna um Simplificador robusto (Pydantic v2/v1)."""
     if isinstance(v, Simplificador):
@@ -3929,6 +3937,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
