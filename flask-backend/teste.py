@@ -1557,27 +1557,27 @@ def run_pipeline(user_id, sid):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, to=sid)
-        #dados_vendedor(access_token, user_id)
+        dados_vendedor(access_token, user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, to=sid)
-        #faturamento_por_pedidos(user_id)
+        faturamento_por_pedidos(user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, to=sid)
-        #listar_conversas_pos_venda(user_id, seller_id, access_token)
+        listar_conversas_pos_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, to=sid)
-        #listar_conversas_pre_venda(user_id, seller_id, access_token)
+        listar_conversas_pre_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Reclamações...'}, to=sid)
-        #reclamacoes(access_token, user_id)
+        reclamacoes(access_token, user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Promoções...'}, to=sid)
-        #promocoes(user_id, access_token, seller_id)
+        promocoes(user_id, access_token, seller_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Concluído!','status':True}, to=sid)
@@ -3937,6 +3937,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
