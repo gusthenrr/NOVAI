@@ -1514,10 +1514,10 @@ def pegar_dados_gerais():
         return False
 
     sid = request.sid  # guarde o socket do cliente
-    socketio.start_background_task(run_pipeline, user_id, sid)
+    socketio.start_background_task(run_pipeline, user_id, sid, token)
     emit('status_loading', {'message': 'Iniciando sincronização...', 'token':token}, to=sid)
 
-def run_pipeline(user_id, sid):
+def run_pipeline(user_id, sid, token):
     try:
         # garante exclusividade por usuário
         if not sync_lock_acquire(user_id):
@@ -1577,7 +1577,7 @@ def run_pipeline(user_id, sid):
         #promocoes(user_id, access_token, seller_id)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Concluído!','status':True}, to=sid)
+        socketio.emit('status_loading', {'message': 'Concluído!','status':True, 'token':token}, to=sid)
 
     except Exception as e:
         socketio.emit('status_loading',
@@ -3912,6 +3912,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
