@@ -201,7 +201,7 @@ export default function App() {
     // 1) desconecta o socket
     socket.once('disconnect', () => {
       // 2) redireciona após desconectar
-      window.location.replace('/manager');
+      window.location.replace('/Manager');
     });
     socket.disconnect(); // ou socket.close()
     }
@@ -233,6 +233,7 @@ export default function App() {
   );
 
 }
+
 
 
 
