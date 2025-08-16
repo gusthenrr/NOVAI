@@ -3269,6 +3269,18 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     print('return pilot:', return_final)
     return return_final
 
+def _coerce_simplificador(v: Any) -> Simplificador:
+    """Aceita dict ou já-instância e retorna um Simplificador robusto (Pydantic v2/v1)."""
+    if isinstance(v, Simplificador):
+        return v
+    try:  # Pydantic v2
+        return Simplificador.model_validate(v)  # type: ignore[attr-defined]
+    except AttributeError:
+        return Simplificador.parse_obj(v)       # Pydantic v1
+    except Exception:
+        # fallback super conservador
+        return Simplificador(possibilidade=False, tables=None)
+
 @app.route('/chat_novai_manager', methods=['POST'])
 def chat_novai_manager_requisicao():
     data = request.get_json()
@@ -3917,6 +3929,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
