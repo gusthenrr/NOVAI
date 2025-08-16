@@ -128,7 +128,9 @@ export default function NovaiApp(): JSX.Element {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat_novai_manager`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json'},
+        headers:{'Content-Type':'application/json',
+            Authorization: `Bearer ${token}`
+          },
         body: JSON.stringify({'message':prompt}),
         credentials: 'include',
       });
@@ -400,6 +402,7 @@ messageList: {
   },
 
 };
+
 
 
 
