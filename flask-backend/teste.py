@@ -1483,10 +1483,11 @@ def sync_lock_release(user_id: int):
 ###                         ###
 @socketio.on('pegar_dados_inicias')
 def pegar_dados_gerais():
+    print('pegar_dados_geraisF')
     token = request.cookies.get('token')
     if not token:
         return False
-
+    print('token', token)
     try:
         decoded = decode_token(token)
         user_id = int(decoded.get('sub'))
@@ -3897,6 +3898,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
