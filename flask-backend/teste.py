@@ -3384,21 +3384,23 @@ Responda com base apenas na descrição das tables.
         tables: Optional[List[str]] = Field(description='Lista com nomes exatos das tabelas que podem ser usadas, exemplo: ["pedidos_resumo", "itens"]. Deixe como null se possibilidade for False.')
     return_final = None
 
-    def route(output: Simplificador):
-        print('\n--- Resultado do Neurônio ---')
-        print(f'Possibilidade: {output.possibilidade}')
-        print(f'Tables: {output.tables}\n')
+    def route(output):
         nonlocal return_final
-        if not output.possibilidade:
+        out = _coerce_simplificador(output)
+        print('\n--- Resultado do Neurônio ---')
+        print(f'Possibilidade: {out.possibilidade}')
+        print(f'Tables: {out.tables}\n')
+        
+        if not out.possibilidade:
             print('\n--- Resposta direta do LLM (sem banco) ---\n')
             resp = model.invoke('Voce nao tem acesso a esse dados, informe o vendedor que nao possui esses dados, mas tente ajudar da melhor forma que der'+guardar_mensagem)
             print('resp:',resp.content)
             return_final =  resp
-        elif output.tables:
+        elif out.tables:
             print('\n--- Próxima etapa: consultar essas tables ---\n')
-            print(f"Tabelas a consultar: {output.tables}")
+            print(f"Tabelas a consultar: {out.tables}")
             # Exemplo: chamar a próxima etapa de busca real
-            return_final =  chat_novai_manager_table_verification(output.tables, guardar_mensagem, user_id)
+            return_final =  chat_novai_manager_table_verification(out.tables, guardar_mensagem, user_id)
     try:
         
         chain = model.with_structured_output(Simplificador) | route
@@ -3915,6 +3917,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
