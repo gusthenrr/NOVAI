@@ -182,8 +182,9 @@ export default function App() {
       console.log(dados)
       setMensagem(dados.message)
       if (dados.status){
-        console.log('dados.token: ',dados.token)
-        localStorage.setItem("authToken", dados.token);
+        const token = dados.token
+        console.log('dados.token: ',token)
+        localStorage.setItem("authToken", token);
       if (window.__redirecting__) return;
       window.__redirecting__ = true;
 
@@ -222,5 +223,6 @@ export default function App() {
   );
 
 }
+
 
 
