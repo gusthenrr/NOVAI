@@ -1514,6 +1514,7 @@ def pegar_dados_gerais():
         return False
 
     sid = request.sid  # guarde o socket do cliente
+    print('token depois:', token)
     emit('guardar_token', {'token':token})
     socketio.start_background_task(run_pipeline, user_id, sid)
     emit('status_loading', {'message': 'Iniciando sincronização...'}, to=sid)
@@ -1578,7 +1579,7 @@ def run_pipeline(user_id, sid):
         #promocoes(user_id, access_token, seller_id)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Concluído!','status':True, 'token':token}, to=sid)
+        socketio.emit('status_loading', {'message': 'Concluído!','status':True}, to=sid)
 
     except Exception as e:
         socketio.emit('status_loading',
@@ -3913,6 +3914,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
