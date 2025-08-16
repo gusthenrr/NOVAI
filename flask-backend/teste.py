@@ -44,8 +44,7 @@ def get_db_connection():
 app = Flask(__name__)
 ALLOWED_ORIGIN = "https://app.nossopoint-backend-flask-server.com"
 socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN)
-SECRET_KEY = os.urandom(24)
-app.secret_key = os.urandom(24)
+app.secret_key = os.getenv("FLASK_SECRET_KEY") 
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
@@ -3924,6 +3923,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
