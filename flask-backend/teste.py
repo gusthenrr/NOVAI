@@ -70,7 +70,22 @@ load_dotenv(".env.local")
 api_key = os.getenv("OPENAI_API_KEY")
 LangChainTracer(project_name="novo_projeto")
 client = OpenAI(api_key=api_key)
-    
+
+COOKIE_NAME = "__Host-token"
+
+def set_auth_cookie(response, jwt_value: str):
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=jwt_value,
+        httponly=True,
+        secure=True,
+        samesite="None",
+        path="/",          # obrigatório p/ __Host-
+        # sem Domain! (host-only)
+        max_age=60*60*24,
+    )
+    return response
+
 # CRIAR CONTA DE USUARIO DA NOVAI
 @app.route('/add-usuario', methods=['POST'])
 def add_usuario():
@@ -255,17 +270,9 @@ def callback():
         token_jwt=gerar_token(usuario_id)
     print('chegou aqui')
     response = make_response(redirect("https://app.nossopoint-backend-flask-server.com/loading"))
-    response.set_cookie(
-    key="token",
-    value=token_jwt,
-    httponly=True,         # ✅ proteção contra XSS
-    secure=True,          # ⚠️ use True em produção com HTTPS
-    samesite='None',
-    #domain='.nossopoint-backend-flask-server.com',
-    path='/',
-    max_age=60 * 60 * 24
-    )
+    set_auth_cookie(response, token_jwt)
     return response
+   
 
 @app.route('/webhook/ml/messages', methods=['POST'])
 def webhook_mercado_livre_messages():
@@ -1220,7 +1227,8 @@ def verificar_id():
 @socketio.on('connect')
 def handle_connect():
     print('entrou no connect')
-    token = request.cookies.get('token')
+    token = request.cookies.get("__Host-token")
+
     if not token:
         print("Conexão sem token")
         handle_disconnect()
@@ -1484,7 +1492,8 @@ def sync_lock_release(user_id: int):
 @socketio.on('pegar_dados_inicias')
 def pegar_dados_gerais():
     print('pegar_dados_geraisF')
-    token = request.cookies.get('token')
+    token = request.cookies.get("__Host-token")
+
     if not token:
         return False
     print('token', token)
@@ -3254,7 +3263,8 @@ def chat_novai_manager_requisicao():
     print("ORIGIN:", request.headers.get("Origin"))
     
 
-    token = request.cookies.get('token')
+    token = request.cookies.get("__Host-token")
+
     data = request.get_json()
     print(data)
     mensagem = data.get('message')
@@ -3898,6 +3908,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
