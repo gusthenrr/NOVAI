@@ -44,6 +44,7 @@ def get_db_connection():
 app = Flask(__name__)
 ALLOWED_ORIGIN = "https://app.nossopoint-backend-flask-server.com"
 socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN)
+load_dotenv(".env.local")
 app.secret_key = os.getenv("FLASK_SECRET_KEY") 
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
@@ -65,12 +66,10 @@ CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
 # 🌎 URL de redirecionamento configurada no painel do Mercado Livre
 REDIRECT_URI = f"{url_global}/callback"
 
-load_dotenv(".env.local")
+
 api_key = os.getenv("OPENAI_API_KEY")
 LangChainTracer(project_name="novo_projeto")
 client = OpenAI(api_key=api_key)
-
-COOKIE_NAME = "__Host-token"
 
 COOKIE_NAME = "__Host-token"
 
@@ -3923,6 +3922,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
