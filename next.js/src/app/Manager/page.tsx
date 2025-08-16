@@ -60,6 +60,7 @@ export default function NovaiApp(): JSX.Element {
   // Efeito inicial para a mensagem de boas-vindas
   useEffect(() => {
     const tok = localStorage.getItem('authToken');
+    console.log('token get do manager useeffect: ', tok)
     if (tok) setToken(tok);
     
     const initialMessage = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
@@ -403,6 +404,7 @@ messageList: {
   },
 
 };
+
 
 
 
