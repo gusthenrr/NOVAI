@@ -3266,40 +3266,31 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     print('return pilot:', return_final)
     return return_final
 
-@app.route('/chat_novai_manager', methods=['POST'])
-@cross_origin(origins=ALLOWED_ORIGIN, supports_credentials=True)
-def chat_novai_manager_requisicao():
+@socketio.on('/chat_novai_manager')
+def chat_novai_manager_requisicao(data):
     print("HOST:", request.host)
     print("ORIGIN:", request.headers.get("Origin"))
     print("COOKIE HEADER:", request.headers.get("Cookie"))
     print("COOKIES KEYS:", list(request.cookies.keys()))  # debug
-
-    token = request.cookies.get('__Host-token')   # 👈👈👈 TROQUE PRA ISSO
-
-
+    
     token = request.cookies.get("__Host-token")
-
-    data = request.get_json()
-    print(data)
     mensagem = data.get('message')
-    
-    
     if not token:
         print('sem token')
-        return jsonify({'erro':False})
+        return
     print('token', token)
 
     try:
         decoded = decode_token(token)
         user_id = int(decoded.get('sub'))
     except jwt.InvalidTokenError:
-        return jsonify({'erro':False})
+        return
     exp_timestamp = decoded.get("exp")
     now = int(time.time())
     if exp_timestamp and exp_timestamp < now:
         return jsonify({"error": "Token expirado"}), 333
     if not user_id:
-        return jsonify({"error": "Parâmetro user_id ausente"}), 400
+        return
     model = ChatOpenAI(model='gpt-4o-mini')
 
     descricao_db = '''
@@ -3437,7 +3428,7 @@ Se não for possível usar Markdown, apenas responda normalmente.
         chain= prompt | model | StrOutputParser()
         resposta_final=chain.invoke({'mensagem_final':return_final, 'mensagem':guardar_mensagem})
         print('resposta final:', resposta_final)
-        return jsonify({'resposta_final':resposta_final})
+        emit('resposta_mensagem',{'resposta_final':resposta_final})
     except Exception as e:
         print(f'Erro ao processar o modelo: {e}')
 
@@ -3922,6 +3913,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
