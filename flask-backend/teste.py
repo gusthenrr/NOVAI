@@ -73,18 +73,29 @@ client = OpenAI(api_key=api_key)
 
 COOKIE_NAME = "__Host-token"
 
-def set_auth_cookie(response, jwt_value: str):
-    response.set_cookie(
+COOKIE_NAME = "__Host-token"
+
+def set_auth_cookie(resp, jwt_value: str):
+    resp.set_cookie(
         key=COOKIE_NAME,
         value=jwt_value,
         httponly=True,
         secure=True,
         samesite="None",
-        path="/",          # obrigatório p/ __Host-
-        # sem Domain! (host-only)
+        path="/",          # obrigatório para __Host-
+        # sem Domain -> host-only
         max_age=60*60*24,
     )
-    return response
+    return resp
+
+def clear_legacy_cookies(resp):
+    # apaga qualquer 'token' residual (host-only)
+    resp.set_cookie("token", "", max_age=0, path="/", secure=True, samesite="None")
+    # apaga variações com Domain que podem ter ficado
+    for d in [".nossopoint-backend-flask-server.com", "app.nossopoint-backend-flask-server.com"]:
+        resp.set_cookie("token", "", max_age=0, path="/", domain=d, secure=True, samesite="None")
+    return resp
+
 
 # CRIAR CONTA DE USUARIO DA NOVAI
 @app.route('/add-usuario', methods=['POST'])
@@ -270,7 +281,8 @@ def callback():
         token_jwt=gerar_token(usuario_id)
     print('chegou aqui')
     response = make_response(redirect("https://app.nossopoint-backend-flask-server.com/loading"))
-    set_auth_cookie(response, token_jwt)
+    response = clear_legacy_cookies(response)     # 👈 limpa lixo
+    response = set_auth_cookie(response, token_jwt)  # 👈 define só o __Host-token
     return response
    
 
@@ -3261,7 +3273,11 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
 def chat_novai_manager_requisicao():
     print("HOST:", request.host)
     print("ORIGIN:", request.headers.get("Origin"))
-    
+    print("COOKIE HEADER:", request.headers.get("Cookie"))
+    print("COOKIES KEYS:", list(request.cookies.keys()))  # debug
+
+    token = request.cookies.get('__Host-token')   # 👈👈👈 TROQUE PRA ISSO
+
 
     token = request.cookies.get("__Host-token")
 
@@ -3908,6 +3924,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
