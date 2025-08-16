@@ -1515,7 +1515,8 @@ def pegar_dados_gerais():
 
     sid = request.sid  # guarde o socket do cliente
     print('token depois:', token)
-    emit('guardar_token', {'token':token})
+    emit('guardar_token', {'token':token}, to=sid)
+    time.sleep(3)
     socketio.start_background_task(run_pipeline, user_id, sid)
     emit('status_loading', {'message': 'Iniciando sincronização...'}, to=sid)
 
@@ -3914,6 +3915,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
