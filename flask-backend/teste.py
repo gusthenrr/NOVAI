@@ -3266,7 +3266,7 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     print('return pilot:', return_final)
     return return_final
 
-@app.route('/chat_novai_manager')
+@app.route('/chat_novai_manager', methods=['POST'])
 def chat_novai_manager_requisicao(data):
     print('entrou aqui no chat')
     auth_header = request.headers.get("Authorization")
@@ -3911,6 +3911,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
