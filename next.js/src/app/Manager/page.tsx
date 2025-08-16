@@ -124,6 +124,7 @@ export default function NovaiApp(): JSX.Element {
   // --- Lógica de Interação com a API do Gemini ---
   const callOpenaiApi = async (prompt: string): Promise<string> => {
     setIsLoading(true);
+    console.log('aqui esta o token:', token)
     console.log("Chamando a API com o prompt:", prompt);
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat_novai_manager`, {
@@ -132,7 +133,6 @@ export default function NovaiApp(): JSX.Element {
             Authorization: `Bearer ${token}`
           },
         body: JSON.stringify({'message':prompt}),
-        credentials: 'include',
       });
       if (!response.ok) {
         throw new Error(`API Error: ${response.statusText}`);
@@ -402,6 +402,7 @@ messageList: {
   },
 
 };
+
 
 
 
