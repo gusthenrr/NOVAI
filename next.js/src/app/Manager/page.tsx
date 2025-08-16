@@ -118,18 +118,7 @@ export default function NovaiApp(): JSX.Element {
     setIsLoading(true);
     console.log("Chamando a API com o prompt:", prompt);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat_novai_manager`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json'},
-        body: JSON.stringify({'message':prompt}),
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.statusText}`);
-      }
-
-      const result = await response.json();
+      
       
       if (result.resposta_final) {
         const aiResponseText = result.resposta_final;
@@ -392,3 +381,4 @@ messageList: {
   },
 
 };
+
