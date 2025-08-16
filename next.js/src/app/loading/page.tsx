@@ -1,7 +1,11 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-
+declare global {
+  interface Window {
+    __redirecting__?: boolean;
+  }
+}
 // Componente da Tela de Carregamento
 const LoadingScreen = ({ mensagem }: { mensagem: string }) => {
   // --- Estilos CSS-in-JS para manter tudo em um único arquivo ---
@@ -229,6 +233,7 @@ export default function App() {
   );
 
 }
+
 
 
 
