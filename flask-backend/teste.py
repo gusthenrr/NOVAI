@@ -1,10 +1,6 @@
 from flask import Flask, request, jsonify, redirect, session, make_response
 from flask_cors import CORS, cross_origin
 import requests
-import eventlet
-eventlet.monkey_patch()
-from psycogreen.eventlet import patch_psycopg
-patch_psycopg()
 import uuid
 from uuid import UUID
 import hashlib
@@ -47,7 +43,7 @@ def get_db_connection():
 
 app = Flask(__name__)
 ALLOWED_ORIGIN = "https://app.nossopoint-backend-flask-server.com"
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN, async_mode='eventlet', ping_interval=20, ping_timeout=120)
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN)
 load_dotenv(".env.local")
 app.secret_key = os.getenv("FLASK_SECRET_KEY") 
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -1513,7 +1509,7 @@ def sync_lock_release(user_id: int):
 ###                         ###
 ### FUNÇÕES A SEREM CHAMADAS###
 ###                         ###
-@socketio.on('pegar_dados_inicias')
+@socketio.on('pegar_dados_iniciais')
 def pegar_dados_gerais():
     print('pegar_dados_geraisF')
     token = request.cookies.get("__Host-token")
@@ -3951,6 +3947,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
