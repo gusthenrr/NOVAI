@@ -1516,14 +1516,13 @@ def pegar_dados_gerais():
         user_id = int(decoded.get('sub'))
     except jwt.InvalidTokenError:
         return False
-
-    sid = request.sid  # guarde o socket do cliente
-    print('token depois:', token)
-    emit('guardar_token', {'token':token}, to=sid)
-    time.sleep(3)
     room=f'user:{user_id}'
+    join_room(room)
+    print('token depois:', token)
+    emit('guardar_token', {'token':token}, room=room)
+    socketio.sleep(3)   
     socketio.start_background_task(run_pipeline, user_id, room)
-    emit('status_loading', {'message': 'Iniciando sincronização...'})
+    emit('status_loading', {'message': 'Iniciando sincronização...'}, room=room)
 
 def run_pipeline(user_id, room):
     try:
@@ -3942,6 +3941,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
