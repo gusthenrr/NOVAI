@@ -291,10 +291,13 @@ def callback():
 @app.route('/webhook/ml/messages', methods=['POST'])
 def webhook_mercado_livre_messages():
     data = request.get_json(force=True) or {}
-    user_id = data.get('user_id')
+    id_ml = data.get('user_id')
     print("🔔 Notificação de mensagens recebida:", data)
     # 1) Sempre persistir e ACK rápido
     with get_db_connection() as conn, conn.cursor() as cur:
+        cur.execute('SELECT usuario_id from contas_mercado_livre WHERE id_ml=%s', (id_ml,))
+        usuario_id_dict = cur.fetchone()
+        user_id = usuario_id_dict['usuario_id']
         cur.execute(
             "INSERT INTO notification (notificacao, topic) VALUES (%s, %s)",
             (json.dumps(data), str(data.get('topic','')))
@@ -312,12 +315,12 @@ def webhook_mercado_livre_messages():
             cur.execute("SELECT pg_advisory_unlock(%s)", (int(user_id),))
 
     # 3) disparar processamento leve em background
-    socketio.start_background_task(processar_notificacao_ml, data)
+    socketio.start_background_task(processar_notificacao_ml, data, user_id)
     return jsonify({"status": "ok"}), 200
 
-def processar_notificacao_ml(data: dict):
+def processar_notificacao_ml(data: dict, user_id):
     with app.app_context():
-        user_id = data.get('user_id')
+        id_ml = data.get('user_id')
         # tente respeitar exclusividade por usuário
         got_lock = False
         if user_id is not None:
@@ -334,7 +337,7 @@ def processar_notificacao_ml(data: dict):
                     SELECT expiracao_token, refresh_token
                     FROM contas_mercado_livre
                     WHERE id_ml = %s
-                """, (user_id,))
+                """, (id_ml,))
                 row = cur.fetchone()
 
                 if row and row.get("expiracao_token") and now > row["expiracao_token"]:
@@ -347,17 +350,18 @@ def processar_notificacao_ml(data: dict):
                             expiracao_token=%s
                         WHERE id_ml=%s
                     """, (dados["access_token"], dados["novo_refresh_token"],
-                        dados["nova_expiracao"], user_id))
+                        dados["nova_expiracao"], id_ml))
+                    conn.commit()
 
                 cur.execute("""
                     SELECT acess_token, usuario_id
                     FROM contas_mercado_livre
                     WHERE id_ml = %s
-                """, (user_id,))
+                """, (id_ml,))
                 cred = cur.fetchone()
 
             if not cred:
-                app.logger.warning(f"[notif] credenciais não encontradas para id_ml={user_id}")
+                app.logger.warning(f"[notif] credenciais não encontradas para id_ml={id_ml}")
                 return
 
             topic = str(data.get('topic',''))
@@ -1580,7 +1584,7 @@ def run_pipeline(user_id, room):
         reclamacoes(access_token, user_id)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Promoções...'}, to=sid)
+        socketio.emit('status_loading', {'message': 'Promoções...'}, room=room)
         promocoes(user_id, access_token, seller_id)
         socketio.sleep(0)
 
@@ -3941,6 +3945,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
