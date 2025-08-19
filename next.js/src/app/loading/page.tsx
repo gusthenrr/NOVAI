@@ -182,7 +182,7 @@ export default function App() {
  useEffect(() => {
     console.log('Tela de loadig')
     console.log('mudou alguma coisa nessa desgraça')
-    socket.emit('pegar_dados_inicias');
+    socket.emit('pegar_dados_iniciais');
     socket.on('guardar_token', (resp)=>{
     console.log('entrou no guardar_token')
     if (resp){
@@ -233,6 +233,7 @@ export default function App() {
   );
 
 }
+
 
 
 
