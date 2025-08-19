@@ -1,6 +1,10 @@
 from flask import Flask, request, jsonify, redirect, session, make_response
 from flask_cors import CORS, cross_origin
 import requests
+import eventlet
+eventlet.monkey_patch()
+from psycogreen.eventlet import patch_psycopg
+patch_psycopg()
 import uuid
 from uuid import UUID
 import hashlib
@@ -8,7 +12,7 @@ import base64
 import os
 from langchain_core.runnables import RunnableLambda
 import threading
-from flask_socketio import SocketIO,emit
+from flask_socketio import SocketIO,emit, join_room
 from flask_session import Session
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -43,7 +47,7 @@ def get_db_connection():
 
 app = Flask(__name__)
 ALLOWED_ORIGIN = "https://app.nossopoint-backend-flask-server.com"
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN)
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN, async_mode='eventlet', ping_interval=20, ping_timeout=120)
 load_dotenv(".env.local")
 app.secret_key = os.getenv("FLASK_SECRET_KEY") 
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -149,14 +153,14 @@ def login():
     print("Entrou no login")
     user_id=session['novo_id']
     print("encontrou o user_id no /login: ", user_id)
-    
+
     if not user_id:
         return "Usuário não autenticado", 401
 
     state = str(uuid.uuid4())
     code_verifier = generate_code_verifier()
     code_challenge = generate_code_challenge(code_verifier)
-    
+
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -246,7 +250,7 @@ def callback():
     # Conecta ao banco e obtém o cursor
         conn = get_db_connection()
         cur = conn.cursor()
-        
+
         # Insere os dados na tabela contas_mercado_livre e retorna o id inserido
         cur.execute(
             """
@@ -262,12 +266,12 @@ def callback():
                 id_ml,
             )
         )
-        
+
         # Deleta o registro da tabela verifier relacionado ao usuário
         cur.execute("DELETE FROM verifier WHERE user_id = %s", (usuario_id,))
         if cur.rowcount == 0:
             print(f"Nenhum registro encontrado para o usuário {usuario_id} na tabela verifier")
-        
+
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -282,7 +286,7 @@ def callback():
     response = clear_legacy_cookies(response)     # 👈 limpa lixo
     response = set_auth_cookie(response, token_jwt)  # 👈 define só o __Host-token
     return response
-   
+
 
 @app.route('/webhook/ml/messages', methods=['POST'])
 def webhook_mercado_livre_messages():
@@ -388,7 +392,7 @@ def payments_notifications(data, acess_token_data):
     print("🔔 Notificação de envios recebida:", data)
     resource = data.get('resource', '')
     url_shipments = f"https://api.mercadolibre.com{resource}"
-    
+
 
 
 def public_offers_notifications(data, acess_token_data):
@@ -643,11 +647,11 @@ def claims_notifications(data, acess_token_data):
         expected_solution = settings.get('expected_resolutions', [])
         print("Nome da razão:", nome_reason)
         print("Soluções esperadas:", expected_solution)
-        
+
     #print('--------------------------------')
     url_details = f"https://api.mercadolibre.com/post-purchase/v1/claims/{claim_id}/detail"
     response_details = requests.get(url_details, headers=headers)
-    
+
     if response_details.status_code != 200:
         print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
         title = None
@@ -723,7 +727,7 @@ def orders_notifications(resource,acess_token, data_ant):
     print("🔔 Notificação de pedidos recebida:", resource)
     conn = get_db_connection()
     cur = conn.cursor()
-    
+
     try:
         headers = {"Authorization": f"Bearer {acess_token['acess_token']}"}
         url = f"https://api.mercadolibre.com/{resource}"
@@ -752,7 +756,7 @@ def orders_notifications(resource,acess_token, data_ant):
         payment_type = payments.get('payment_type', None)
         installments = payments.get('installments', None)
         installment_amount = payments.get('installment_amount', None)
-        
+
         order_data_orders = order_data.get('order_items', [])
         order_items = order_data_orders[0] if order_data_orders else {}
         items = order_items.get('item',{})
@@ -764,7 +768,7 @@ def orders_notifications(resource,acess_token, data_ant):
         unit_price = items.get('unit_price', None)
         sale_fee = items.get('sale_fee', None)
         quantity = items.get('quantity', None)
-        
+
         buyer_id = order_data.get('buyer', {}).get('id', None)
         tags = order_data.get('tags', [])
         fulfilled = order_data.get('fulfilled', False)
@@ -819,7 +823,7 @@ def orders_notifications(resource,acess_token, data_ant):
     #prompt='com base nessa table:{table_colunas}, e essa mensagem:{mensagem}, retorne uma query que busque uma resposta para a mensagem, nao necessariamente essa seria uma busca unica'
     #cur.execute(query)
     #prompt com base nessas informaçoes essa mensagem consegue ser respondida completamente ou precisa de uma nova busca em outra table, retorne uma resposta se caso nao precisar, e retornae outra query se precisar =
-    
+
 
 def pos_venda_notifications(data,acess_token_data, data_ant):
     print("🔔 Notificação de pós-venda recebida:", data)
@@ -881,7 +885,7 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
                         urls.append(atch.get('url'))
                 message_date=m.get('message_date')
                 data_envi=message_date['created']
-                
+
                 if data_envi in data_envio_existente and mensagem in mensagem_existente:
                     print("Mensagem já existe no banco de dados, não inserindo novamente.")
                     conn.close()
@@ -907,7 +911,7 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
         print("is_first_message:", is_first_message)
         print("pack_id:", pack_id)
         print("read:", read)
-        
+
         conn.commit()
         conn.close()
         cur.close()
@@ -1022,9 +1026,9 @@ def itens_notifications(data,acess_token_data):
         return {"ok": True, "message": "Item processado com sucesso"}
     except Exception as e:
         print("Deu tudo errrado:", str(e))
-        
 
-    
+
+
 def pegar_anuncio_novo(item_id, acess_token,user_id):
     try:
         print("Pegando anuncio novo")
@@ -1060,8 +1064,8 @@ def pegar_anuncio_novo(item_id, acess_token,user_id):
         permalink = data.get('permalink', 'N/A')
         recomended = data.get('recommended', False)
         image_quality = data.get('image_quality', 'N/A')
-        
-        
+
+
         cur.execute('''
         INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
         channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
@@ -1133,7 +1137,7 @@ def user_login():
         else:
             print('retornando erro 2')
             return jsonify({"message": "Usuário não encontrado", "status": "error"}), 404
-        
+
 
     except Exception as e:
         print("Erro capturado:", str(e))
@@ -1240,9 +1244,9 @@ def verificar_id():
 
 @socketio.on('connect')
 def handle_connect():
+    token = request.cookies.get('__Host-token')
     print('CONNECT host=', request.host)
     print('CONNECT cookies=', request.headers.get('Cookie'))
-    token = request.cookies.get('__Host-token')
     if not token:
         emit('status_loading', {'message': 'Conectado (sem token).'}, to=request.sid)
         return 
@@ -1250,7 +1254,7 @@ def handle_connect():
         user_id = int(decode_token(token)['sub'])
         emit('status_loading', {'message': 'Conectado.'})
     except Exception:
-        return False  # rejeita a conexão se não autenticar
+        return False  # rejeita a conexão se não autenticar 
       
 
 @socketio.on('disconnect')
@@ -1278,11 +1282,11 @@ def getMensagens(payload):
         """, (user_id, tipo))
 
         rows = cur.fetchall()
-      
+
         cur.execute("SELECT DISTINCT ON (cliente_nome) cliente_nome,mensagem,data_envio,item_id,autor FROM mensagens_clientes WHERE usuario_id_mensagem=%s AND tipo=%s ORDER BY cliente_nome,data_envio DESC", (user_id,tipo))
         rows_clientes=cur.fetchall()
-        
-        
+
+
 
         # Converte cada row (RealDictRow) em dict puro e serializa o datetime
         mensagens = []
@@ -1335,7 +1339,7 @@ def getMensagens(payload):
         cur.close() 
         conn.close()
         emit("respostaGetMensagens",data, broadcast=True)
-        
+
     except Exception as e:
         print("Erro ao pegar os dados:", str(e))
 
@@ -1361,10 +1365,10 @@ def mudar_modo_automatico(modo):
         seller=cur.fetchone()
         seller_id=seller['id_ml']
         cur.close()
-        
+
         conn.close()
         print(access_token)
-        
+
         #t = threading.Thread(target=listar_todos_itens, args=(user_id,seller_id,access_token))
         #t.start()
         #t = threading.Thread(target=faturamento_por_pedidos, args=(user_id,))
@@ -1385,7 +1389,7 @@ def mudar_modo_automatico(modo):
         #t.start()
         #chat('Conforme imagem do carregador e logo vou testar com o multímetro as baterias.','Lava Jato Portátil Alta Pressão Recarregável 2 Bateria Carro','Descrição: ATENÇÃO: Para o primeiro uso, conecte diretamente à torneira para remover o ar da máquina. Após isso, utilize normalmente no balde. Antes de usar o produto, carregue por 12 horas para uma carga completa. Transforme a limpeza em uma tarefa simples e sem esforço com a nossa Lavadora Jato Portátil de Alta Pressão, agora disponível para você! Seja em casa, no jardim, no carro ou em qualquer lugar que precise de uma limpeza poderosa, esta lavadora portátil é sua melhor aliada. Características Principais: -Alta Pressão Onde Você Precisa: Ajuste a intensidade conforme a necessidade da limpeza, de sujeiras leves a resistentes. -Portátil e Recarregável: Equipada com duas baterias recarregáveis para total liberdade de movimento. -Acessórios Completos: Bico extensor, dispenser de sabão, mangueira e mais para uma limpeza eficaz. -Fácil de Transportar e Armazenar: Guardada em uma maleta resistente e prática. -Ecológica e Econômica: Utilize apenas a quantidade necessária de água, evitando desperdícios. Conteúdo do Pacote: 1 Lavadora Jato Portátil de Alta Pressão 1 Filtro 2 Bicos (Alta Pressão/Spray) 1 Bico Extensor 1 Dispenser de Sabão 1 Mangueira 1 Fonte de Carregamento 2 Baterias 1 Maleta Resistente Ficha Técnica: -Consumo: 4L por minuto -Tensão do Carregador: 110V/220V (bivolt) -Bateria: 48v -Tempo de Recarga: 2-3 horas -Tempo de Uso: 1-3 horas -Funcionalidades: 3 -Bocal de Alta Pressão -Níveis de Pressão: Alto, Médio, Baixo - Com níveis de Pressão: Desde lavar carros até regar plantas. Material: Plástico com circuitos elétricos CUIDADOS: Quanto tempo dura a bateria? R: Até 1 hora. Esse modelo vem com os acessórios? R: Sim, com todos os descritos na descrição do produto. Qual é a pressão da máquina? R: 870 Psi de pressão. Pode usar com a mangueira em um balde com água? R: Sim, pode ser usada conectada à torneira ou em um balde com água. A carga dela é bivolt? R: Sim, o carregador pode ser usado em 110V ou 220V. A bateria vem junto e qual a amperagem dela? R: Sim, vem com a bateria de 4000mAh. Tensão do carregador: 110V/220V, 50Hz/60Hz. Vocês têm bateria separada? R: Sim temos, só solicitar o link ou ir em "Ver mais anúncios do vendedor" Não utilize sem água. Mantenha longe do alcance de crianças e animais. Evite contato com o corpo quando utilizada com altas pressões. Não desmonte o produto. Verifique o encaixe correto da bateria. Evite quedas do produto. Certifique-se de que o produto está devidamente carregado antes de usar.','Boa noite, recebi o produto, porém nao esta certo, na descricao diz que ele e de 48 volts, mas oque veio na verdade e de 21 volts',)
         #chat_novai_manager_separador_de_pergunta('quais produtos eu vendo melhor?',user_id)
-        
+
     except Exception as e:
         print("Erro no mudarmodo:", str(e))
 
@@ -1488,7 +1492,7 @@ def mensagem_cliente(data):
             print("payload:", payload)
             # agora emite pro front-end
         # 3) Por fim, atualiza a lista completa de mensagens (se for esse seu fluxo)
-        
+
         getMensagens(payload)
 
     except Exception as e:
@@ -1512,7 +1516,7 @@ def sync_lock_release(user_id: int):
 def pegar_dados_gerais():
     print('pegar_dados_geraisF')
     token = request.cookies.get("__Host-token")
-    
+
     if not token:
         return False
     print('token', token)
@@ -1597,7 +1601,7 @@ def run_pipeline(user_id, room):
                       room=room)
     finally:
         sync_lock_release(user_id)
-        
+
 
 
 def buscar_item(item_id,access_token):
@@ -1613,7 +1617,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
     print("Entrou na função listar_conversas_pos_venda")
     conn = get_db_connection()
     cur = conn.cursor()
- 
+
     cur.execute("SELECT pack_id FROM pedidos_resumo WHERE usuario_id_pedidos_resumo = %s AND last_updated>= NOW() - INTERVAL '2 month'", (user_id,))
     pack_id_lista = cur.fetchall()
     pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
@@ -1627,7 +1631,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
         print("data:", data)
         messages = data.get('messages')
         print("-------------------------------------------------------------")
-        
+
         if messages and isinstance(messages, list):
             for message in messages:
                 if message.get('text'):
@@ -1686,7 +1690,7 @@ def reclamacoes(access_token, user_id):
         if response.status_code != 200:
             print(f"❌ Erro ao buscar reclamações: {response.status_code}")
             break
-        
+
 
         data_geral = response.json()
         data = data_geral.get("data", [])
@@ -1719,7 +1723,7 @@ def reclamacoes(access_token, user_id):
                     print(f"Pack ID encontrado: {pack_id}")
             else :
                  pack_id= None
-    
+
 
             status = claim.get("status")
             tipo = claim.get("type")
@@ -1763,11 +1767,11 @@ def reclamacoes(access_token, user_id):
                 #print(f"Nome da razão: {nome_reason}")
                 settings = reason_data.get("settings", {})
                 expected_solution = settings.get('expected_resolutions', [])
-                
+
             #print('--------------------------------')
             url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
             response_details = requests.get(url_details, headers=headers)
-            
+
             if response_details.status_code != 200:
                 print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
             else:
@@ -1778,7 +1782,7 @@ def reclamacoes(access_token, user_id):
                 description = details.get("description")
                 action_responsible = details.get("action_responsible")
                 problem= details.get("problem")
-                
+
 
                 print(f'**************************************')
              #Inserir no banco
@@ -1862,7 +1866,7 @@ def reclamacoes(access_token, user_id):
                 if player["role"] == "respondent" and player["type"] == "seller":
                     vendedor_id = player["user_id"]
                     acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
-            
+
             reason = None
             resolution_date_created = None
             benefited = []
@@ -1893,7 +1897,7 @@ def reclamacoes(access_token, user_id):
 
             url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
             response_details = requests.get(url_details, headers=headers)
-            
+
             if response_details.status_code != 200:
                 print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
                 title = None
@@ -1909,7 +1913,7 @@ def reclamacoes(access_token, user_id):
                 print(f'**************************************')
 
 
-            
+
             # Inserir no banco
             cur.execute('''
                 INSERT INTO reclamacoes (
@@ -1941,7 +1945,7 @@ def faturamento_por_pedidos(user_id):
         token_acess=cur.fetchone()
         access_token=token_acess['acess_token']
         id=token_acess['id_ml']
-        
+
         url_pages=f"https://api.mercadolibre.com/orders/search?seller={id}"
         headers = {"Authorization": f"Bearer {access_token}"}
         response = requests.get(url_pages, headers=headers)
@@ -1961,7 +1965,7 @@ def faturamento_por_pedidos(user_id):
                 return []
             orders = response.json()
             results = orders.get("results", [])
-        
+
             for result in results:
                 payments = result.get("payments", [])
                 row_payments = payments[0] if payments else {}
@@ -2005,16 +2009,16 @@ def faturamento_por_pedidos(user_id):
                 #print(f"item_title = {item_title}, quantity = {quantity}, unit_price = {unit_price}")
                 #print(f"full_unit_price = {full_unit_price}, sale_fee = {sale_fee}, warranty = {warranty}")
                 #print(f"condition = {condition}, item_id = {item_id}")
-                
-                
+
+
                 fulfilled = result.get('fulfilled', False)
                 if not fulfilled:
                     print("fulfilled = False, continuando...")
-                    
+
                 date_created_order = result.get('date_created', 'Sem data de criação')
                 print(f'date_created_order: {date_created_order}')
                 date_closed = result.get('date_closed', 'Sem data de fechamento')
-                
+
                 date_last_updated_order = result.get('date_last_updated', 'Sem data de atualização')
                 total_amount = result.get('total_amount', 0)
                 paid_amount = result.get('paid_amount', 0)
@@ -2048,11 +2052,11 @@ def faturamento_por_pedidos(user_id):
                                  item_id, item_title, warranty, listing_type_id, category_name, unit_price, sale_fee, quantity, result.get('buyer', {}).get('id', 'Sem comprador'),
                                     result.get('tags', []), fulfilled, pack_id, user_id,))
                     conn.commit()
-                   
+
                 except Exception as e:
                     print(f"Erro ao inserir pedido {id_order}: {e}")
-        
-            
+
+
 
         conn.close()
         #print('faturamento dos ultimos 50 pedidos: R$ ', faturamentos)
@@ -2080,7 +2084,7 @@ def faturamento(user_id):
         if 'results' not in periodos_data:
             print("❌ Nenhum período encontrado.")
             return
-        
+
         # 📊 Iterar sobre os períodos
         for periodo in periodos_data['results']:
             key = periodo['key']  # Ex: "2024-12-01"
@@ -2089,7 +2093,7 @@ def faturamento(user_id):
             # 🔧 ADICIONADO group=ML
             url_summary = f"https://api.mercadolibre.com/billing/integration/periods/key/{key}/summary/details?group=ML&document_type=BILL"
 
-            
+
             response_summary = requests.get(url_summary, headers=headers)
             print("causa do erro: ", response_summary.text)
 
@@ -2251,17 +2255,17 @@ def dados_vendedor(access_token,user_id):
     cur.execute('''INSERT INTO dados_vendedor (id_ml, first_name, last_name, email, identification_number, identification_type, state,
     city, address, zip_code, phone_number, verified, nickname, registration_date, site_id, permalink,shipping_modes, logo, usuario_id_dados_vendedor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s,%s,%s,%s)''',
     (id_ml, first_name, last_name, email, identification_number, identification_type, state, city, address, zip_code, phone_number, verified,nickname, registration_date,site_id, permalink, shipping_modes, logo, user_id,)) 
-    
+
     cur.execute('''INSERT INTO reputacao_vendedor (level_id, power_seller_status, period, total_transactions, completed_transactions, canceled_transactions, positive_reviews, neutral_reviews, negative_reviews, tags, seller_experience,credit_level_id, consumed_credit, user_type, usuario_id_reputacao_vendedor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)''',
     (level_id, power_seller_status, period, total, completed, canceled, positive, neutral, negative,tags, seller_experience,credit_level_id, consumed_credit, user_type, user_id,))
 
     cur.execute('UPDATE contas_mercado_livre SET site_status = %s WHERE usuario_id = %s', (site_status, user_id,))
     conn.commit()
-    
+
     cur.close()
     conn.close()
 
-    
+
 def campanhas_e_anuncios(user_id, access_token):
     try:
         # Buscar anuncios
@@ -2289,7 +2293,7 @@ def campanhas_e_anuncios(user_id, access_token):
                 print(f"Erro ao fazer requisição para o item {item_id}: {e}")
                 cont_errados += 1
                 continue
-            
+
             if response.status_code not in [200, 206]:
                 print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {response.text}")
                 continue
@@ -2316,8 +2320,8 @@ def campanhas_e_anuncios(user_id, access_token):
             permalink = data.get('permalink', 'N/A')
             recomended = data.get('recommended', False)
             image_quality = data.get('image_quality', 'N/A')
-            
-            
+
+
             cur.execute('''
             INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
             channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
@@ -2330,11 +2334,11 @@ def campanhas_e_anuncios(user_id, access_token):
             print('inseriu anúncio:', item_id)
             inicio = datetime.now() - timedelta(days=90)
             print('inicio',inicio)
-            
+
             final = datetime.now() - timedelta(days=1)
             print('final',final)
 
-            
+
 
             url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
             response_summary = requests.get(url, headers=headers_url)
@@ -2342,7 +2346,7 @@ def campanhas_e_anuncios(user_id, access_token):
                 print(f"Erro ao buscar resumo do anúncio {item_id}:", response_summary.text)
                 return response_summary.status_code
             resumo_data = response_summary.json()
-            
+
             results_resumo = resumo_data.get('results', [])
             for resumo in results_resumo:
                 clicks = resumo.get('clicks', 0)
@@ -2367,7 +2371,7 @@ def campanhas_e_anuncios(user_id, access_token):
                 cvr = resumo.get('cvr', 0.0)
                 roas = resumo.get('roas', 0.0)
                 date = resumo.get('date', 'N/A')    
-                
+
 
                 cur.execute('''
                 INSERT INTO anuncios_metricas_diarias (id_anuncio, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, 
@@ -2378,14 +2382,14 @@ def campanhas_e_anuncios(user_id, access_token):
                 indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos, organic_units_amount,sov, ctr, cvr, roas, date, title, user_id,))
             conn.commit()
             print('----------------------------------------\n\n')
-        
+
 
             headers_url = {
             "Authorization": f"Bearer {access_token}",
             'api-version': '2',
             }
             #campanhas ativas do vendedor#
-            
+
 
         conn.commit()
         cur.execute("""DELETE FROM anuncios_metricas_diarias
@@ -2401,13 +2405,13 @@ def campanhas_e_anuncios(user_id, access_token):
         print(campanhas)
         print(item_ids)
         for i,campanha_id in enumerate(campanhas):
-            
+
             item_id = item_ids[i]
-            
+
             if campanha_id == 'N/A' or campanha_id == 0 or not campanha_id:
                     print(f"Campanha não encontrada {campanha_id}, continuando...")
                     continue
-                    
+
             url = f'''https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark'''
             response_campanha = requests.get(url, headers=headers_url)
             if response_campanha.status_code not in [200, 206]:
@@ -2416,7 +2420,7 @@ def campanhas_e_anuncios(user_id, access_token):
             result = response_campanha.json()
 
 
-            
+
             name = result.get('name', 'N/A')
             status = result.get('status', 'N/A')
             strategy = result.get('strategy', 'N/A')
@@ -2482,7 +2486,7 @@ def campanhas_e_anuncios(user_id, access_token):
                     print(f"ACOS Benchmark: {acos_benchmark}")
 
 
-                    
+
                     cur.execute('''
                     INSERT INTO campanhas_metricas_diarias (campanha_id, clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,
                     total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,
@@ -2509,11 +2513,11 @@ def campanhas_e_anuncios(user_id, access_token):
         conn.commit()
         conn.close()
         cur.close()
-        
+
     except Exception as e:
         print(f"Erro ao buscar campanhas e anúncios: {e}")
         return 500
-    
+
 def campanhas_e_anuncios_periodico():
     print("Entrou na função campanhas_e_anuncios_periodico")
     conn = get_db_connection()
@@ -2707,7 +2711,7 @@ def campanhas_e_anuncios_periodico():
                     print(f"ACOS Benchmark: {acos_benchmark}")
 
 
-                    
+
                     cur.execute('''
                     INSERT INTO campanhas_metricas_diarias (campanha_id, nome,clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,
                     total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,
@@ -2719,7 +2723,7 @@ def campanhas_e_anuncios_periodico():
                     direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_units_amount, organic_items_quantity, acos,
                     cvr, roas, sov, impression_share, top_impression_share,lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, date, usuario_id,))
                     conn.commit()
-        
+
 
 
 def promocoes(user_id, access_token,id_ml):
@@ -2827,7 +2831,7 @@ def promocoes(user_id, access_token,id_ml):
                 end_date = result.get('end_date', None)
                 sub_type = result.get('sub_type', None)
                 offer_id = result.get('offer_id', None)
-                
+
                 meli_percentage = result.get('meli_percentage', None)
                 seller_percentage = result.get('seller_percentage', None)
                 buy_quantity = result.get('buy_quantity', None)
@@ -2844,12 +2848,12 @@ def promocoes(user_id, access_token,id_ml):
                             min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
                             seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
                             discount_percentage, user_id,))
-            
-            
-            
 
-            
-            
+
+
+
+
+
     conn.commit()         
     cur.close()
     conn.close()   
@@ -2982,7 +2986,7 @@ def listar_conversas_pre_venda(user_id,id,access_token):
     if response.status_code not in [200, 206]:
         print("Erro ao buscar perguntas:", response.text)
         return []
-    
+
     total_pages = pages.get("total", 0)
     print("Total de páginas:", total_pages)
     print("limite:", pages.get("limit", 50))
@@ -3126,7 +3130,7 @@ def converter_zona_pro_brasil(ml_date):
 
 
 
-    
+
 def teste_itens_promovidos(access_token):
     print("Entrou na função teste_itens_promovidos")
     conn= get_db_connection()
@@ -3150,7 +3154,7 @@ def teste_itens_promovidos(access_token):
             print(f"Erro ao fazer requisição para o item {item_id}: {e}")
             cont_errados += 1
             continue
-        
+
         if response.status_code not in [200, 206]:
             print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {response.text}")
             continue
@@ -3165,15 +3169,15 @@ def teste_itens_promovidos(access_token):
         print(f"condition : {data.get('condition')}, 'N/A')")
         print(f"Total de itens processados: {len(itens)}"
         f"\nItens com sucesso: {cont_certos} \nItens com erro: {cont_errados}")
-        
-        
-    
 
 
 
-   
-    
-    
+
+
+
+
+
+
 
 def chat_pos_venda(mensagem: str, nome: str,descricao:str, contexto:str) -> str:
     print("entrou no chat")
@@ -3191,12 +3195,12 @@ def chat_pos_venda(mensagem: str, nome: str,descricao:str, contexto:str) -> str:
     except Exception as e:
         print("Erro na OpenAI:", e)
         return ""
-    
-    
-def chat_novai_manager_separador_de_pergunta():
-    
 
-    
+
+def chat_novai_manager_separador_de_pergunta():
+
+
+
     model = ChatOpenAI(model='gpt-4o-mini')
     prompt = ChatPromptTemplate.from_template('''
 Você é um assistente que organiza perguntas feitas por vendedores do Mercado Livre para um sistema de IA que responde com base nos dados do vendedor.
@@ -3237,7 +3241,7 @@ Agora analise a seguinte mensagem e retorne as perguntas ajustadas no formato de
     resposta_final=chain.invoke({'mensagem_final':informacao_final, 'mensagem':mensagem})
     print("resposta final: ", resposta_final)
     return jsonify({'resposta_final':resposta_final})
-    
+
 
 def chat_novai_manager_pilot(pergunta : str, user_id : int):
     model = ChatOpenAI(model='gpt-4o-mini')
@@ -3264,9 +3268,9 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
             print("resposta:",resposta)
             return_final = resposta
         elif input.resp=='dados_vendedor':
-            
+
             return_final = chat_novai_manager_requisicao(pergunta,user_id)
-           
+
         else:
             print("API do mercado livre resposta")
             return_final = "nao temos api do mercado livre "
@@ -3277,7 +3281,7 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     chain.invoke(pensamento)
     print('return pilot:', return_final)
     return return_final
-    
+
 class Simplificador(BaseModel):
     """Decide se é possível agregar dados com as tabelas disponíveis."""
     possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
@@ -3285,7 +3289,7 @@ class Simplificador(BaseModel):
         default=None,
         description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"]; ou null.'
     )
-    
+
 def _coerce_simplificador(v: Any) -> Simplificador:
     """Aceita dict ou já-instância e retorna um Simplificador robusto (Pydantic v2/v1)."""
     if isinstance(v, Simplificador):
@@ -3419,7 +3423,7 @@ Responda com base apenas na descrição das tables.
         print('\n--- Resultado do Neurônio ---')
         print(f'Possibilidade: {out.possibilidade}')
         print(f'Tables: {out.tables}\n')
-        
+
         if not out.possibilidade:
             print('\n--- Resposta direta do LLM (sem banco) ---\n')
             resp = model.invoke('Voce nao tem acesso a esse dados, informe o vendedor que nao possui esses dados, mas tente ajudar da melhor forma que der'+guardar_mensagem)
@@ -3431,7 +3435,7 @@ Responda com base apenas na descrição das tables.
             # Exemplo: chamar a próxima etapa de busca real
             return_final =  chat_novai_manager_table_verification(out.tables, guardar_mensagem, user_id)
     try:
-        
+
         chain = model.with_structured_output(Simplificador) | route
         chain.invoke(final_prompt_text)
         print("chegou aqui")
@@ -3466,13 +3470,13 @@ Se não for possível usar Markdown, apenas responda normalmente.
         print(f'Erro ao processar o modelo: {e}')
 
 
-    
-    
+
+
 
 def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int):
 
     model = ChatOpenAI(model='gpt-4o')
-    
+
     descricao_table = {
     "campanhas": """Tabela: 'campanhas'
     Descrição: Representa campanhas de publicidade criadas pelo vendedor.
@@ -3910,7 +3914,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     descricao_tables=''
     for table in tables:
         descricao_tables+=f'{descricao_table.get(table)}\n'
-    
+
     class Queries(BaseModel):
         lista: list[str] = Field(description='separe uma ou mais querys q estarão separadas por "," ou ";" ,tire os \n e "," no final e coisas que possam dar erro de sintaxe na query ,e retorne uma lista com elas para serem executadas')
     dados = None
@@ -3921,7 +3925,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
         nonlocal count
         conn=get_db_connection()
         cur=conn.cursor()
-        
+
         dados = []
         for respost in output.lista:
             try:
@@ -3934,60 +3938,16 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
                 dados.append(dado)
             except Exception as e:
                 print(f"Erro ao executar a query {respost}: {e}")       
-        
+
     chain = prompt | model.with_structured_output(Queries) | route
     chain.invoke({'data_atual':datetime.now(),'descricao_table':descricao_tables,'user_id':user_id,'mensagem':mensagem})
     print('dados retornados')
     print('\n'*8)
-    
+
     return dados
 
 
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
