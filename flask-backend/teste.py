@@ -1244,13 +1244,19 @@ def verificar_id():
 
 @socketio.on('connect')
 def handle_connect():
-    token = request.cookies.get('token')
+    print('CONNECT host=', request.host)
+    print('CONNECT cookies=', request.headers.get('Cookie'))
+    token = request.cookies.get('__Host-token')
+    if not token:
+        emit('status_loading', {'message': 'Conectado (sem token).'}, to=request.sid)
+        return 
     try:
         user_id = int(decode_token(token)['sub'])
+        join_room(f"user:{user_id}")
+        emit('status_loading', {'message': 'Conectado.'})
     except Exception:
         return False  # rejeita a conexão se não autenticar
-    join_room(f"user:{user_id}")
-    emit('status_loading', {'message': 'Conectado.'})  
+      
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -3945,6 +3951,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
