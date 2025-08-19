@@ -1248,7 +1248,6 @@ def handle_connect():
         return 
     try:
         user_id = int(decode_token(token)['sub'])
-        join_room(f"user:{user_id}")
         emit('status_loading', {'message': 'Conectado.'})
     except Exception:
         return False  # rejeita a conexão se não autenticar
@@ -3947,6 +3946,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
