@@ -1,6 +1,10 @@
 from flask import Flask, request, jsonify, redirect, session, make_response
 from flask_cors import CORS, cross_origin
 import requests
+import eventlet
+eventlet.monkey_patch()
+from psycogreen.eventlet import patch_psycog
+patch_psycog()
 import uuid
 from uuid import UUID
 import hashlib
@@ -43,7 +47,7 @@ def get_db_connection():
 
 app = Flask(__name__)
 ALLOWED_ORIGIN = "https://app.nossopoint-backend-flask-server.com"
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN)
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN, async_mode='eventlet', ping_interval=20, ping_timeout=120)
 load_dotenv(".env.local")
 app.secret_key = os.getenv("FLASK_SECRET_KEY") 
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -1236,13 +1240,13 @@ def verificar_id():
 
 @socketio.on('connect')
 def handle_connect():
-    print('entrou no connect')
-    token = request.cookies.get("__Host-token")
-
-    if not token:
-        print("Conexão sem token")
-        handle_disconnect()
-        return  
+    token = request.cookies.get('token')
+    try:
+        user_id = int(decode_token(token)['sub'])
+    except Exception:
+        return False  # rejeita a conexão se não autenticar
+    join_room(f"user:{user_id}")
+    emit('status_loading', {'message': 'Conectado.'})  
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -1517,16 +1521,17 @@ def pegar_dados_gerais():
     print('token depois:', token)
     emit('guardar_token', {'token':token}, to=sid)
     time.sleep(3)
-    socketio.start_background_task(run_pipeline, user_id, sid)
-    emit('status_loading', {'message': 'Iniciando sincronização...'}, to=sid)
+    room=f'user:{user_id}'
+    socketio.start_background_task(run_pipeline, user_id, room)
+    emit('status_loading', {'message': 'Iniciando sincronização...'})
 
-def run_pipeline(user_id, sid):
+def run_pipeline(user_id, room):
     try:
         # garante exclusividade por usuário
         if not sync_lock_acquire(user_id):
             socketio.emit('status_loading',
                           {'message': 'Já existe sincronização em andamento.', 'status': False},
-                          to=sid)
+                          room=room)
             return
 
         # pegue tudo o que precisa em UMA consulta
@@ -1541,38 +1546,38 @@ def run_pipeline(user_id, sid):
         if not row:
             socketio.emit('status_loading',
                           {'message': 'Conta não encontrada.', 'status': False},
-                          to=sid)
+                          room=room)
             return
 
         access_token = row['acess_token']
         seller_id    = row['id_ml']
 
         # etapas com yields para cooperar com eventlet
-        socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, to=sid)
-        listar_todos_itens(user_id, seller_id, access_token)
+        socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
+        #listar_todos_itens(user_id, seller_id, access_token)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, to=sid)
-        campanhas_e_anuncios(user_id, access_token)
+        socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, room=room)
+        #campanhas_e_anuncios(user_id, access_token)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, to=sid)
-        dados_vendedor(access_token, user_id)
+        socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, room=room)
+        #dados_vendedor(access_token, user_id)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, to=sid)
+        socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, room=room)
         faturamento_por_pedidos(user_id)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, to=sid)
+        socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, room=room)
         listar_conversas_pos_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, to=sid)
+        socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, room=room)
         listar_conversas_pre_venda(user_id, seller_id, access_token)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Reclamações...'}, to=sid)
+        socketio.emit('status_loading', {'message': 'Reclamações...'}, room=room)
         reclamacoes(access_token, user_id)
         socketio.sleep(0)
 
@@ -1580,12 +1585,12 @@ def run_pipeline(user_id, sid):
         promocoes(user_id, access_token, seller_id)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Concluído!','status':True}, to=sid)
+        socketio.emit('status_loading', {'message': 'Concluído!','status':True}, room=room)
 
     except Exception as e:
         socketio.emit('status_loading',
                       {'message': f'Erro: {e}', 'status': False},
-                      to=sid)
+                      room=room)
     finally:
         sync_lock_release(user_id)
         
@@ -3937,6 +3942,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
