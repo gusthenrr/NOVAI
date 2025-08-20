@@ -2016,7 +2016,7 @@ def faturamento_por_pedidos(user_id):
                     print("fulfilled = False, continuando...")
 
                 date_created_order = result.get('date_created', 'Sem data de criação')
-                date_created_order_dt=datetime.strptime(date_created_order, "%Y-%m-%d %H:%M:%SZ").replace(tzinfo=timezone.utc)
+                date_created_order_dt=datetime.fromisoformat(date_created_order).astimezone(timezone.utc)
                 days_90=datetime.now(timezone.utc) - timedelta(days=90)
                 if date_created_order_dt < days_90:
                     total_pages=0
@@ -3932,6 +3932,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
