@@ -3295,7 +3295,8 @@ def _coerce_simplificador(v: Any) -> Simplificador:
         return Simplificador.model_validate(v)  # type: ignore[attr-defined]
     except AttributeError:
         return Simplificador.parse_obj(v)       # Pydantic v1
-    except Exception:
+    except Exception as e:
+        print('ERROR no simplificador',str(e))
         # fallback super conservador
         return Simplificador(possibilidade=False, tables=None)
 
@@ -3375,8 +3376,8 @@ Seja extremamente direto.
             "pensamento": "analisando a descrição das tables, é possivel agregar essa informação atraves da table pedidos_resumo que contem informações dos pedidos e/ ou atraves da table anuncios_metricas_diarias que contem informações sobre os anuncios e suas metricas e vendas diarias"
         },
         {
-            "pergunta": "Qual minha reputação no Mercado Livre?",
-            "pensamento": "analisando a descrição das tables, não é possivel acessar essa informação então não é possível agregar a resposta"
+            "pergunta": "qual minha senha do mercado livre",
+            "pensamento": "analisando a descrição das tables,não é possível agregar essa informação atraves de nenhuma table"
         },
         {
             "pergunta": "Qual meu prazo para responder uma mensagem no pós-venda?",
@@ -3384,7 +3385,7 @@ Seja extremamente direto.
         },
         {
             "pergunta":"me mande qual item que mais vendi e a descricao dele",
-            "pensamento":"analisando a descricao das tables e suas Relações, é possível agregar a resposta atraves de duas tables: 'order' e 'itens'."
+            "pensamento":"analisando a descricao das tables e suas Relações, é possível agregar a resposta atraves de duas tables: 'pedidos_resumo' e 'itens'."
         }
     ]
 
@@ -3407,12 +3408,6 @@ Responda com base apenas na descrição das tables.
     )
 
     final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
-
-    class Simplificador(BaseModel):
-        '''Decide se é possível agregar dados com as tabelas disponíveis.'''
-        possibilidade: bool = Field(description='True se for possível buscar dados nas tabelas para responder a pergunta. False se não for possível.')
-        tables: Optional[List[str]] = Field(description='Lista com nomes exatos das tabelas que podem ser usadas, exemplo: ["pedidos_resumo", "itens"]. Deixe como null se possibilidade for False.')
-    return_final = None
 
     def route(output):
         nonlocal return_final
@@ -3947,6 +3942,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
