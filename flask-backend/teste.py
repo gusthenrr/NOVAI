@@ -3286,7 +3286,7 @@ class Simplificador(BaseModel):
     """Decide se é possível agregar dados com as tabelas disponíveis."""
     possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
     tables: Optional[List[str]] = Field(
-        default:None,
+        default=None,
         description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"] ou None.')
 
 def _coerce_simplificador(v: Any) -> Simplificador:
@@ -3944,6 +3944,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
