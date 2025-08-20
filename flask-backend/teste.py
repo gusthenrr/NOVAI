@@ -3285,17 +3285,19 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
 class Simplificador(BaseModel):
     """Decide se é possível agregar dados com as tabelas disponíveis."""
     possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
-    tables: Optional[List[str]] = Field(
-        default=None,
-        description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"] ou None.')
+    tables: List[str] = Field(description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"] ou None.')
 
 def _coerce_simplificador(v: Any) -> Simplificador:
     """Aceita dict ou já-instância e retorna um Simplificador robusto (Pydantic v2/v1)."""
+    print(f'v:{v}' )
     if isinstance(v, Simplificador):
+        print('if isinstance')
         return v
     try:  # Pydantic v2
+        print('try')
         return Simplificador.model_validate(v)  # type: ignore[attr-defined]
     except AttributeError:
+        print('attributeerror')
         return Simplificador.parse_obj(v)       # Pydantic v1
     except Exception as e:
         print('ERROR no simplificador',str(e))
@@ -3415,6 +3417,7 @@ Responda com base apenas na descrição das tables.
         nonlocal return_final
         out = _coerce_simplificador(output)
         print('\n--- Resultado do Neurônio ---')
+        print(f'out = {out}')
         print(f'Possibilidade: {out.possibilidade}')
         print(f'Tables: {out.tables}\n')
 
@@ -3944,6 +3947,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
