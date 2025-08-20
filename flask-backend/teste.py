@@ -3408,7 +3408,7 @@ Responda com base apenas na descrição das tables.
     )
 
     final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
-
+    return_final = None
     def route(output):
         nonlocal return_final
         out = _coerce_simplificador(output)
@@ -3942,6 +3942,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
