@@ -3282,27 +3282,9 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     print('return pilot:', return_final)
     return return_final
 
-class Simplificador(BaseModel):
-    """Decide se é possível agregar dados com as tabelas disponíveis."""
-    possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
-    tables: List[str] = Field(default_factory=list, description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"]. Use [] se nenhuma.')
 
-def _coerce_simplificador(v: Any) -> Simplificador:
-    """Aceita dict ou já-instância e retorna um Simplificador robusto (Pydantic v2/v1)."""
-    print(f'v:{v}' )
-    if isinstance(v, Simplificador):
-        print('if isinstance')
-        return v
-    try:  # Pydantic v2
-        print('try')
-        return Simplificador.model_validate(v)  # type: ignore[attr-defined]
-    except AttributeError:
-        print('attributeerror')
-        return Simplificador.parse_obj(v)       # Pydantic v1
-    except Exception as e:
-        print('ERROR no simplificador',str(e))
-        # fallback super conservador
-        return Simplificador(possibilidade=False, tables=None)
+
+
 
 @app.route('/chat_novai_manager', methods=['POST'])
 def chat_novai_manager_requisicao():
@@ -3412,15 +3394,14 @@ Responda com base apenas na descrição das tables.
     )
 
     final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
+    class Simplificador(BaseModel):
+    """Decide se é possível agregar dados com as tabelas disponíveis."""
+    possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
+    tables: Optional[List[str]] = Field(description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"]. Deixe como None se a possibilidade for false')
     return_final = None
-    def route(output):
+    def route(out: Simplificador):
         nonlocal return_final
-        out = _coerce_simplificador(output)
-        print('\n--- Resultado do Neurônio ---')
-        print(f'out = {out}')
-        print(f'Possibilidade: {out.possibilidade}')
-        print(f'Tables: {out.tables}\n')
-
+        print(f'output : {out}')
         if not out.possibilidade:
             print('\n--- Resposta direta do LLM (sem banco) ---\n')
             resp = model.invoke('Voce nao tem acesso a esse dados, informe o vendedor que nao possui esses dados, mas tente ajudar da melhor forma que der'+guardar_mensagem)
@@ -3947,6 +3928,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
