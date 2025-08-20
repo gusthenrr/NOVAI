@@ -2016,6 +2016,10 @@ def faturamento_por_pedidos(user_id):
                     print("fulfilled = False, continuando...")
 
                 date_created_order = result.get('date_created', 'Sem data de criação')
+                date_created_order_dt=datetime.strptime(date_created_order, "%Y-%m-%d %H:%M:%S")
+                days_90=datetime.now() - timedelta(days=90)
+                if date_created_order_dt < days_90:
+                    return  
                 print(f'date_created_order: {date_created_order}')
                 date_closed = result.get('date_closed', 'Sem data de fechamento')
 
@@ -3928,6 +3932,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
