@@ -17,7 +17,7 @@ from flask_session import Session
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import bcrypt
-from datetime import datetime,timedelta, date, time
+from datetime import datetime,timedelta, date, time, timezone
 from flask_jwt_extended import JWTManager, create_access_token,jwt_required,get_jwt_identity,decode_token
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -2016,10 +2016,11 @@ def faturamento_por_pedidos(user_id):
                     print("fulfilled = False, continuando...")
 
                 date_created_order = result.get('date_created', 'Sem data de criação')
-                date_created_order_dt=datetime.strptime(date_created_order, "%Y-%m-%d %H:%M:%S")
-                days_90=datetime.now() - timedelta(days=90)
+                date_created_order_dt=datetime.strptime(date_created_order, "%Y-%m-%d %H:%M:%SZ").replace(tzinfo=timezone.utc)
+                days_90=datetime.now(timezone.utc) - timedelta(days=90)
                 if date_created_order_dt < days_90:
-                    return  
+                    total_pages=0
+                    break
                 print(f'date_created_order: {date_created_order}')
                 date_closed = result.get('date_closed', 'Sem data de fechamento')
 
@@ -3122,7 +3123,6 @@ def getApiMercadoLivre(data):
     return True
 
 import pytz
-from datetime import datetime
 from dateutil import parser
 def converter_zona_pro_brasil(ml_date):
     dt = parser.parse(ml_date)
