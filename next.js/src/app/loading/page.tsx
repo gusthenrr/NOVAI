@@ -180,34 +180,51 @@ export default function App() {
 
   // Simula o carregamento de dados
  useEffect(() => {
-    console.log('Tela de loadig')
-    console.log('mudou alguma coisa nessa desgraça')
-    socket.emit('pegar_dados_iniciais');
-    socket.on('guardar_token', (resp)=>{
-    console.log('entrou no guardar_token')
-    if (resp){
-      console.log('entrou no if do resp')
-      console.log(resp)
-      localStorage.setItem("authToken", resp.token);    
-    }
-    })
-    socket.on('status_loading', (dados)=>{
-      console.log(dados)
-      setMensagem(dados.message)
-      if (dados.status){
-      if (window.__redirecting__) return;
-      window.__redirecting__ = true;
+  // dispara a sincronização (primeira vez e nas reconexões)
+  const startSync = () => {
+    socket.emit("pegar_dados_iniciais");
+  };
 
-    // 1) desconecta o socket
-    socket.once('disconnect', () => {
-      // 2) redireciona após desconectar
-      window.location.replace('/Manager');
-    });
-    socket.disconnect(); // ou socket.close()
+  // listeners
+  const onGuardarToken = (resp: any) => {
+    if (resp?.token) {
+      localStorage.setItem("authToken", resp.token);
     }
-    })
+  };
 
-  }, []);
+  const onStatusLoading = (dados: any) => {
+    setMensagem(dados.message);
+
+    if (dados.status) {
+      if ((window as any).__redirecting__) return;
+      (window as any).__redirecting__ = true;
+
+      // 1) desconecta
+      socket.once("disconnect", () => {
+        // 2) redireciona após desconectar
+        window.location.replace("/Manager");
+      });
+      socket.disconnect(); // ou socket.close()
+    }
+  };
+
+  // emite já no primeiro render (Socket.IO fila até conectar)
+  startSync();
+
+  // re-emite em toda reconexão (novo sid -> precisa reentrar no room)
+  socket.on("connect", startSync);
+
+  // registra listeners de dados
+  socket.on("guardar_token", onGuardarToken);
+  socket.on("status_loading", onStatusLoading);
+
+  // cleanup para não acumular handlers em remount/hot-reload
+  return () => {
+    socket.off("connect", startSync);
+    socket.off("guardar_token", onGuardarToken);
+    socket.off("status_loading", onStatusLoading);
+  };
+}, []);
 
   // Estilo para o conteúdo principal da página
   const mainContentStyle = {
@@ -233,6 +250,7 @@ export default function App() {
   );
 
 }
+
 
 
 
