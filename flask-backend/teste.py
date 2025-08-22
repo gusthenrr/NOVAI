@@ -2019,8 +2019,7 @@ def faturamento_por_pedidos(user_id):
                 date_created_order_dt=datetime.fromisoformat(date_created_order).astimezone(timezone.utc)
                 days_90=datetime.now(timezone.utc) - timedelta(days=90)
                 if date_created_order_dt < days_90:
-                    total_pages=0
-                    break
+                    return
                 print(f'date_created_order: {date_created_order}')
                 date_closed = result.get('date_closed', 'Sem data de fechamento')
 
@@ -3909,6 +3908,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
