@@ -1633,49 +1633,53 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
             url = f"https://api.mercadolibre.com/messages/packs/{pack_id}/sellers/{seller_id}?mark_as_read=false&tag=post_sale"
             response = requests.get(url, headers=headers)
             data = response.json()
-            print("data:", data)
-            messages = data.get('messages')
-            print("-------------------------------------------------------------")
-    
-            if messages and isinstance(messages, list):
-                for message in messages:
-                    if message.get('text'):
-                        from_user = message.get('from', {}).get('user_id')
-                        to_user = message.get('to', {}).get('user_id')
-                        author = 'buyer' if from_user != seller_id else 'seller'
-                        client_id = from_user if author == 'buyer' else to_user
-                        client_name = buscar_nome(client_id, access_token)
-    
-                        is_first_message = message.get('conversation_first_message', False)
-                        text = message.get('text')
-                        created_at = message.get('message_date', {}).get('created')
-                        read_flag = message.get('message_date', {}).get('read') is not None
-                        print("is_first_message:", is_first_message)
-                        print("text:", text)
-                        print("created_at:", created_at)
-                        print("author:", author)
-                        if text and created_at:
-                            created_at_brazil = converter_zona_pro_brasil(created_at)
-    
-                            cur.execute('''
-                                INSERT INTO messages (
-                                    client_name, message, date_created, author,
-                                    type, read, pack_id, is_first_message,usuario_id_messages
-                                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            ''', (
-                                client_name['nickname'],
-                                text,
-                                created_at_brazil,
-                                author,
-                                'post_sale',
-                                read_flag,
-                                pack_id,
-                                is_first_message,
-                                user_id,
-                            ))
-                        conn.commit()
-        cur.close()
-        conn.close()
+            paging = data.get('paging')
+            total = paging.get('total')
+            total_int = int(total)
+            if total>0:
+                print("data:", data)
+                messages = data.get('messages')
+                print("-------------------------------------------------------------")
+        
+                if messages and isinstance(messages, list):
+                    for message in messages:
+                        if message.get('text'):
+                            from_user = message.get('from', {}).get('user_id')
+                            to_user = message.get('to', {}).get('user_id')
+                            author = 'buyer' if from_user != seller_id else 'seller'
+                            client_id = from_user if author == 'buyer' else to_user
+                            client_name = buscar_nome(client_id, access_token)
+        
+                            is_first_message = message.get('conversation_first_message', False)
+                            text = message.get('text')
+                            created_at = message.get('message_date', {}).get('created')
+                            read_flag = message.get('message_date', {}).get('read') is not None
+                            print("is_first_message:", is_first_message)
+                            print("text:", text)
+                            print("created_at:", created_at)
+                            print("author:", author)
+                            if text and created_at:
+                                created_at_brazil = converter_zona_pro_brasil(created_at)
+        
+                                cur.execute('''
+                                    INSERT INTO messages (
+                                        client_name, message, date_created, author,
+                                        type, read, pack_id, is_first_message,usuario_id_messages
+                                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                ''', (
+                                    client_name['nickname'],
+                                    text,
+                                    created_at_brazil,
+                                    author,
+                                    'post_sale',
+                                    read_flag,
+                                    pack_id,
+                                    is_first_message,
+                                    user_id,
+                                ))
+                            conn.commit()
+            cur.close()
+            conn.close()
     except Expception as e:
         print(f'erro: {str(e)}')
         return False
@@ -3935,6 +3939,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
