@@ -2003,7 +2003,7 @@ def faturamento_por_pedidos(user_id):
                 item_id = item.get('id')
                 cur.execute("SELECT item_id FROM itens WHERE item_id = %s AND usuario_id_item = %s",(item_id, user_id,))
                 if not cur.fetchone():
-                    cur.execute('INSERT INTO itens (item_id,nome_item,usuario_id_item) VALUES (%s,%s,%s)',(item_id,item_title,user_id,))
+                    cur.execute('INSERT INTO itens (item_id,nome_item,usuario_id_item) VALUES (%s,%s,%s) ON CONFLICT (item_id) DO NOTHING',(item_id,item_title,user_id,))
                     conn.commit()
                 listing_type_id = row_order_items.get('listing_type_id', 'Sem tipo de listagem')
                 #print(f"item_title = {item_title}, quantity = {quantity}, unit_price = {unit_price}")
@@ -2052,7 +2052,7 @@ def faturamento_por_pedidos(user_id):
                     cur.execute('''INSERT INTO pedidos_resumo (id_order, date_created, date_closed, date_approved, last_updated, status, total_amount, paid_amount, shipping_cost, payment_method,
                                  payment_type, installments, installment_amount, item_id, item_title, item_warranty, listing_type_id, category_name, unit_price, sale_fee, quantity, buyer_id, tags, 
                                 fulfilled, pack_id, usuario_id_pedidos_resumo) VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',(id_order, date_created_order, date_closed, date_approved, date_last_updated_order, status,
+                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id_order) DO NOTHING''',(id_order, date_created_order, date_closed, date_approved, date_last_updated_order, status,
                                  total_amount, paid_amount, shipping_cost, payment_method_id, payment_type, installment, installment_amount,
                                  item_id, item_title, warranty, listing_type_id, category_name, unit_price, sale_fee, quantity, result.get('buyer', {}).get('id', 'Sem comprador'),
                                     result.get('tags', []), fulfilled, pack_id, user_id,))
@@ -2330,7 +2330,7 @@ def campanhas_e_anuncios(user_id, access_token):
             cur.execute('''
             INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
             channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
-            (%s ,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', (item_id,item_id ,listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
+            (%s ,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id_anuncio) DO NOTHING''', (item_id,item_id ,listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
             logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, user_id,))
             if not status == 'idle' and not campanha_id == 'N/A' and not campanha_id == 0 and (campanha_id not in campanhas):
                 campanhas.append(campanha_id)
@@ -2440,7 +2440,7 @@ def campanhas_e_anuncios(user_id, access_token):
             print(f"Orçamento: {budget}, Moeda: {currency_id}, Última atualização: {last_updated}")
             print(f"Data de criação: {date_created}, Canal: {channel}, ACOS Target: {acos_target}")
             print("---------------------------------------")
-            cur.execute('INSERT INTO campanhas (campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,usuario_id_campanhas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(campanha_id,name,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,user_id,))
+            cur.execute('INSERT INTO campanhas (campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,usuario_id_campanhas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (campanha_id) DO NOTHING',(campanha_id,name,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,user_id,))
             conn.commit()
             cur.execute('UPDATE anuncios SET campanha_id = %s WHERE item_id = %s AND usuario_id_anuncios = %s', (campanha_id, item_id, user_id,))
             conn.commit()
@@ -2764,7 +2764,7 @@ def promocoes(user_id, access_token,id_ml):
             start_date = resposta.get('start_date', None)
             deadline = resposta.get('deadline_date', None)
             name = resposta.get('name', None)
-            cur.execute('INSERT INTO promotion (id_promotion,type_promotion,status,finish_date,start_date,deadline_date,name, usuario_id_promotions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, status, finish_date, start_date, deadline, name,user_id,))
+            cur.execute('INSERT INTO promotion (id_promotion,type_promotion,status,finish_date,start_date,deadline_date,name, usuario_id_promotions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id_promotion) DO NOTHING',(id_promotion, type_promotion, status, finish_date, start_date, deadline, name,user_id,))
             conn.commit()
             if type_promotion == 'MARKET_PLACE_CAMPAIGN':
                 benefits = resposta.get('benefits', {})
@@ -2787,7 +2787,7 @@ def promocoes(user_id, access_token,id_ml):
                     meli_percent = benefits.get('meli_percent', None)
                     seller_percent = benefits.get('seller_percent', None)
                     benefits_type = benefits.get('type', None)
-                    cur.execute('''INSERT INTO pre_negotiated_type_promotion (id_promotion,type_promotion, 
+                    cur.execute('''INSERT INTO pre_negotiated_type_promotion_offers (id_promotion,type_promotion, 
                     offer_id,type_benefits, meli_percent, seller_percent, start_date, end_date, status, 
                     original_price, new_price, usuario_id_pre_negotiated_type_promotion_offers) 
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion, offer_id, benefits_type, meli_percent, seller_percent, start_date_offer, end_date_offer, status_offer, original_price, new_price,user_id,))
@@ -2802,8 +2802,8 @@ def promocoes(user_id, access_token,id_ml):
                 remaining_budget = resposta.get('remaining_budget', None)
                 used_coupons = resposta.get('used_coupons', None)
                 fixed_percentage = resposta.get('fixed_percentage', None)
-                cur.execute('''INSERT INTO seller_coupon_type_promotion (id_promotion,type_promotion,sub_type, fixed_amount, min_purchase_amount, max_purchase_amount, coupon_code, redeems_per_user,
-                budget, remaining_budget, used_coupons, fixed_coupons, usuario_id_seller_coupon_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion,sub_type,
+                cur.execute('''INSERT INTO seller_coupon_campaign_type_promotion (id_promotion,type_promotion,sub_type, fixed_amount, min_purchase_amount, max_purchase_amount, coupon_code, redeems_per_user,
+                budget, remaining_budget, used_coupons, fixed_coupons, usuario_id_seller_coupon_campaign_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion,sub_type,
                 fixed_amount,min_purchase_amount,max_purchase_amount,coupon_code,redeems_per_user, budget, remaining_budget, used_coupons, fixed_percentage, user_id,))
 
             elif type_promotion == 'VOLUME':
@@ -2885,29 +2885,6 @@ def listar_novas_conversas_pos_venda():
         except Exception as e:
             print(f"Erro ao listar conversas pós-venda para a conta ID {id_ml}: {e}")
 
-def listar_todos_itens_novos():
-    print("Entrou na função listar_todos_itens_novos")
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT usuario_id, acess_token FROM contas_mercado_livre")
-    contas = cur.fetchall()
-    for conta in contas:
-        user_id = conta['usuario_id']
-        access_token = conta['acess_token']
-        headers = {
-            "Authorization": f"Bearer {access_token}"
-        }
-        ml_response = requests.get("https://api.mercadolibre.com/users/me", headers=headers)
-        response_ml=ml_response.json()
-        id_ml=response_ml['id']
-        print(f"Processando conta ID: {id_ml}, User ID: {user_id}")
-        try:
-            listar_todos_itens(user_id,id_ml,access_token)
-        except Exception as e:
-            print(f"Erro ao listar itens para a conta ID {id_ml}: {e}")
-    cur.close()
-    conn.close()
-
 
 @app.route('/')
 def home():
@@ -2974,7 +2951,7 @@ def listar_todos_itens(user_id,id,access_token):
                 print(f"Item {item_id} encontrado: {nome_item}, Preço: {preco}, Quantidade: {quantidade}, Imagem: {imagem},preco_original: {preco_original}, preco_base: {preco_base}, descricao: {descricao}")
                 try:
                     cur.execute(
-                        'INSERT INTO itens (usuario_id_item, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,disponivel,tipo_ad,categoria) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                        'INSERT INTO itens (usuario_id_item, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,disponivel,tipo_ad,categoria) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (item_id) DO NOTHING',
                         (user_id, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,True,tipo_ad,categoria)
                     )
                     conn.commit()
@@ -3932,6 +3909,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
