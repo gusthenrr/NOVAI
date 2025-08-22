@@ -1627,7 +1627,6 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
         pack_id_lista = cur.fetchall()
         pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
         headers = {"Authorization": f"Bearer {access_token}"}
-        print("pack_id_list:", pack_id_list)
         for pack_id in pack_id_list:
     
             url = f"https://api.mercadolibre.com/messages/packs/{pack_id}/sellers/{seller_id}?mark_as_read=false&tag=post_sale"
@@ -1637,9 +1636,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
             total = paging.get('total')
             total_int = int(total)
             if total>0:
-                print("data:", data)
                 messages = data.get('messages')
-                print("-------------------------------------------------------------")
         
                 if messages and isinstance(messages, list):
                     for message in messages:
@@ -1654,10 +1651,6 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
                             text = message.get('text')
                             created_at = message.get('message_date', {}).get('created')
                             read_flag = message.get('message_date', {}).get('read') is not None
-                            print("is_first_message:", is_first_message)
-                            print("text:", text)
-                            print("created_at:", created_at)
-                            print("author:", author)
                             if text and created_at:
                                 created_at_brazil = converter_zona_pro_brasil(created_at)
         
@@ -1682,7 +1675,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
             conn.close()
     except Expception as e:
         print(f'erro: {str(e)}')
-        return False
+    print('Terminou de pegar as mensagens pos-venda')
 
 
 
@@ -1701,7 +1694,6 @@ def reclamacoes(access_token, user_id):
             url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=opened&offset={offset}&limit={limit}"
             response = requests.get(url, headers=headers)
             if response.status_code != 200:
-                print(f"❌ Erro ao buscar reclamações: {response.status_code}")
                 break
     
     
@@ -1709,7 +1701,6 @@ def reclamacoes(access_token, user_id):
             data = data_geral.get("data", [])
     
             if not data:
-                print("Nenhuma reclamação aberta encontrada ou limite de offset atingido.")
                 break
     
             for claim in data:
@@ -1722,7 +1713,6 @@ def reclamacoes(access_token, user_id):
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
                 elif resource_id=='shipment':
-                    print('shipment')
                     resource_id = 'pack_id'
                     url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource', 0)}/items"
                     response_order_shipment = requests.get(url_order_shipment, headers=headers)
@@ -1733,7 +1723,6 @@ def reclamacoes(access_token, user_id):
                         cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
                         pack_id_dict = cur.fetchone()
                         pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                        print(f"Pack ID encontrado: {pack_id}")
                 else :
                      pack_id= None
     
@@ -1771,7 +1760,6 @@ def reclamacoes(access_token, user_id):
                 url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
                 response_reason = requests.get(url_reason, headers=headers)
                 if response_reason.status_code != 200:
-                    print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
                     reason = None
                 else:
                     reason_data = response_reason.json()
@@ -1785,8 +1773,6 @@ def reclamacoes(access_token, user_id):
                 url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
                 response_details = requests.get(url_details, headers=headers)
     
-                if response_details.status_code != 200:
-                    print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
                 else:
                     details = response_details.json()
                     #print(f'Details: {details}')
@@ -1796,8 +1782,6 @@ def reclamacoes(access_token, user_id):
                     action_responsible = details.get("action_responsible")
                     problem= details.get("problem")
     
-    
-                    print(f'**************************************')
                  #Inserir no banco
     
                 cur.execute('''
@@ -1824,15 +1808,12 @@ def reclamacoes(access_token, user_id):
             url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=closed&offset={offset}&limit={limit}"
             response = requests.get(url, headers=headers)
             if response.status_code != 200:
-                print(f"❌ Erro ao buscar reclamações: {response.status_code}")
                 break
             data_geral = response.json()
             data = data_geral.get("data", [])
             if not data or offset>300:
-                print("Nenhuma reclamação fechada encontrada ou limite de offset atingido.")
                 break
             for i,claim in enumerate(data):
-                print ('i:', i)
                 claim_id = claim.get("id")
                 resource_id = claim.get("resource_id")
                 if resource_id=='order':
@@ -1842,7 +1823,6 @@ def reclamacoes(access_token, user_id):
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
                 elif resource_id=='shipment':
-                    print('shipment')
                     resource_id = 'pack_id'
                     url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource_id', 0)}/items"
                     response_order_shipment = requests.get(url_order_shipment, headers=headers)
@@ -1852,7 +1832,6 @@ def reclamacoes(access_token, user_id):
                         cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
                         pack_id_dict = cur.fetchone()
                         pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                        print(f"Pack ID encontrado: {pack_id}")
                 else :
                      pack_id= None
                 status = claim.get("status")
@@ -1870,7 +1849,6 @@ def reclamacoes(access_token, user_id):
                 comprador_id = None
                 vendedor_id = None
                 acoes_disponiveis = []
-                print(i)
     
                 players = claim.get("players", [])
                 for player in players:
@@ -1893,11 +1871,9 @@ def reclamacoes(access_token, user_id):
                     closed_by = resolution.get("closed_by")
                     apllied_coverage = resolution.get("applied_coverage", False)
     
-                print(f"Reclamação ID : {claim_id})")
                 url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
                 response_reason = requests.get(url_reason, headers=headers)
                 if response_reason.status_code != 200:
-                    print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
                     reason = None
                 else:
                     reason_data = response_reason.json()
@@ -1912,7 +1888,6 @@ def reclamacoes(access_token, user_id):
                 response_details = requests.get(url_details, headers=headers)
     
                 if response_details.status_code != 200:
-                    print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
                     title = None
                     due_date_detail = None
                     description = None
@@ -1923,7 +1898,6 @@ def reclamacoes(access_token, user_id):
                     #print(f'Details: {details}')
                     title = details.get("title")
                     description = details.get("description")
-                    print(f'**************************************')
     
     
     
@@ -1947,6 +1921,7 @@ def reclamacoes(access_token, user_id):
             conn.commit()
     except Exception as e:
         print(f'erro: {str(e)}')
+    print('Terminou de pegar as reclamacoes')
 
 
     print("✅ Sincronização de reclamações finalizada com sucesso.")
@@ -1965,18 +1940,14 @@ def faturamento_por_pedidos(user_id):
         headers = {"Authorization": f"Bearer {access_token}"}
         response = requests.get(url_pages, headers=headers)
         resposta=response.json()
-        print('chegou aqui')
         paging=resposta.get('paging')
-        print('chegou paging')
         total_pages=paging.get('total')
-        print('chegou total_pages: ', total_pages)
         for offset in range(0,total_pages,50):
             url = f"https://api.mercadolibre.com/orders/search?seller={id}&offset={offset}&limit=50&sort=date_desc"
 
 
             response = requests.get(url, headers=headers)
             if response.status_code not in [200, 206]:
-                print("Erro ao buscar pedidos:", response.text)
                 return []
             orders = response.json()
             results = orders.get("results", [])
@@ -1984,7 +1955,6 @@ def faturamento_por_pedidos(user_id):
             for result in results:
                 payments = result.get("payments", [])
                 row_payments = payments[0] if payments else {}
-                print("entrou no for de payments")
                 id_order = row_payments.get('order_id')
                 status = row_payments.get('status')
                 paid_amount = row_payments.get('total_paid_amount', 0)
@@ -2027,25 +1997,21 @@ def faturamento_por_pedidos(user_id):
 
 
                 fulfilled = result.get('fulfilled', False)
-                if not fulfilled:
-                    print("fulfilled = False, continuando...")
 
                 date_created_order = result.get('date_created', 'Sem data de criação')
                 date_created_order_dt=datetime.fromisoformat(date_created_order).astimezone(timezone.utc)
                 days_90=datetime.now(timezone.utc) - timedelta(days=90)
                 if date_created_order_dt < days_90:
+                    print('Passou dos 3 meses')
                     return
-                print(f'date_created_order: {date_created_order}')
                 date_closed = result.get('date_closed', 'Sem data de fechamento')
 
                 date_last_updated_order = result.get('date_last_updated', 'Sem data de atualização')
                 total_amount = result.get('total_amount', 0)
                 paid_amount = result.get('paid_amount', 0)
                 pack_id = result.get('pack_id', None)
-                print('pack_id:', pack_id)
                 if not pack_id:
                    pack_id = id_order
-                print(f"pack_id depois = {pack_id}")
                 cur.execute("INSERT INTO packs (pack_id,usuario_id_packs) VALUES (%s,%s) ON CONFLICT (pack_id) DO NOTHING", (pack_id,user_id,))
                 conn.commit()
                 if item.get('category_id'):
@@ -2055,7 +2021,6 @@ def faturamento_por_pedidos(user_id):
                         categoria_data = response.json()
                         category_id = categoria_data.get('id', 'Sem categoria')
                         category_name = categoria_data.get('name', 'Sem nome de categoria')
-                        print(f"Categoria ID: {category_id}, Nome da Categoria: {category_name}")
                 else:
                     category_id = 'Sem categoria'
                     category_name = 'Sem nome de categoria'
@@ -2082,8 +2047,7 @@ def faturamento_por_pedidos(user_id):
 
     except Exception as e:
         print("Erro no faturamento_ por pedidos:", str(e))
-        return False
-
+    print('Terminou de pegar os pedidos')
 def faturamento(user_id):
     try:
         print('🔍 Entrou na função faturamento para o usuário:', user_id)
@@ -2199,7 +2163,6 @@ def dados_vendedor(access_token,user_id):
         }
         response = requests.get(url, headers=headers)
         if response.status_code not in [200, 206]:
-            print("Erro ao buscar dados do vendedor:", response.text)
             return {}
         dados = response.json()
         #dados sensíveis do vendedor#
@@ -2219,11 +2182,6 @@ def dados_vendedor(access_token,user_id):
         area_code = phone_data.get('area_code', 'N/A')
         phone_number = phone_data.get('number', 'N/A')
         verified=phone_data.get('verified', False)
-        print("Dados sensíveis do vendedor: ")
-        print(f"ID: {id_ml}, Nome: {first_name} {last_name}, Email: {email}")
-        print(f"Identificação: {identification_type} {identification_number}, Endereço: {address}, {city}, {state}, CEP: {zip_code}")
-        print(f"Telefone: {area_code} {phone_number}, Verificado: {verified}")
-        print("---------------------------------------")
         conn = get_db_connection()
         cur=conn.cursor()
     
@@ -2242,18 +2200,9 @@ def dados_vendedor(access_token,user_id):
         negative = ratings.get('negative', 0)
         tags= dados.get('tags', [])
         seller_experience = dados.get('seller_experience', 'N/A')
-        print("Reputação do vendedor: ")
-        print(f"Nível: {level_id}, Power Seller Status: {power_seller_status}")
-        print(f"Período: {period}, Total de transações: {total}, Completadas: {completed}, Canceladas: {canceled}")
-        print(f"Avaliações - Positivas: {positive}, Neutras: {neutral}, Negativas: {negative}")
-        print(f"Tags: {', '.join(tags) if tags else 'Nenhuma'}, Seller Experience: {seller_experience}")
-        print("---------------------------------------")
         #status da conta  e permições#
         status= dados.get('status', '{}')
         site_status = status.get('site_status', 'N/A')
-        print("Status da conta e permissões: ")
-        print(f"Site Status: {site_status}")
-        print("---------------------------------------")
     
         #informações extras do vendedor#
         nickname = dados.get('nickname', 'N/A')
@@ -2267,12 +2216,6 @@ def dados_vendedor(access_token,user_id):
         consumed_credit = credit.get('consumed', 0)
         credit_level_id = credit.get('credit_level_id', 0)
         user_type = dados.get('user_type', 'N/A')
-        print("Informações extras do vendedor: ")
-        print(f"Nickname: {nickname}, Data de registro: {registration_date}, Site ID: {site_id}")
-        print(f"Permalink: {permalink}, Shipping Modes: {', '.join(shipping_modes) if shipping_modes else 'Nenhum'}")
-        print(f"Logo: {logo}, Pontos: {points}, Crédito consumido: {consumed_credit}, Nível de crédito: {credit_level_id}")
-        print(f"Tipo de usuário: {user_type}")
-        print("---------------------------------------")
         cur.execute('''INSERT INTO dados_vendedor (id_ml, first_name, last_name, email, identification_number, identification_type, state,
         city, address, zip_code, phone_number, verified, nickname, registration_date, site_id, permalink,shipping_modes, logo, usuario_id_dados_vendedor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s,%s,%s,%s)''',
         (id_ml, first_name, last_name, email, identification_number, identification_type, state, city, address, zip_code, phone_number, verified,nickname, registration_date,site_id, permalink, shipping_modes, logo, user_id,)) 
@@ -2287,6 +2230,7 @@ def dados_vendedor(access_token,user_id):
         conn.close()
     except Exception as e:
         print(f'erro: {str(e)}')
+    print('Terminou de pegar os dados do venedor')
 
 
 def campanhas_e_anuncios(user_id, access_token):
@@ -2307,18 +2251,14 @@ def campanhas_e_anuncios(user_id, access_token):
         item_ids = []
         for i,item in enumerate(itens):
             item_id = item['item_id']
-            print(f"item_id: {item_id}")
-            print (f'item {i}: ', end='')
             try:
                 url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
                 response = requests.get(url, headers=headers_url)
             except requests.exceptions.RequestException as e:
-                print(f"Erro ao fazer requisição para o item {item_id}: {e}")
                 cont_errados += 1
                 continue
 
             if response.status_code not in [200, 206]:
-                print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {response.text}")
                 continue
             cont_certos +=1
             data = response.json()
@@ -2354,19 +2294,15 @@ def campanhas_e_anuncios(user_id, access_token):
                 campanhas.append(campanha_id)
                 item_ids.append(item_id)
 
-            print('inseriu anúncio:', item_id)
             inicio = datetime.now() - timedelta(days=90)
-            print('inicio',inicio)
 
             final = datetime.now() - timedelta(days=1)
-            print('final',final)
 
 
 
             url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
             response_summary = requests.get(url, headers=headers_url)
             if response_summary.status_code not in [200, 206]:
-                print(f"Erro ao buscar resumo do anúncio {item_id}:", response_summary.text)
                 return response_summary.status_code
             resumo_data = response_summary.json()
 
@@ -2404,7 +2340,6 @@ def campanhas_e_anuncios(user_id, access_token):
                 item_id, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity,
                 indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos, organic_units_amount,sov, ctr, cvr, roas, date, title, user_id,))
             conn.commit()
-            print('----------------------------------------\n\n')
 
 
             headers_url = {
@@ -2425,20 +2360,16 @@ def campanhas_e_anuncios(user_id, access_token):
                     )
                     AND date >= NOW() - INTERVAL '90 days';
                     """, (user_id,))
-        print(campanhas)
-        print(item_ids)
         for i,campanha_id in enumerate(campanhas):
 
             item_id = item_ids[i]
 
             if campanha_id == 'N/A' or campanha_id == 0 or not campanha_id:
-                    print(f"Campanha não encontrada {campanha_id}, continuando...")
                     continue
 
             url = f'''https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark'''
             response_campanha = requests.get(url, headers=headers_url)
             if response_campanha.status_code not in [200, 206]:
-                print(f"Erro ao buscar campanha {campanha_id}:", response_campanha.text)
                 return response_campanha.status_code
             result = response_campanha.json()
 
@@ -2454,10 +2385,6 @@ def campanhas_e_anuncios(user_id, access_token):
             date_created = result.get('date_created', 'N/A')
             channel= result.get('channel', 'N/A')
             acos_target = result.get('acos_target', 0.0)
-            print(f"Campanha ID: {campanha_id}, Nome: {name}, Status: {status}, Estratégia: {strategy}")
-            print(f"Orçamento: {budget}, Moeda: {currency_id}, Última atualização: {last_updated}")
-            print(f"Data de criação: {date_created}, Canal: {channel}, ACOS Target: {acos_target}")
-            print("---------------------------------------")
             cur.execute('INSERT INTO campanhas (campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,usuario_id_campanhas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (campanha_id) DO NOTHING',(campanha_id,name,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,user_id,))
             conn.commit()
             cur.execute('UPDATE anuncios SET campanha_id = %s WHERE item_id = %s AND usuario_id_anuncios = %s', (campanha_id, item_id, user_id,))
@@ -2467,7 +2394,6 @@ def campanhas_e_anuncios(user_id, access_token):
                 url_campanhas_diaria = f"""https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"""
                 response_campanhas_diaria = requests.get(url_campanhas_diaria, headers=headers_url)
                 if response_campanhas_diaria.status_code not in [200, 206]:
-                    print("Erro ao buscar métricas diárias da campanha:", response_campanhas_diaria.text)
                     return response_campanhas_diaria.status_code
                 campanhas_diaria_data = response_campanhas_diaria.json() 
                 results_diaria = campanhas_diaria_data.get('results', [])
@@ -2499,14 +2425,6 @@ def campanhas_e_anuncios(user_id, access_token):
                     lost_impression_share_by_ad_rank = result_diaria.get('lost_impression_share_by_ad_rank', 0.0)
                     acos_benchmark = result_diaria.get('acos_benchmark', 0.0)
                     date = result_diaria.get('date', 'N/A')
-                    print(f"Data: {date}, Cliques: {clicks}, Impressões: {prints}, Custo: {cost}")
-                    print(f"CPC: {cpc}, CTR: {ctr}, Quantidade de unidades diretas: {direct_units_quantity}, Quantidade de unidades indiretas: {indirect_units_quantity}")
-                    print(f"Quantidade total de unidades: {units_quantity}, Quantidade de itens diretos: {direct_items_quantity}, Quantidade de itens indiretos: {indirect_items_quantity}")
-                    print(f"Quantidade de itens publicitários: {advertising_items_quantity}, Quantidade de unidades orgânicas: {organic_units_quantity}, Quantidade de montante orgânico: {organic_units_amount}")
-                    print(f"Quantidade de itens orgânicos: {organic_items_quantity}, ACOS: {acos}, CVR: {cvr}, ROAS: {roas}, SOV: {sov}")
-                    print(f"Participação de impressões: {impression_share}, Participação de impressões no topo: {top_impression_share}")
-                    print(f"Participação de impressões perdidas por orçamento: {lost_impression_share_by_budget}, Participação de impressões perdidas por classificação do anúncio: {lost_impression_share_by_ad_rank}")
-                    print(f"ACOS Benchmark: {acos_benchmark}")
 
 
 
@@ -2539,7 +2457,7 @@ def campanhas_e_anuncios(user_id, access_token):
 
     except Exception as e:
         print(f"Erro ao buscar campanhas e anúncios: {e}")
-        return 500
+    print('Terminou de pegar as campanhas e anuncios')
 
 def campanhas_e_anuncios_periodico():
     print("Entrou na função campanhas_e_anuncios_periodico")
@@ -2762,17 +2680,14 @@ def promocoes(user_id, access_token,id_ml):
         response = requests.get(url_promocoes, headers=headers)
         respostas = response.json()
         if response.status_code not in [200,206]:
-            print(f"Erro ao consultar promoções: {respostas.get('message', 'Erro desconhecido')}")
-            return None
+            return 
         paging= respostas.get('paging', {})
         total= paging.get('total', 0)
         limit= paging.get('limit', 0)
-        print(f"Total de promoções encontradas: {total}, Limite por página: {limit}")
         for offset in range(0,total,limit):
             url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2&offset={offset}&limit={limit}"
             response = requests.get(url_promocoes, headers=headers)
             if response.status_code not in [200, 206]:
-                print(f"Erro ao consultar promoções com offset {offset}: {response.text}")
                 continue
             respostas = response.json()
             for resposta in respostas.get('results', []):
@@ -2835,12 +2750,9 @@ def promocoes(user_id, access_token,id_ml):
                 url = f'https://api.mercadolibre.com/seller-promotions/promotions/{id_promotion}/items?promotion_type={type_promotion}&app_version=v2'
                 response = requests.get(url, headers=headers) 
                 if response.status_code not in [200]:
-                    print(f"Erro ao buscar itens da promoção {id_promotion}: {response.text}")
                     continue      
                 resp = response.json()
-                print(resp)
                 if not resp.get('results', None):
-                    print(f"Nenhum item encontrado para a promoção {id_promotion} do tipo {type_promotion}")
                     continue
                 for result in resp.get('results'):
                     id_promotion_item = id_promotion
@@ -2874,16 +2786,12 @@ def promocoes(user_id, access_token,id_ml):
                                 discount_percentage, user_id,))
     
     
-    
-    
-    
-    
         conn.commit()         
         cur.close()
         conn.close()
     except Exception as e:
         print(f'erro: {str(e)}')
-        return False
+    print('Terminou de pegar as promocoes')
 
 
 def listar_novas_conversas_pos_venda():
@@ -2921,30 +2829,25 @@ def listar_todos_itens(user_id,id,access_token):
         headers = {"Authorization": f"Bearer {access_token}"}
         response = requests.get(url, headers=headers)
         if response.status_code not in [200, 206]:
-            print("Erro ao buscar itens:", response.text)
-            return []
+            return False
         itens = response.json()
         itens_paging = itens.get('paging', {})
         total = itens_paging.get('total', 0)
         limit = itens_paging.get('limit', 0)
-        print("itens:", itens)
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT item_id FROM itens WHERE usuario_id_item=%s", (user_id,))
         itens_existentes = set()
         for linha in cur.fetchall():
             itens_existentes.add(linha['item_id'])
-        print("Itens existentes no banco:", itens_existentes)
         for offset in range(0, total, limit):
             url=f"https://api.mercadolibre.com/users/{id}/items/search?offset={offset}&limit={limit}"
             response = requests.get(url, headers=headers)
             if response.status_code not in [200]:
-                print(f"Erro ao buscar itens com offset {offset}: {response.text}")
                 continue
             itens = response.json()
             for item_id in itens.get('results', []):
                 if item_id not in itens_existentes:
-                    print(f"Item {item_id} não encontrado no banco, buscando detalhes...")
                     url_item = f"https://api.mercadolibre.com/items/{item_id}"
                     url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
                     response_descricao = requests.get(url_descricao, headers=headers)
@@ -2952,7 +2855,6 @@ def listar_todos_itens(user_id,id,access_token):
     
                     response_item = requests.get(url_item, headers=headers)
                     if response_item.status_code not in [200, 206]:
-                        print(f"Erro ao buscar item {item_id}: {response_item.status_code}")
                         continue
                     resposta_itens = response_item.json()
                     category_id = resposta_itens.get('category_id', 'N/A')
@@ -2960,10 +2862,8 @@ def listar_todos_itens(user_id,id,access_token):
                     categoria_dados= requests.get(url_cateogira, headers=headers)
                     categoria_json = categoria_dados.json()
                     categoria = categoria_json.get('name', 'N/A')
-                    print('categoria do item: ', categoria)
                     nome_item = resposta_itens.get('title', 'Sem título').strip()
                     tipo_ad = resposta_itens.get('listing_type_id', 'sem tipo ad')
-                    print("Pegou o: ",tipo_ad)
                     quantidade = resposta_itens.get('available_quantity', 0)
                     preco = resposta_itens.get('price', 0.0)
                     preco_original = resposta_itens.get('original_price', 0.0)
@@ -2971,19 +2871,17 @@ def listar_todos_itens(user_id,id,access_token):
                     descricao = resposta_descricao.get('plain_text', 'Sem descrição')
                     imagens = resposta_itens.get('pictures', [])
                     imagem = [img['url'] for img in imagens] if imagens else ['Sem imagem']
-                    print(f"Item {item_id} encontrado: {nome_item}, Preço: {preco}, Quantidade: {quantidade}, Imagem: {imagem},preco_original: {preco_original}, preco_base: {preco_base}, descricao: {descricao}")
                     try:
                         cur.execute(
                             'INSERT INTO itens (usuario_id_item, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,disponivel,tipo_ad,categoria) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (item_id) DO NOTHING',
                             (user_id, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,True,tipo_ad,categoria)
                         )
                         conn.commit()
-                        print(f"Item {item_id} inserido com sucesso.")
                     except Exception as e:
                         print(f"Erro ao inserir item {item_id} no banco: {e}")
     except Exception as e:
         print(f'erro: {str(e)}')   
-        return False 
+    print('Terminou de pegar os itens')
 
 def listar_conversas_pre_venda(user_id,id,access_token):
     try:
@@ -2993,18 +2891,14 @@ def listar_conversas_pre_venda(user_id,id,access_token):
         response = requests.get(url, headers=headers)
         pages = response.json()
         if response.status_code not in [200, 206]:
-            print("Erro ao buscar perguntas:", response.text)
             return []
     
         total_pages = pages.get("total", 0)
-        print("Total de páginas:", total_pages)
-        print("limite:", pages.get("limit", 50))
         for offset in range(0, total_pages, 50):
             url_recentes = f"https://api.mercadolibre.com/questions/search?seller_id={id}&api_version=4&limit=50&offset={offset}"
             respons = requests.get(url_recentes, headers=headers)
             time.sleep(0.3)  # Atraso de 300ms entre as requisições
             if respons.status_code not in [200, 206]:
-                print("Erro ao buscar perguntas recentes:", respons.text)
                 return []  
             conversas=respons.json()
             conn=get_db_connection()
@@ -3031,12 +2925,21 @@ def listar_conversas_pre_venda(user_id,id,access_token):
                         mensagem = m['text']
                         data_envi = m['date_created']
                         data_envio = converter_zona_pro_brasil(data_envi)
-    
+                    
                         if not comparar or (( cliente_id not in clientes_existentes) and  (mensagem not in mensagens_existentes)):
-                            print("entrou no if da comp")
                             cur.execute(
-                                "INSERT INTO messages (client_name,message,date_created,author,type,item_id,status,usuario_id_messages) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                                (cliente_nome['nickname'], mensagem, data_envio, 'cliente','pre_sale',item_id, status, user_id))
+                               """
+                        INSERT INTO messages
+                          (client_name, message, date_created, author, type, item_id, status, usuario_id_messages)
+                        SELECT %s, %s, %s, %s, %s, %s, %s, %s
+                        WHERE EXISTS (
+                          SELECT 1 FROM itens i
+                          WHERE i.item_id = %s
+                            AND i.usuario_id_item = %s
+                        );
+                        """,(cliente_nome['nickname'], resposta, data_envio, 'cliente', 'pre_sale',
+                            item_id, status, user_id,
+                            item_id, user_id,))
     
                     answer = m.get('answer')
                     if isinstance(answer, dict) and answer.get('text') and answer.get('date_created'):
@@ -3046,9 +2949,18 @@ def listar_conversas_pre_venda(user_id,id,access_token):
                         data_envio = converter_zona_pro_brasil(data_envi)
                         if not comparar or ((cliente_id not in clientes_existentes) and  (mensagem not in mensagens_existentes)):
                             cur.execute(
-                            "INSERT INTO messages (client_name,message,date_created,author,type,item_id,status,usuario_id_messages) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (cliente_nome['nickname'], resposta, data_envio, 'bot|vendedor', 'pre_sale', item_id, status, user_id,)
-                            )
+                               """
+                        INSERT INTO messages
+                          (client_name, message, date_created, author, type, item_id, status, usuario_id_messages)
+                        SELECT %s, %s, %s, %s, %s, %s, %s, %s
+                        WHERE EXISTS (
+                          SELECT 1 FROM itens i
+                          WHERE i.item_id = %s
+                            AND i.usuario_id_item = %s
+                        );
+                        """,(cliente_nome['nickname'], resposta, data_envio, 'bot|vendedor', 'pre_sale',
+                            item_id, status, user_id,
+                            item_id, user_id,))
     
                     conn.commit()
         conn.close()
@@ -3056,7 +2968,7 @@ def listar_conversas_pre_venda(user_id,id,access_token):
         return True
     except Exception as e:
         print(f'erro: {str(e)}')
-        return False 
+    print('Terminou de pegar as mensagens pre-venda') 
 
 
 def buscar_nome(id_do_cliente,access_token):
@@ -3939,6 +3851,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
