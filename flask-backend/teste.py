@@ -1514,24 +1514,28 @@ def sync_lock_release(user_id: int):
 ###                         ###
 @socketio.on('pegar_dados_iniciais')
 def pegar_dados_gerais():
-    print('pegar_dados_geraisF')
-    token = request.cookies.get("__Host-token")
-
-    if not token:
-        return False
-    print('token', token)
     try:
-        decoded = decode_token(token)
-        user_id = int(decoded.get('sub'))
-    except jwt.InvalidTokenError:
+        print('pegar_dados_geraisF')
+        token = request.cookies.get("__Host-token")
+    
+        if not token:
+            return False
+        print('token', token)
+        try:
+            decoded = decode_token(token)
+            user_id = int(decoded.get('sub'))
+        except jwt.InvalidTokenError:
+            return False
+        room=f'user:{user_id}'
+        join_room(room)
+        print('token depois:', token)
+        emit('guardar_token', {'token':token}, room=room)
+        socketio.sleep(3)   
+        socketio.start_background_task(run_pipeline, user_id, room)
+        emit('status_loading', {'message': 'Iniciando sincronização...'}, room=room)
+    except Exception as e:
+        print(f'erro: {str(e)}')
         return False
-    room=f'user:{user_id}'
-    join_room(room)
-    print('token depois:', token)
-    emit('guardar_token', {'token':token}, room=room)
-    socketio.sleep(3)   
-    socketio.start_background_task(run_pipeline, user_id, room)
-    emit('status_loading', {'message': 'Iniciando sincronização...'}, room=room)
 
 def run_pipeline(user_id, room):
     try:
@@ -1614,324 +1618,331 @@ def buscar_item(item_id,access_token):
     return response.json()
 
 def listar_conversas_pos_venda(user_id, seller_id, access_token):
-    print("Entrou na função listar_conversas_pos_venda")
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute("SELECT pack_id FROM pedidos_resumo WHERE usuario_id_pedidos_resumo = %s AND last_updated>= NOW() - INTERVAL '2 month'", (user_id,))
-    pack_id_lista = cur.fetchall()
-    pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
-    headers = {"Authorization": f"Bearer {access_token}"}
-    print("pack_id_list:", pack_id_list)
-    for pack_id in pack_id_list:
-
-        url = f"https://api.mercadolibre.com/messages/packs/{pack_id}/sellers/{seller_id}?mark_as_read=false&tag=post_sale"
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        print("data:", data)
-        messages = data.get('messages')
-        print("-------------------------------------------------------------")
-
-        if messages and isinstance(messages, list):
-            for message in messages:
-                if message.get('text'):
-                    from_user = message.get('from', {}).get('user_id')
-                    to_user = message.get('to', {}).get('user_id')
-                    author = 'buyer' if from_user != seller_id else 'seller'
-                    client_id = from_user if author == 'buyer' else to_user
-                    client_name = buscar_nome(client_id, access_token)
-
-                    is_first_message = message.get('conversation_first_message', False)
-                    text = message.get('text')
-                    created_at = message.get('message_date', {}).get('created')
-                    read_flag = message.get('message_date', {}).get('read') is not None
-                    print("is_first_message:", is_first_message)
-                    print("text:", text)
-                    print("created_at:", created_at)
-                    print("author:", author)
-                    if text and created_at:
-                        created_at_brazil = converter_zona_pro_brasil(created_at)
-
-                        cur.execute('''
-                            INSERT INTO messages (
-                                client_name, message, date_created, author,
-                                type, read, pack_id, is_first_message,usuario_id_messages
-                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ''', (
-                            client_name['nickname'],
-                            text,
-                            created_at_brazil,
-                            author,
-                            'post_sale',
-                            read_flag,
-                            pack_id,
-                            is_first_message,
-                            user_id,
-                        ))
-                    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        print("Entrou na função listar_conversas_pos_venda")
+        conn = get_db_connection()
+        cur = conn.cursor()
+    
+        cur.execute("SELECT pack_id FROM pedidos_resumo WHERE usuario_id_pedidos_resumo = %s AND last_updated>= NOW() - INTERVAL '2 month'", (user_id,))
+        pack_id_lista = cur.fetchall()
+        pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
+        headers = {"Authorization": f"Bearer {access_token}"}
+        print("pack_id_list:", pack_id_list)
+        for pack_id in pack_id_list:
+    
+            url = f"https://api.mercadolibre.com/messages/packs/{pack_id}/sellers/{seller_id}?mark_as_read=false&tag=post_sale"
+            response = requests.get(url, headers=headers)
+            data = response.json()
+            print("data:", data)
+            messages = data.get('messages')
+            print("-------------------------------------------------------------")
+    
+            if messages and isinstance(messages, list):
+                for message in messages:
+                    if message.get('text'):
+                        from_user = message.get('from', {}).get('user_id')
+                        to_user = message.get('to', {}).get('user_id')
+                        author = 'buyer' if from_user != seller_id else 'seller'
+                        client_id = from_user if author == 'buyer' else to_user
+                        client_name = buscar_nome(client_id, access_token)
+    
+                        is_first_message = message.get('conversation_first_message', False)
+                        text = message.get('text')
+                        created_at = message.get('message_date', {}).get('created')
+                        read_flag = message.get('message_date', {}).get('read') is not None
+                        print("is_first_message:", is_first_message)
+                        print("text:", text)
+                        print("created_at:", created_at)
+                        print("author:", author)
+                        if text and created_at:
+                            created_at_brazil = converter_zona_pro_brasil(created_at)
+    
+                            cur.execute('''
+                                INSERT INTO messages (
+                                    client_name, message, date_created, author,
+                                    type, read, pack_id, is_first_message,usuario_id_messages
+                                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ''', (
+                                client_name['nickname'],
+                                text,
+                                created_at_brazil,
+                                author,
+                                'post_sale',
+                                read_flag,
+                                pack_id,
+                                is_first_message,
+                                user_id,
+                            ))
+                        conn.commit()
+        cur.close()
+        conn.close()
+    except Expception as e:
+        print(f'erro: {str(e)}')
+        return False
 
 
 
 def reclamacoes(access_token, user_id):
-    print("Entrou na função de reclamações")
-
-    base_url = "https://api.mercadolibre.com"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    offset = 0
-    limit = 30
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    while True:
-        url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=opened&offset={offset}&limit={limit}"
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            print(f"❌ Erro ao buscar reclamações: {response.status_code}")
-            break
-
-
-        data_geral = response.json()
-        data = data_geral.get("data", [])
-
-        if not data:
-            print("Nenhuma reclamação aberta encontrada ou limite de offset atingido.")
-            break
-
-        for claim in data:
-            claim_id = claim.get("id")
-            resource_id = claim.get("resource")
-            if resource_id=='order':
-                resource_id = 'pack_id'
-                order_id=claim.get("resource_id")
-                cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
-                pack_id_dict = cur.fetchone()
-                pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-            elif resource_id=='shipment':
-                print('shipment')
-                resource_id = 'pack_id'
-                url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource', 0)}/items"
-                response_order_shipment = requests.get(url_order_shipment, headers=headers)
-                if response_order_shipment.status_code in [200,206]:
-
-                    order_data = response_order_shipment.json()
-                    order_id = order_data.get("order_id")
+    try:
+        print("Entrou na função de reclamações")
+    
+        base_url = "https://api.mercadolibre.com"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        offset = 0
+        limit = 30
+        conn = get_db_connection()
+        cur = conn.cursor()
+    
+        while True:
+            url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=opened&offset={offset}&limit={limit}"
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                print(f"❌ Erro ao buscar reclamações: {response.status_code}")
+                break
+    
+    
+            data_geral = response.json()
+            data = data_geral.get("data", [])
+    
+            if not data:
+                print("Nenhuma reclamação aberta encontrada ou limite de offset atingido.")
+                break
+    
+            for claim in data:
+                claim_id = claim.get("id")
+                resource_id = claim.get("resource")
+                if resource_id=='order':
+                    resource_id = 'pack_id'
+                    order_id=claim.get("resource_id")
                     cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                    print(f"Pack ID encontrado: {pack_id}")
-            else :
-                 pack_id= None
-
-
-            status = claim.get("status")
-            tipo = claim.get("type")
-            stage = claim.get("stage")
-            parent_id = claim.get("parent_id")  
-            reason_id = claim.get("reason_id")
-            fulfilled = claim.get("fulfilled")
-            quantity_type = claim.get("quantity_type")
-            site_id = claim.get("site_id")
-            date_created = claim.get("date_created")
-            last_updated = claim.get("last_updated")
-
-            # Players
-            comprador_id = None
-            vendedor_id = None
-            acoes_disponiveis = []
-
-            players = claim.get("players", [])
-            for player in players:
-                if player["role"] == "complainant" and player["type"] == "buyer":
-                    comprador_id = player["user_id"]
-                if player["role"] == "respondent" and player["type"] == "seller":
-                    vendedor_id = player["user_id"]
-                    acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
-            #print(f"Reclamação ID: {claim_id}, Comprador ID: {comprador_id}, Vendedor ID: {vendedor_id}")
-            #print(f"Status: {status}, Tipo: {tipo}, Stage: {stage}, Parent ID: {parent_id}")
-            #print(f"Resource: {resource}, Reason ID: {reason_id}, Fulfilled: {fulfilled}")
-            #print(f"Quantity Type: {quantity_type}, Site ID: {site_id}")
-            #print(f"Date Created: {date_created}, Last Updated: {last_updated}")
-            #print(f"Ações Disponíveis: {acoes_disponiveis}")
-            #print("-------------------------------------------------------------")
-            url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
-            response_reason = requests.get(url_reason, headers=headers)
-            if response_reason.status_code != 200:
-                print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
-                reason = None
-            else:
-                reason_data = response_reason.json()
-                #print(f'reason_data: {reason_data}')
-                nome_reason = reason_data.get("name")
-                #print(f"Nome da razão: {nome_reason}")
-                settings = reason_data.get("settings", {})
-                expected_solution = settings.get('expected_resolutions', [])
-
-            #print('--------------------------------')
-            url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
-            response_details = requests.get(url_details, headers=headers)
-
-            if response_details.status_code != 200:
-                print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
-            else:
-                details = response_details.json()
-                #print(f'Details: {details}')
-                title = details.get("title")
-                due_date_detail = details.get("due_date")
-                description = details.get("description")
-                action_responsible = details.get("action_responsible")
-                problem= details.get("problem")
-
-
-                print(f'**************************************')
-             #Inserir no banco
-
-            cur.execute('''
-                INSERT INTO reclamacoes (
-                    claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
-                  fulfilled, quantity_type, site_id, date_created, last_updated,
-                    comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes
-                )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (claim_id) DO NOTHING
-            ''', (
-               claim_id, resource_id, 'open', tipo, stage, parent_id, pack_id, reason_id,
-               fulfilled, quantity_type, site_id, date_created, last_updated,
-             comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,user_id,
-            ))
+                elif resource_id=='shipment':
+                    print('shipment')
+                    resource_id = 'pack_id'
+                    url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource', 0)}/items"
+                    response_order_shipment = requests.get(url_order_shipment, headers=headers)
+                    if response_order_shipment.status_code in [200,206]:
+    
+                        order_data = response_order_shipment.json()
+                        order_id = order_data.get("order_id")
+                        cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
+                        pack_id_dict = cur.fetchone()
+                        pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
+                        print(f"Pack ID encontrado: {pack_id}")
+                else :
+                     pack_id= None
+    
+    
+                status = claim.get("status")
+                tipo = claim.get("type")
+                stage = claim.get("stage")
+                parent_id = claim.get("parent_id")  
+                reason_id = claim.get("reason_id")
+                fulfilled = claim.get("fulfilled")
+                quantity_type = claim.get("quantity_type")
+                site_id = claim.get("site_id")
+                date_created = claim.get("date_created")
+                last_updated = claim.get("last_updated")
+    
+                # Players
+                comprador_id = None
+                vendedor_id = None
+                acoes_disponiveis = []
+    
+                players = claim.get("players", [])
+                for player in players:
+                    if player["role"] == "complainant" and player["type"] == "buyer":
+                        comprador_id = player["user_id"]
+                    if player["role"] == "respondent" and player["type"] == "seller":
+                        vendedor_id = player["user_id"]
+                        acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
+                #print(f"Reclamação ID: {claim_id}, Comprador ID: {comprador_id}, Vendedor ID: {vendedor_id}")
+                #print(f"Status: {status}, Tipo: {tipo}, Stage: {stage}, Parent ID: {parent_id}")
+                #print(f"Resource: {resource}, Reason ID: {reason_id}, Fulfilled: {fulfilled}")
+                #print(f"Quantity Type: {quantity_type}, Site ID: {site_id}")
+                #print(f"Date Created: {date_created}, Last Updated: {last_updated}")
+                #print(f"Ações Disponíveis: {acoes_disponiveis}")
+                #print("-------------------------------------------------------------")
+                url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
+                response_reason = requests.get(url_reason, headers=headers)
+                if response_reason.status_code != 200:
+                    print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
+                    reason = None
+                else:
+                    reason_data = response_reason.json()
+                    #print(f'reason_data: {reason_data}')
+                    nome_reason = reason_data.get("name")
+                    #print(f"Nome da razão: {nome_reason}")
+                    settings = reason_data.get("settings", {})
+                    expected_solution = settings.get('expected_resolutions', [])
+    
+                #print('--------------------------------')
+                url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
+                response_details = requests.get(url_details, headers=headers)
+    
+                if response_details.status_code != 200:
+                    print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
+                else:
+                    details = response_details.json()
+                    #print(f'Details: {details}')
+                    title = details.get("title")
+                    due_date_detail = details.get("due_date")
+                    description = details.get("description")
+                    action_responsible = details.get("action_responsible")
+                    problem= details.get("problem")
+    
+    
+                    print(f'**************************************')
+                 #Inserir no banco
+    
+                cur.execute('''
+                    INSERT INTO reclamacoes (
+                        claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
+                      fulfilled, quantity_type, site_id, date_created, last_updated,
+                        comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes
+                    )
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (claim_id) DO NOTHING
+                ''', (
+                   claim_id, resource_id, 'open', tipo, stage, parent_id, pack_id, reason_id,
+                   fulfilled, quantity_type, site_id, date_created, last_updated,
+                 comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,user_id,
+                ))
+                conn.commit()
+    
             conn.commit()
-
-        conn.commit()
-        offset += limit
-        time.sleep(0.2)
-        #request para claims fechadas
-    offset = 0
-    while True:
-        url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=closed&offset={offset}&limit={limit}"
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            print(f"❌ Erro ao buscar reclamações: {response.status_code}")
-            break
-        data_geral = response.json()
-        data = data_geral.get("data", [])
-        if not data or offset>300:
-            print("Nenhuma reclamação fechada encontrada ou limite de offset atingido.")
-            break
-        for i,claim in enumerate(data):
-            print ('i:', i)
-            claim_id = claim.get("id")
-            resource_id = claim.get("resource_id")
-            if resource_id=='order':
-                resource_id = 'pack_id'
-                order_id=claim.get("resource")
-                cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
-                pack_id_dict = cur.fetchone()
-                pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-            elif resource_id=='shipment':
-                print('shipment')
-                resource_id = 'pack_id'
-                url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource_id', 0)}/items"
-                response_order_shipment = requests.get(url_order_shipment, headers=headers)
-                if response_order_shipment.status_code in [200,206]:
-                    order_data = response_order_shipment.json()
-                    order_id = order_data.get("order_id")
+            offset += limit
+            time.sleep(0.2)
+            #request para claims fechadas
+        offset = 0
+        while True:
+            url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=closed&offset={offset}&limit={limit}"
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                print(f"❌ Erro ao buscar reclamações: {response.status_code}")
+                break
+            data_geral = response.json()
+            data = data_geral.get("data", [])
+            if not data or offset>300:
+                print("Nenhuma reclamação fechada encontrada ou limite de offset atingido.")
+                break
+            for i,claim in enumerate(data):
+                print ('i:', i)
+                claim_id = claim.get("id")
+                resource_id = claim.get("resource_id")
+                if resource_id=='order':
+                    resource_id = 'pack_id'
+                    order_id=claim.get("resource")
                     cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                    print(f"Pack ID encontrado: {pack_id}")
-            else :
-                 pack_id= None
-            status = claim.get("status")
-            tipo = claim.get("type")
-            stage = claim.get("stage")
-            parent_id = claim.get("parent_id")
-            reason_id = claim.get("reason_id")
-            fulfilled = claim.get("fulfilled")
-            quantity_type = claim.get("quantity_type")
-            site_id = claim.get("site_id")
-            date_created = claim.get("date_created")
-            last_updated = claim.get("last_updated")
-            resolution = claim.get("resolution", {})
-            # Players
-            comprador_id = None
-            vendedor_id = None
-            acoes_disponiveis = []
-            print(i)
-
-            players = claim.get("players", [])
-            for player in players:
-                if player["role"] == "complainant" and player["type"] == "buyer":
-                    comprador_id = player["user_id"]
-                if player["role"] == "respondent" and player["type"] == "seller":
-                    vendedor_id = player["user_id"]
-                    acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
-
-            reason = None
-            resolution_date_created = None
-            benefited = []
-            closed_by = None
-            apllied_coverage = False
-
-            if resolution:
-                reason = resolution.get("reason")
-                resolution_date_created = resolution.get("date_created")
-                benefited = resolution.get("benefited")
-                closed_by = resolution.get("closed_by")
-                apllied_coverage = resolution.get("applied_coverage", False)
-
-            print(f"Reclamação ID : {claim_id})")
-            url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
-            response_reason = requests.get(url_reason, headers=headers)
-            if response_reason.status_code != 200:
-                print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
+                elif resource_id=='shipment':
+                    print('shipment')
+                    resource_id = 'pack_id'
+                    url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource_id', 0)}/items"
+                    response_order_shipment = requests.get(url_order_shipment, headers=headers)
+                    if response_order_shipment.status_code in [200,206]:
+                        order_data = response_order_shipment.json()
+                        order_id = order_data.get("order_id")
+                        cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
+                        pack_id_dict = cur.fetchone()
+                        pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
+                        print(f"Pack ID encontrado: {pack_id}")
+                else :
+                     pack_id= None
+                status = claim.get("status")
+                tipo = claim.get("type")
+                stage = claim.get("stage")
+                parent_id = claim.get("parent_id")
+                reason_id = claim.get("reason_id")
+                fulfilled = claim.get("fulfilled")
+                quantity_type = claim.get("quantity_type")
+                site_id = claim.get("site_id")
+                date_created = claim.get("date_created")
+                last_updated = claim.get("last_updated")
+                resolution = claim.get("resolution", {})
+                # Players
+                comprador_id = None
+                vendedor_id = None
+                acoes_disponiveis = []
+                print(i)
+    
+                players = claim.get("players", [])
+                for player in players:
+                    if player["role"] == "complainant" and player["type"] == "buyer":
+                        comprador_id = player["user_id"]
+                    if player["role"] == "respondent" and player["type"] == "seller":
+                        vendedor_id = player["user_id"]
+                        acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
+    
                 reason = None
-            else:
-                reason_data = response_reason.json()
-                #print(f'reason_data: {reason_data}')
-                nome_reason = reason_data.get("name")
-
-            #print('--------------------------------')
-
-
-
-            url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
-            response_details = requests.get(url_details, headers=headers)
-
-            if response_details.status_code != 200:
-                print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
-                title = None
-                due_date_detail = None
-                description = None
-                action_responsible = None
-                problem= None
-            else:
-                details = response_details.json()
-                #print(f'Details: {details}')
-                title = details.get("title")
-                description = details.get("description")
-                print(f'**************************************')
-
-
-
-            # Inserir no banco
-            cur.execute('''
-                INSERT INTO reclamacoes (
+                resolution_date_created = None
+                benefited = []
+                closed_by = None
+                apllied_coverage = False
+    
+                if resolution:
+                    reason = resolution.get("reason")
+                    resolution_date_created = resolution.get("date_created")
+                    benefited = resolution.get("benefited")
+                    closed_by = resolution.get("closed_by")
+                    apllied_coverage = resolution.get("applied_coverage", False)
+    
+                print(f"Reclamação ID : {claim_id})")
+                url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
+                response_reason = requests.get(url_reason, headers=headers)
+                if response_reason.status_code != 200:
+                    print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
+                    reason = None
+                else:
+                    reason_data = response_reason.json()
+                    #print(f'reason_data: {reason_data}')
+                    nome_reason = reason_data.get("name")
+    
+                #print('--------------------------------')
+    
+    
+    
+                url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
+                response_details = requests.get(url_details, headers=headers)
+    
+                if response_details.status_code != 200:
+                    print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
+                    title = None
+                    due_date_detail = None
+                    description = None
+                    action_responsible = None
+                    problem= None
+                else:
+                    details = response_details.json()
+                    #print(f'Details: {details}')
+                    title = details.get("title")
+                    description = details.get("description")
+                    print(f'**************************************')
+    
+    
+    
+                # Inserir no banco
+                cur.execute('''
+                    INSERT INTO reclamacoes (
+                        claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
+                        fulfilled, quantity_type, site_id, date_created, last_updated,
+                        comprador_id, vendedor_id, acoes_disponiveis,name_reason, description, title,reason_resolution,
+                        date_resolution, benefited, resolution_closed_by, apllied_coverage ,usuario_id_reclamacoes
+                    )
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (claim_id) DO NOTHING
+                ''', (
                     claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
                     fulfilled, quantity_type, site_id, date_created, last_updated,
-                    comprador_id, vendedor_id, acoes_disponiveis,name_reason, description, title,reason_resolution,
-                    date_resolution, benefited, resolution_closed_by, apllied_coverage ,usuario_id_reclamacoes
-                )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (claim_id) DO NOTHING
-            ''', (
-                claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
-                fulfilled, quantity_type, site_id, date_created, last_updated,
-                comprador_id, vendedor_id, acoes_disponiveis,nome_reason,description,title,reason,resolution_date_created,benefited,closed_by,apllied_coverage,user_id,
-            ))
-        time.sleep(0.2)
-        offset += limit
-        conn.commit()
+                    comprador_id, vendedor_id, acoes_disponiveis,nome_reason,description,title,reason,resolution_date_created,benefited,closed_by,apllied_coverage,user_id,
+                ))
+            time.sleep(0.2)
+            offset += limit
+            conn.commit()
+    except Exception as e:
+        print(f'erro: {str(e)}')
 
 
     print("✅ Sincronização de reclamações finalizada com sucesso.")
@@ -2067,6 +2078,7 @@ def faturamento_por_pedidos(user_id):
 
     except Exception as e:
         print("Erro no faturamento_ por pedidos:", str(e))
+        return False
 
 def faturamento(user_id):
     try:
@@ -2175,99 +2187,102 @@ def listar_novas_conversas():
     conn.close()
 
 def dados_vendedor(access_token,user_id):
-    print("Entrou na função dados_vendedor")
-    url= "https://api.mercadolibre.com/users/me"
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-    response = requests.get(url, headers=headers)
-    if response.status_code not in [200, 206]:
-        print("Erro ao buscar dados do vendedor:", response.text)
-        return {}
-    dados = response.json()
-    #dados sensíveis do vendedor#
-    id_ml = dados.get('id')
-    first_name = dados.get('first_name', 'N/A')
-    last_name = dados.get('last_name', 'N/A')
-    email = dados.get('email', 'N/A')
-    indentification= dados.get('identification', {})
-    identification_number = indentification.get('number', 'N/A')
-    identification_type = indentification.get('type', 'N/A')
-    address_data = dados.get('address', {})
-    state= address_data.get('state', 'N/A')
-    city = address_data.get('city', 'N/A')
-    address = address_data.get('address', 'N/A')
-    zip_code = address_data.get('zip_code', 'N/A')
-    phone_data = dados.get('phone', {})
-    area_code = phone_data.get('area_code', 'N/A')
-    phone_number = phone_data.get('number', 'N/A')
-    verified=phone_data.get('verified', False)
-    print("Dados sensíveis do vendedor: ")
-    print(f"ID: {id_ml}, Nome: {first_name} {last_name}, Email: {email}")
-    print(f"Identificação: {identification_type} {identification_number}, Endereço: {address}, {city}, {state}, CEP: {zip_code}")
-    print(f"Telefone: {area_code} {phone_number}, Verificado: {verified}")
-    print("---------------------------------------")
-    conn = get_db_connection()
-    cur=conn.cursor()
-
-    #reputação do vendedor#
-    seller_reputation = dados.get('seller_reputation', {})
-    level_id = seller_reputation.get('level_id', 'N/A')
-    power_seller_status = seller_reputation.get('power_seller_status', 'N/A')
-    transactions = seller_reputation.get('transactions', {})
-    period = transactions.get('period', 'N/A')
-    total=transactions.get('total', 0)
-    completed = transactions.get('completed', 0)
-    canceled = transactions.get('canceled', 0)
-    ratings = transactions.get('ratings', {})
-    positive = ratings.get('positive', 0)
-    neutral = ratings.get('neutral', 0)
-    negative = ratings.get('negative', 0)
-    tags= dados.get('tags', [])
-    seller_experience = dados.get('seller_experience', 'N/A')
-    print("Reputação do vendedor: ")
-    print(f"Nível: {level_id}, Power Seller Status: {power_seller_status}")
-    print(f"Período: {period}, Total de transações: {total}, Completadas: {completed}, Canceladas: {canceled}")
-    print(f"Avaliações - Positivas: {positive}, Neutras: {neutral}, Negativas: {negative}")
-    print(f"Tags: {', '.join(tags) if tags else 'Nenhuma'}, Seller Experience: {seller_experience}")
-    print("---------------------------------------")
-    #status da conta  e permições#
-    status= dados.get('status', '{}')
-    site_status = status.get('site_status', 'N/A')
-    print("Status da conta e permissões: ")
-    print(f"Site Status: {site_status}")
-    print("---------------------------------------")
-
-    #informações extras do vendedor#
-    nickname = dados.get('nickname', 'N/A')
-    registration_date = dados.get('registration_date', 'N/A')
-    site_id = dados.get('site_id', 'N/A')
-    permalink = dados.get('permalink', 'N/A')
-    shipping_modes = dados.get('shipping_modes', [])
-    logo= dados.get('logo', 'N/A')
-    points=dados.get('points', 0)
-    credit= dados.get('credit', {})
-    consumed_credit = credit.get('consumed', 0)
-    credit_level_id = credit.get('credit_level_id', 0)
-    user_type = dados.get('user_type', 'N/A')
-    print("Informações extras do vendedor: ")
-    print(f"Nickname: {nickname}, Data de registro: {registration_date}, Site ID: {site_id}")
-    print(f"Permalink: {permalink}, Shipping Modes: {', '.join(shipping_modes) if shipping_modes else 'Nenhum'}")
-    print(f"Logo: {logo}, Pontos: {points}, Crédito consumido: {consumed_credit}, Nível de crédito: {credit_level_id}")
-    print(f"Tipo de usuário: {user_type}")
-    print("---------------------------------------")
-    cur.execute('''INSERT INTO dados_vendedor (id_ml, first_name, last_name, email, identification_number, identification_type, state,
-    city, address, zip_code, phone_number, verified, nickname, registration_date, site_id, permalink,shipping_modes, logo, usuario_id_dados_vendedor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s,%s,%s,%s)''',
-    (id_ml, first_name, last_name, email, identification_number, identification_type, state, city, address, zip_code, phone_number, verified,nickname, registration_date,site_id, permalink, shipping_modes, logo, user_id,)) 
-
-    cur.execute('''INSERT INTO reputacao_vendedor (level_id, power_seller_status, period, total_transactions, completed_transactions, canceled_transactions, positive_reviews, neutral_reviews, negative_reviews, tags, seller_experience,credit_level_id, consumed_credit, user_type, usuario_id_reputacao_vendedor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)''',
-    (level_id, power_seller_status, period, total, completed, canceled, positive, neutral, negative,tags, seller_experience,credit_level_id, consumed_credit, user_type, user_id,))
-
-    cur.execute('UPDATE contas_mercado_livre SET site_status = %s WHERE usuario_id = %s', (site_status, user_id,))
-    conn.commit()
-
-    cur.close()
-    conn.close()
+    try:
+        print("Entrou na função dados_vendedor")
+        url= "https://api.mercadolibre.com/users/me"
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+        response = requests.get(url, headers=headers)
+        if response.status_code not in [200, 206]:
+            print("Erro ao buscar dados do vendedor:", response.text)
+            return {}
+        dados = response.json()
+        #dados sensíveis do vendedor#
+        id_ml = dados.get('id')
+        first_name = dados.get('first_name', 'N/A')
+        last_name = dados.get('last_name', 'N/A')
+        email = dados.get('email', 'N/A')
+        indentification= dados.get('identification', {})
+        identification_number = indentification.get('number', 'N/A')
+        identification_type = indentification.get('type', 'N/A')
+        address_data = dados.get('address', {})
+        state= address_data.get('state', 'N/A')
+        city = address_data.get('city', 'N/A')
+        address = address_data.get('address', 'N/A')
+        zip_code = address_data.get('zip_code', 'N/A')
+        phone_data = dados.get('phone', {})
+        area_code = phone_data.get('area_code', 'N/A')
+        phone_number = phone_data.get('number', 'N/A')
+        verified=phone_data.get('verified', False)
+        print("Dados sensíveis do vendedor: ")
+        print(f"ID: {id_ml}, Nome: {first_name} {last_name}, Email: {email}")
+        print(f"Identificação: {identification_type} {identification_number}, Endereço: {address}, {city}, {state}, CEP: {zip_code}")
+        print(f"Telefone: {area_code} {phone_number}, Verificado: {verified}")
+        print("---------------------------------------")
+        conn = get_db_connection()
+        cur=conn.cursor()
+    
+        #reputação do vendedor#
+        seller_reputation = dados.get('seller_reputation', {})
+        level_id = seller_reputation.get('level_id', 'N/A')
+        power_seller_status = seller_reputation.get('power_seller_status', 'N/A')
+        transactions = seller_reputation.get('transactions', {})
+        period = transactions.get('period', 'N/A')
+        total=transactions.get('total', 0)
+        completed = transactions.get('completed', 0)
+        canceled = transactions.get('canceled', 0)
+        ratings = transactions.get('ratings', {})
+        positive = ratings.get('positive', 0)
+        neutral = ratings.get('neutral', 0)
+        negative = ratings.get('negative', 0)
+        tags= dados.get('tags', [])
+        seller_experience = dados.get('seller_experience', 'N/A')
+        print("Reputação do vendedor: ")
+        print(f"Nível: {level_id}, Power Seller Status: {power_seller_status}")
+        print(f"Período: {period}, Total de transações: {total}, Completadas: {completed}, Canceladas: {canceled}")
+        print(f"Avaliações - Positivas: {positive}, Neutras: {neutral}, Negativas: {negative}")
+        print(f"Tags: {', '.join(tags) if tags else 'Nenhuma'}, Seller Experience: {seller_experience}")
+        print("---------------------------------------")
+        #status da conta  e permições#
+        status= dados.get('status', '{}')
+        site_status = status.get('site_status', 'N/A')
+        print("Status da conta e permissões: ")
+        print(f"Site Status: {site_status}")
+        print("---------------------------------------")
+    
+        #informações extras do vendedor#
+        nickname = dados.get('nickname', 'N/A')
+        registration_date = dados.get('registration_date', 'N/A')
+        site_id = dados.get('site_id', 'N/A')
+        permalink = dados.get('permalink', 'N/A')
+        shipping_modes = dados.get('shipping_modes', [])
+        logo= dados.get('logo', 'N/A')
+        points=dados.get('points', 0)
+        credit= dados.get('credit', {})
+        consumed_credit = credit.get('consumed', 0)
+        credit_level_id = credit.get('credit_level_id', 0)
+        user_type = dados.get('user_type', 'N/A')
+        print("Informações extras do vendedor: ")
+        print(f"Nickname: {nickname}, Data de registro: {registration_date}, Site ID: {site_id}")
+        print(f"Permalink: {permalink}, Shipping Modes: {', '.join(shipping_modes) if shipping_modes else 'Nenhum'}")
+        print(f"Logo: {logo}, Pontos: {points}, Crédito consumido: {consumed_credit}, Nível de crédito: {credit_level_id}")
+        print(f"Tipo de usuário: {user_type}")
+        print("---------------------------------------")
+        cur.execute('''INSERT INTO dados_vendedor (id_ml, first_name, last_name, email, identification_number, identification_type, state,
+        city, address, zip_code, phone_number, verified, nickname, registration_date, site_id, permalink,shipping_modes, logo, usuario_id_dados_vendedor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s,%s,%s,%s)''',
+        (id_ml, first_name, last_name, email, identification_number, identification_type, state, city, address, zip_code, phone_number, verified,nickname, registration_date,site_id, permalink, shipping_modes, logo, user_id,)) 
+    
+        cur.execute('''INSERT INTO reputacao_vendedor (level_id, power_seller_status, period, total_transactions, completed_transactions, canceled_transactions, positive_reviews, neutral_reviews, negative_reviews, tags, seller_experience,credit_level_id, consumed_credit, user_type, usuario_id_reputacao_vendedor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)''',
+        (level_id, power_seller_status, period, total, completed, canceled, positive, neutral, negative,tags, seller_experience,credit_level_id, consumed_credit, user_type, user_id,))
+    
+        cur.execute('UPDATE contas_mercado_livre SET site_status = %s WHERE usuario_id = %s', (site_status, user_id,))
+        conn.commit()
+    
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f'erro: {str(e)}')
 
 
 def campanhas_e_anuncios(user_id, access_token):
@@ -2731,136 +2746,140 @@ def campanhas_e_anuncios_periodico():
 
 
 def promocoes(user_id, access_token,id_ml):
-    print(f"Consultando promoções do usuário")
-    conn= get_db_connection()
-    cur = conn.cursor() 
-    url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-    }
-    TYPES_NO_DETAILS = ["DOD", "LIGHTNING", "PRICE_DESCOUNT",]
-    response = requests.get(url_promocoes, headers=headers)
-    respostas = response.json()
-    if response.status_code not in [200,206]:
-        print(f"Erro ao consultar promoções: {respostas.get('message', 'Erro desconhecido')}")
-        return None
-    paging= respostas.get('paging', {})
-    total= paging.get('total', 0)
-    limit= paging.get('limit', 0)
-    print(f"Total de promoções encontradas: {total}, Limite por página: {limit}")
-    for offset in range(0,total,limit):
-        url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2&offset={offset}&limit={limit}"
+    try:
+        print(f"Consultando promoções do usuário")
+        conn= get_db_connection()
+        cur = conn.cursor() 
+        url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+        }
+        TYPES_NO_DETAILS = ["DOD", "LIGHTNING", "PRICE_DESCOUNT",]
         response = requests.get(url_promocoes, headers=headers)
-        if response.status_code not in [200, 206]:
-            print(f"Erro ao consultar promoções com offset {offset}: {response.text}")
-            continue
         respostas = response.json()
-        for resposta in respostas.get('results', []):
-            id_promotion = resposta.get('id', None)
-            type_promotion = resposta.get('type', None)
-            status = resposta.get('status', None)
-            finish_date = resposta.get('finish_date')
-            start_date = resposta.get('start_date', None)
-            deadline = resposta.get('deadline_date', None)
-            name = resposta.get('name', None)
-            cur.execute('INSERT INTO promotion (id_promotion,type_promotion,status,finish_date,start_date,deadline_date,name, usuario_id_promotions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id_promotion) DO NOTHING',(id_promotion, type_promotion, status, finish_date, start_date, deadline, name,user_id,))
-            conn.commit()
-            if type_promotion == 'MARKET_PLACE_CAMPAIGN':
-                benefits = resposta.get('benefits', {})
-                if benefits:
-                    meli_percent = benefits.get('meli_percent', None)
-                    seller_percent = benefits.get('seller_percent', None)
-                    benefits_type = benefits.get('type', None)
-                    cur.execute('INSERT INTO market_place_campaign_type_promotion (id_promotion, type_promotion, type_benefits, meli_percent,seller_percent,usuario_id_marketplace_campaign_type_promotion) VALULES (%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, benefits_type, meli_percent, seller_percent,user_id,))
-
-            elif type_promotion == 'PRE_NEGOTIATED' or type_promotion == 'UNHEALTHY_STOCK':
-                offers = resposta.get('offers',[])
-                for offer in offers:
-                    offer_id = offer.get('id', None)
-                    original_price = offer.get('original_price', None)
-                    new_price = offer.get('new_price', None)
-                    status_offer = offer.get('status', None)
-                    start_date_offer = offer.get('start_date', None)
-                    end_date_offer = offer.get('end_date', None)
-                    benefits = offer.get('benefits', {})
-                    meli_percent = benefits.get('meli_percent', None)
-                    seller_percent = benefits.get('seller_percent', None)
-                    benefits_type = benefits.get('type', None)
-                    cur.execute('''INSERT INTO pre_negotiated_type_promotion_offers (id_promotion,type_promotion, 
-                    offer_id,type_benefits, meli_percent, seller_percent, start_date, end_date, status, 
-                    original_price, new_price, usuario_id_pre_negotiated_type_promotion_offers) 
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion, offer_id, benefits_type, meli_percent, seller_percent, start_date_offer, end_date_offer, status_offer, original_price, new_price,user_id,))
-            elif type_promotion == 'SELLER_COUPON_CAMPAIGN':
-                sub_type = resposta.get('sub_type', None)
-                fixed_amount = resposta.get('fixed_amount', None)
-                min_purchase_amount = resposta.get('min_purchase_amount',None)
-                max_purchase_amount = resposta.get('max_purchase_amount', None)
-                coupon_code = resposta.get('coupon_code', None)
-                redeems_per_user = resposta.get('redeems_per_user', None)
-                budget = resposta.get('budget',None)
-                remaining_budget = resposta.get('remaining_budget', None)
-                used_coupons = resposta.get('used_coupons', None)
-                fixed_percentage = resposta.get('fixed_percentage', None)
-                cur.execute('''INSERT INTO seller_coupon_campaign_type_promotion (id_promotion,type_promotion,sub_type, fixed_amount, min_purchase_amount, max_purchase_amount, coupon_code, redeems_per_user,
-                budget, remaining_budget, used_coupons, fixed_coupons, usuario_id_seller_coupon_campaign_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion,sub_type,
-                fixed_amount,min_purchase_amount,max_purchase_amount,coupon_code,redeems_per_user, budget, remaining_budget, used_coupons, fixed_percentage, user_id,))
-
-            elif type_promotion == 'VOLUME':
-                buy_quantity = resposta.get('buy_quantity', None)
-                pay_quantity= resposta.get('pay_quantity', None)
-                allow_combination = resposta.get('allow_combination', None)
-                sub_type = resposta.get('sub_type', None)
-                cur.execute('''INSERT INTO volume_type_promotion (id_promotion,type_promotion,buy_quantity, pay_quantity, sub_type, allow_combination, usuario_id_volume_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-                (id_promotion, type_promotion, buy_quantity, pay_quantity, sub_type, allow_combination, user_id ,))
-            url = f'https://api.mercadolibre.com/seller-promotions/promotions/{id_promotion}/items?promotion_type={type_promotion}&app_version=v2'
-            response = requests.get(url, headers=headers) 
-            if response.status_code not in [200]:
-                print(f"Erro ao buscar itens da promoção {id_promotion}: {response.text}")
-                continue      
-            resp = response.json()
-            print(resp)
-            if not resp.get('results', None):
-                print(f"Nenhum item encontrado para a promoção {id_promotion} do tipo {type_promotion}")
+        if response.status_code not in [200,206]:
+            print(f"Erro ao consultar promoções: {respostas.get('message', 'Erro desconhecido')}")
+            return None
+        paging= respostas.get('paging', {})
+        total= paging.get('total', 0)
+        limit= paging.get('limit', 0)
+        print(f"Total de promoções encontradas: {total}, Limite por página: {limit}")
+        for offset in range(0,total,limit):
+            url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2&offset={offset}&limit={limit}"
+            response = requests.get(url_promocoes, headers=headers)
+            if response.status_code not in [200, 206]:
+                print(f"Erro ao consultar promoções com offset {offset}: {response.text}")
                 continue
-            for result in resp.get('results'):
-                id_promotion_item = id_promotion
-                item_id = result.get('id', None)
-                status = result.get('status', None)
-                price = result.get('price', None)
-                original_price = result.get('original_price', None)
-                min_discounted_price= result.get('min_discounted_price', None)
-                max_discounted_price= result.get('max_discounted_price', None)
-                suggested_discounted_price= result.get('suggested_discounted_price', None)
-                start_date= result.get('start_date', None)
-                end_date = result.get('end_date', None)
-                sub_type = result.get('sub_type', None)
-                offer_id = result.get('offer_id', None)
-
-                meli_percentage = result.get('meli_percentage', None)
-                seller_percentage = result.get('seller_percentage', None)
-                buy_quantity = result.get('buy_quantity', None)
-                pay_quantity = result.get('pay_quantity', None)
-                allow_combination = result.get('allow_combination', None)
-                fixed_amount = result.get('fixed_amount', None)
-                fixed_percentage = result.get('fixed_percentage', None)
-                top_deal_price = result.get('top_deal_price', None)
-                discount_percentage = result.get('descount_percentage', None)
-                cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
-                            min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
-                            seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                            discount_percentage, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
-                            min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
-                            seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                            discount_percentage, user_id,))
-
-
-
-
-
-
-    conn.commit()         
-    cur.close()
-    conn.close()   
+            respostas = response.json()
+            for resposta in respostas.get('results', []):
+                id_promotion = resposta.get('id', None)
+                type_promotion = resposta.get('type', None)
+                status = resposta.get('status', None)
+                finish_date = resposta.get('finish_date')
+                start_date = resposta.get('start_date', None)
+                deadline = resposta.get('deadline_date', None)
+                name = resposta.get('name', None)
+                cur.execute('INSERT INTO promotion (id_promotion,type_promotion,status,finish_date,start_date,deadline_date,name, usuario_id_promotions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id_promotion) DO NOTHING',(id_promotion, type_promotion, status, finish_date, start_date, deadline, name,user_id,))
+                conn.commit()
+                if type_promotion == 'MARKET_PLACE_CAMPAIGN':
+                    benefits = resposta.get('benefits', {})
+                    if benefits:
+                        meli_percent = benefits.get('meli_percent', None)
+                        seller_percent = benefits.get('seller_percent', None)
+                        benefits_type = benefits.get('type', None)
+                        cur.execute('INSERT INTO market_place_campaign_type_promotion (id_promotion, type_promotion, type_benefits, meli_percent,seller_percent,usuario_id_marketplace_campaign_type_promotion) VALULES (%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, benefits_type, meli_percent, seller_percent,user_id,))
+    
+                elif type_promotion == 'PRE_NEGOTIATED' or type_promotion == 'UNHEALTHY_STOCK':
+                    offers = resposta.get('offers',[])
+                    for offer in offers:
+                        offer_id = offer.get('id', None)
+                        original_price = offer.get('original_price', None)
+                        new_price = offer.get('new_price', None)
+                        status_offer = offer.get('status', None)
+                        start_date_offer = offer.get('start_date', None)
+                        end_date_offer = offer.get('end_date', None)
+                        benefits = offer.get('benefits', {})
+                        meli_percent = benefits.get('meli_percent', None)
+                        seller_percent = benefits.get('seller_percent', None)
+                        benefits_type = benefits.get('type', None)
+                        cur.execute('''INSERT INTO pre_negotiated_type_promotion_offers (id_promotion,type_promotion, 
+                        offer_id,type_benefits, meli_percent, seller_percent, start_date, end_date, status, 
+                        original_price, new_price, usuario_id_pre_negotiated_type_promotion_offers) 
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion, offer_id, benefits_type, meli_percent, seller_percent, start_date_offer, end_date_offer, status_offer, original_price, new_price,user_id,))
+                elif type_promotion == 'SELLER_COUPON_CAMPAIGN':
+                    sub_type = resposta.get('sub_type', None)
+                    fixed_amount = resposta.get('fixed_amount', None)
+                    min_purchase_amount = resposta.get('min_purchase_amount',None)
+                    max_purchase_amount = resposta.get('max_purchase_amount', None)
+                    coupon_code = resposta.get('coupon_code', None)
+                    redeems_per_user = resposta.get('redeems_per_user', None)
+                    budget = resposta.get('budget',None)
+                    remaining_budget = resposta.get('remaining_budget', None)
+                    used_coupons = resposta.get('used_coupons', None)
+                    fixed_percentage = resposta.get('fixed_percentage', None)
+                    cur.execute('''INSERT INTO seller_coupon_campaign_type_promotion (id_promotion,type_promotion,sub_type, fixed_amount, min_purchase_amount, max_purchase_amount, coupon_code, redeems_per_user,
+                    budget, remaining_budget, used_coupons, fixed_coupons, usuario_id_seller_coupon_campaign_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion,sub_type,
+                    fixed_amount,min_purchase_amount,max_purchase_amount,coupon_code,redeems_per_user, budget, remaining_budget, used_coupons, fixed_percentage, user_id,))
+    
+                elif type_promotion == 'VOLUME':
+                    buy_quantity = resposta.get('buy_quantity', None)
+                    pay_quantity= resposta.get('pay_quantity', None)
+                    allow_combination = resposta.get('allow_combination', None)
+                    sub_type = resposta.get('sub_type', None)
+                    cur.execute('''INSERT INTO volume_type_promotion (id_promotion,type_promotion,buy_quantity, pay_quantity, sub_type, allow_combination, usuario_id_volume_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                    (id_promotion, type_promotion, buy_quantity, pay_quantity, sub_type, allow_combination, user_id ,))
+                url = f'https://api.mercadolibre.com/seller-promotions/promotions/{id_promotion}/items?promotion_type={type_promotion}&app_version=v2'
+                response = requests.get(url, headers=headers) 
+                if response.status_code not in [200]:
+                    print(f"Erro ao buscar itens da promoção {id_promotion}: {response.text}")
+                    continue      
+                resp = response.json()
+                print(resp)
+                if not resp.get('results', None):
+                    print(f"Nenhum item encontrado para a promoção {id_promotion} do tipo {type_promotion}")
+                    continue
+                for result in resp.get('results'):
+                    id_promotion_item = id_promotion
+                    item_id = result.get('id', None)
+                    status = result.get('status', None)
+                    price = result.get('price', None)
+                    original_price = result.get('original_price', None)
+                    min_discounted_price= result.get('min_discounted_price', None)
+                    max_discounted_price= result.get('max_discounted_price', None)
+                    suggested_discounted_price= result.get('suggested_discounted_price', None)
+                    start_date= result.get('start_date', None)
+                    end_date = result.get('end_date', None)
+                    sub_type = result.get('sub_type', None)
+                    offer_id = result.get('offer_id', None)
+    
+                    meli_percentage = result.get('meli_percentage', None)
+                    seller_percentage = result.get('seller_percentage', None)
+                    buy_quantity = result.get('buy_quantity', None)
+                    pay_quantity = result.get('pay_quantity', None)
+                    allow_combination = result.get('allow_combination', None)
+                    fixed_amount = result.get('fixed_amount', None)
+                    fixed_percentage = result.get('fixed_percentage', None)
+                    top_deal_price = result.get('top_deal_price', None)
+                    discount_percentage = result.get('descount_percentage', None)
+                    cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
+                                min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
+                                seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
+                                discount_percentage, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
+                                min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
+                                seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
+                                discount_percentage, user_id,))
+    
+    
+    
+    
+    
+    
+        conn.commit()         
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f'erro: {str(e)}')
+        return False
 
 
 def listar_novas_conversas_pos_venda():
@@ -2892,140 +2911,148 @@ def home():
 # Garante que o scheduler será desligado ao fechar a aplicação 
 
 def listar_todos_itens(user_id,id,access_token):
-    print("Entrou na função listar_todos_itens")
-    url=f"https://api.mercadolibre.com/users/{id}/items/search"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
-    if response.status_code not in [200, 206]:
-        print("Erro ao buscar itens:", response.text)
-        return []
-    itens = response.json()
-    itens_paging = itens.get('paging', {})
-    total = itens_paging.get('total', 0)
-    limit = itens_paging.get('limit', 0)
-    print("itens:", itens)
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT item_id FROM itens WHERE usuario_id_item=%s", (user_id,))
-    itens_existentes = set()
-    for linha in cur.fetchall():
-        itens_existentes.add(linha['item_id'])
-    print("Itens existentes no banco:", itens_existentes)
-    for offset in range(0, total, limit):
-        url=f"https://api.mercadolibre.com/users/{id}/items/search?offset={offset}&limit={limit}"
+    try:
+        print("Entrou na função listar_todos_itens")
+        url=f"https://api.mercadolibre.com/users/{id}/items/search"
+        headers = {"Authorization": f"Bearer {access_token}"}
         response = requests.get(url, headers=headers)
-        if response.status_code not in [200]:
-            print(f"Erro ao buscar itens com offset {offset}: {response.text}")
-            continue
+        if response.status_code not in [200, 206]:
+            print("Erro ao buscar itens:", response.text)
+            return []
         itens = response.json()
-        for item_id in itens.get('results', []):
-            if item_id not in itens_existentes:
-                print(f"Item {item_id} não encontrado no banco, buscando detalhes...")
-                url_item = f"https://api.mercadolibre.com/items/{item_id}"
-                url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
-                response_descricao = requests.get(url_descricao, headers=headers)
-                resposta_descricao = response_descricao.json()
-
-                response_item = requests.get(url_item, headers=headers)
-                if response_item.status_code not in [200, 206]:
-                    print(f"Erro ao buscar item {item_id}: {response_item.status_code}")
-                    continue
-                resposta_itens = response_item.json()
-                category_id = resposta_itens.get('category_id', 'N/A')
-                url_cateogira=f'https://api.mercadolibre.com/categories/{category_id}'
-                categoria_dados= requests.get(url_cateogira, headers=headers)
-                categoria_json = categoria_dados.json()
-                categoria = categoria_json.get('name', 'N/A')
-                print('categoria do item: ', categoria)
-                nome_item = resposta_itens.get('title', 'Sem título').strip()
-                tipo_ad = resposta_itens.get('listing_type_id', 'sem tipo ad')
-                print("Pegou o: ",tipo_ad)
-                quantidade = resposta_itens.get('available_quantity', 0)
-                preco = resposta_itens.get('price', 0.0)
-                preco_original = resposta_itens.get('original_price', 0.0)
-                preco_base = resposta_itens.get('base_price', 0.0)
-                descricao = resposta_descricao.get('plain_text', 'Sem descrição')
-                imagens = resposta_itens.get('pictures', [])
-                imagem = [img['url'] for img in imagens] if imagens else ['Sem imagem']
-                print(f"Item {item_id} encontrado: {nome_item}, Preço: {preco}, Quantidade: {quantidade}, Imagem: {imagem},preco_original: {preco_original}, preco_base: {preco_base}, descricao: {descricao}")
-                try:
-                    cur.execute(
-                        'INSERT INTO itens (usuario_id_item, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,disponivel,tipo_ad,categoria) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (item_id) DO NOTHING',
-                        (user_id, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,True,tipo_ad,categoria)
-                    )
-                    conn.commit()
-                    print(f"Item {item_id} inserido com sucesso.")
-                except Exception as e:
-                    print(f"Erro ao inserir item {item_id} no banco: {e}")
+        itens_paging = itens.get('paging', {})
+        total = itens_paging.get('total', 0)
+        limit = itens_paging.get('limit', 0)
+        print("itens:", itens)
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT item_id FROM itens WHERE usuario_id_item=%s", (user_id,))
+        itens_existentes = set()
+        for linha in cur.fetchall():
+            itens_existentes.add(linha['item_id'])
+        print("Itens existentes no banco:", itens_existentes)
+        for offset in range(0, total, limit):
+            url=f"https://api.mercadolibre.com/users/{id}/items/search?offset={offset}&limit={limit}"
+            response = requests.get(url, headers=headers)
+            if response.status_code not in [200]:
+                print(f"Erro ao buscar itens com offset {offset}: {response.text}")
+                continue
+            itens = response.json()
+            for item_id in itens.get('results', []):
+                if item_id not in itens_existentes:
+                    print(f"Item {item_id} não encontrado no banco, buscando detalhes...")
+                    url_item = f"https://api.mercadolibre.com/items/{item_id}"
+                    url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
+                    response_descricao = requests.get(url_descricao, headers=headers)
+                    resposta_descricao = response_descricao.json()
+    
+                    response_item = requests.get(url_item, headers=headers)
+                    if response_item.status_code not in [200, 206]:
+                        print(f"Erro ao buscar item {item_id}: {response_item.status_code}")
+                        continue
+                    resposta_itens = response_item.json()
+                    category_id = resposta_itens.get('category_id', 'N/A')
+                    url_cateogira=f'https://api.mercadolibre.com/categories/{category_id}'
+                    categoria_dados= requests.get(url_cateogira, headers=headers)
+                    categoria_json = categoria_dados.json()
+                    categoria = categoria_json.get('name', 'N/A')
+                    print('categoria do item: ', categoria)
+                    nome_item = resposta_itens.get('title', 'Sem título').strip()
+                    tipo_ad = resposta_itens.get('listing_type_id', 'sem tipo ad')
+                    print("Pegou o: ",tipo_ad)
+                    quantidade = resposta_itens.get('available_quantity', 0)
+                    preco = resposta_itens.get('price', 0.0)
+                    preco_original = resposta_itens.get('original_price', 0.0)
+                    preco_base = resposta_itens.get('base_price', 0.0)
+                    descricao = resposta_descricao.get('plain_text', 'Sem descrição')
+                    imagens = resposta_itens.get('pictures', [])
+                    imagem = [img['url'] for img in imagens] if imagens else ['Sem imagem']
+                    print(f"Item {item_id} encontrado: {nome_item}, Preço: {preco}, Quantidade: {quantidade}, Imagem: {imagem},preco_original: {preco_original}, preco_base: {preco_base}, descricao: {descricao}")
+                    try:
+                        cur.execute(
+                            'INSERT INTO itens (usuario_id_item, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,disponivel,tipo_ad,categoria) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (item_id) DO NOTHING',
+                            (user_id, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,True,tipo_ad,categoria)
+                        )
+                        conn.commit()
+                        print(f"Item {item_id} inserido com sucesso.")
+                    except Exception as e:
+                        print(f"Erro ao inserir item {item_id} no banco: {e}")
+    except Exception as e:
+        print(f'erro: {str(e)}')   
+        return False 
 
 def listar_conversas_pre_venda(user_id,id,access_token):
-    print("entrou no listar_conversas")
-    url = f"https://api.mercadolibre.com/questions/search?seller_id={id}&api_version=4"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
-    pages = response.json()
-    if response.status_code not in [200, 206]:
-        print("Erro ao buscar perguntas:", response.text)
-        return []
-
-    total_pages = pages.get("total", 0)
-    print("Total de páginas:", total_pages)
-    print("limite:", pages.get("limit", 50))
-    for offset in range(0, total_pages, 50):
-        url_recentes = f"https://api.mercadolibre.com/questions/search?seller_id={id}&api_version=4&limit=50&offset={offset}"
-        respons = requests.get(url_recentes, headers=headers)
-        time.sleep(0.3)  # Atraso de 300ms entre as requisições
-        if respons.status_code not in [200, 206]:
-            print("Erro ao buscar perguntas recentes:", respons.text)
-            return []  
-        conversas=respons.json()
-        conn=get_db_connection()
-        cur=conn.cursor()
-        cur.execute("SELECT client_name, message FROM messages WHERE usuario_id_messages=%s AND type=%s",(user_id,'pre_sale',))
-        clientes_existentes=[]
-        mensagens_existentes=[]
-        comparar=cur.fetchall()
-        if comparar:
-            clientes_existentes=[linha['client_name'] for linha in comparar]
-            mensagens_existentes=[linha['message'] for linha in comparar]
-        for m in conversas['questions']:
-            if m:
-                form=m.get('from')
-                if isinstance(form , dict) and form.get("id"):
-                    cliente_id=form.get('id')
-
-                    cliente_nome = buscar_nome(cliente_id, access_token)
-                if m.get('status'):
-                    status = m.get('status', 'N/A')
-                if m.get('item_id'):
-                    item_id=m.get('item_id')
-                if m.get('text') and m.get('date_created'):
-                    mensagem = m['text']
-                    data_envi = m['date_created']
-                    data_envio = converter_zona_pro_brasil(data_envi)
-
-                    if not comparar or (( cliente_id not in clientes_existentes) and  (mensagem not in mensagens_existentes)):
-                        print("entrou no if da comp")
-                        cur.execute(
+    try:
+        print("entrou no listar_conversas")
+        url = f"https://api.mercadolibre.com/questions/search?seller_id={id}&api_version=4"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.get(url, headers=headers)
+        pages = response.json()
+        if response.status_code not in [200, 206]:
+            print("Erro ao buscar perguntas:", response.text)
+            return []
+    
+        total_pages = pages.get("total", 0)
+        print("Total de páginas:", total_pages)
+        print("limite:", pages.get("limit", 50))
+        for offset in range(0, total_pages, 50):
+            url_recentes = f"https://api.mercadolibre.com/questions/search?seller_id={id}&api_version=4&limit=50&offset={offset}"
+            respons = requests.get(url_recentes, headers=headers)
+            time.sleep(0.3)  # Atraso de 300ms entre as requisições
+            if respons.status_code not in [200, 206]:
+                print("Erro ao buscar perguntas recentes:", respons.text)
+                return []  
+            conversas=respons.json()
+            conn=get_db_connection()
+            cur=conn.cursor()
+            cur.execute("SELECT client_name, message FROM messages WHERE usuario_id_messages=%s AND type=%s",(user_id,'pre_sale',))
+            clientes_existentes=[]
+            mensagens_existentes=[]
+            comparar=cur.fetchall()
+            if comparar:
+                clientes_existentes=[linha['client_name'] for linha in comparar]
+                mensagens_existentes=[linha['message'] for linha in comparar]
+            for m in conversas['questions']:
+                if m:
+                    form=m.get('from')
+                    if isinstance(form , dict) and form.get("id"):
+                        cliente_id=form.get('id')
+    
+                        cliente_nome = buscar_nome(cliente_id, access_token)
+                    if m.get('status'):
+                        status = m.get('status', 'N/A')
+                    if m.get('item_id'):
+                        item_id=m.get('item_id')
+                    if m.get('text') and m.get('date_created'):
+                        mensagem = m['text']
+                        data_envi = m['date_created']
+                        data_envio = converter_zona_pro_brasil(data_envi)
+    
+                        if not comparar or (( cliente_id not in clientes_existentes) and  (mensagem not in mensagens_existentes)):
+                            print("entrou no if da comp")
+                            cur.execute(
+                                "INSERT INTO messages (client_name,message,date_created,author,type,item_id,status,usuario_id_messages) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                                (cliente_nome['nickname'], mensagem, data_envio, 'cliente','pre_sale',item_id, status, user_id))
+    
+                    answer = m.get('answer')
+                    if isinstance(answer, dict) and answer.get('text') and answer.get('date_created'):
+                        resposta = answer['text']
+                        status = answer.get('status', 'N/A')
+                        data_envi = answer['date_created']
+                        data_envio = converter_zona_pro_brasil(data_envi)
+                        if not comparar or ((cliente_id not in clientes_existentes) and  (mensagem not in mensagens_existentes)):
+                            cur.execute(
                             "INSERT INTO messages (client_name,message,date_created,author,type,item_id,status,usuario_id_messages) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (cliente_nome['nickname'], mensagem, data_envio, 'cliente','pre_sale',item_id, status, user_id))
-
-                answer = m.get('answer')
-                if isinstance(answer, dict) and answer.get('text') and answer.get('date_created'):
-                    resposta = answer['text']
-                    status = answer.get('status', 'N/A')
-                    data_envi = answer['date_created']
-                    data_envio = converter_zona_pro_brasil(data_envi)
-                    if not comparar or ((cliente_id not in clientes_existentes) and  (mensagem not in mensagens_existentes)):
-                        cur.execute(
-                        "INSERT INTO messages (client_name,message,date_created,author,type,item_id,status,usuario_id_messages) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (cliente_nome['nickname'], resposta, data_envio, 'bot|vendedor', 'pre_sale', item_id, status, user_id,)
-                        )
-
-                conn.commit()
-    conn.close()
-    cur.close()
-    return True
+                            (cliente_nome['nickname'], resposta, data_envio, 'bot|vendedor', 'pre_sale', item_id, status, user_id,)
+                            )
+    
+                    conn.commit()
+        conn.close()
+        cur.close()
+        return True
+    except Exception as e:
+        print(f'erro: {str(e)}')
+        return False 
 
 
 def buscar_nome(id_do_cliente,access_token):
@@ -3908,6 +3935,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
