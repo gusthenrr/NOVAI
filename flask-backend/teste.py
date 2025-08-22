@@ -1772,8 +1772,7 @@ def reclamacoes(access_token, user_id):
                 #print('--------------------------------')
                 url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
                 response_details = requests.get(url_details, headers=headers)
-    
-                else:
+                if response_details.status_code in [200, 206]:
                     details = response_details.json()
                     #print(f'Details: {details}')
                     title = details.get("title")
@@ -3851,6 +3850,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
