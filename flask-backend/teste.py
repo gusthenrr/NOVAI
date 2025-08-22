@@ -1248,11 +1248,11 @@ def handle_connect():
     print('CONNECT host=', request.host)
     print('CONNECT cookies=', request.headers.get('Cookie'))
     if not token:
-        emit('status_loading', {'message': 'Conectado (sem token).'}, to=request.sid)
+        print('conectado sem token')
         return 
     try:
         user_id = int(decode_token(token)['sub'])
-        emit('status_loading', {'message': 'Conectado.'})
+        print('conectado')
     except Exception:
         return False  # rejeita a conexão se não autenticar 
       
@@ -3909,6 +3909,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
