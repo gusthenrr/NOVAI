@@ -2916,6 +2916,7 @@ def listar_conversas_pre_venda(user_id,id,access_token):
                         cliente_id=form.get('id')
     
                         cliente_nome = buscar_nome(cliente_id, access_token)
+                    status=''
                     if m.get('status'):
                         status = m.get('status', 'N/A')
                     if m.get('item_id'):
@@ -2936,7 +2937,7 @@ def listar_conversas_pre_venda(user_id,id,access_token):
                           WHERE i.item_id = %s
                             AND i.usuario_id_item = %s
                         );
-                        """,(cliente_nome['nickname'], resposta, data_envio, 'cliente', 'pre_sale',
+                        """,(cliente_nome['nickname'], mensagem, data_envio, 'buyer', 'pre_sale',
                             item_id, status, user_id,
                             item_id, user_id,))
     
@@ -2957,7 +2958,7 @@ def listar_conversas_pre_venda(user_id,id,access_token):
                           WHERE i.item_id = %s
                             AND i.usuario_id_item = %s
                         );
-                        """,(cliente_nome['nickname'], resposta, data_envio, 'bot|vendedor', 'pre_sale',
+                        """,(cliente_nome['nickname'], resposta, data_envio, 'seller', 'pre_sale',
                             item_id, status, user_id,
                             item_id, user_id,))
     
@@ -3850,6 +3851,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
