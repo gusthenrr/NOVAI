@@ -1673,7 +1673,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
                             conn.commit()
             cur.close()
             conn.close()
-    except Expception as e:
+    except Exception as e:
         print(f'erro: {str(e)}')
     print('Terminou de pegar as mensagens pos-venda')
 
@@ -3850,6 +3850,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
