@@ -2900,7 +2900,8 @@ def listar_conversas_pre_venda(user_id,id,access_token):
             respons = requests.get(url_recentes, headers=headers)
             time.sleep(0.3)  # Atraso de 300ms entre as requisições
             if respons.status_code not in [200, 206]:
-                return []  
+                print('ERRO ao tentar pegar uma mensagem pre-venda')  
+                continue
             conversas=respons.json()
             conn=get_db_connection()
             cur=conn.cursor()
@@ -2967,7 +2968,6 @@ def listar_conversas_pre_venda(user_id,id,access_token):
                     conn.commit()
         conn.close()
         cur.close()
-        return True
     except Exception as e:
         print(f'erro: {str(e)}')
     print('Terminou de pegar as mensagens pre-venda') 
@@ -3853,6 +3853,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
