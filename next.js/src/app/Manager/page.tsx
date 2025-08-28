@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react';
-import RespostaFormatada from '../componentesGerais/respostaFormatada'; 
 import { io } from 'socket.io-client';
 
 // --- Tipos para maior segurança e clareza ---
@@ -12,12 +11,12 @@ interface Message {
 }
 
 interface ChatHistoryPart {
-    text: string;
+  text: string;
 }
 
 interface ChatHistory {
-    role: 'user' | 'model';
-    parts: ChatHistoryPart[];
+  role: 'user' | 'model';
+  parts: ChatHistoryPart[];
 }
 
 interface SendIconProps {
@@ -28,37 +27,91 @@ interface ChatInputProps {
   onSendMessage: (messageText: string) => void;
   isLoading: boolean;
 }
-type RespostaBonitaProps = {
-  resposta: string;
-};
+// O componente RespostaFormatada é simulado aqui, pois não está disponível no ambiente
+const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => (
+    <div dangerouslySetInnerHTML={{ __html: resposta.replace(/\n/g, '<br />') }} />
+);
 
 // --- Ícones SVG para uma interface clean ---
 const SendIcon: React.FC<SendIconProps> = ({ isDisabled }) => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M22 2L11 13" stroke={isDisabled ? "#555" : "#1A1A1A"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke={isDisabled ? "#555" : "#1A1A1A"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M22 2L11 13" stroke={isDisabled ? "#555" : "#1A1A1A"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke={isDisabled ? "#555" : "#1A1A1A"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
+// --- Componente de Input do Chat ---
+const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
+  const [text, setText] = useState<string>('');
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    onSendMessage(text);
+    setText('');
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={styles.inputForm}>
+      <input
+        type="text"
+        style={styles.inputField}
+        value={text}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value)}
+        placeholder={isLoading ? "Analisando..." : "Escreva sua pergunta..."}
+        disabled={isLoading}
+      />
+      <button type="submit" style={styles.sendButton} disabled={isLoading || !text.trim()}>
+        <SendIcon isDisabled={isLoading || !text.trim()} />
+      </button>
+    </form>
+  );
+};
+
+// --- Funções Auxiliares ---
+const formatTime = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+};
+
+// --- Componente de Carregamento Personalizado ---
+const LoadingIndicator: React.FC<{ elapsedTime: number }> = ({ elapsedTime }) => (
+  <div style={loadingStyles.container}>
+    <div style={loadingStyles.atomContainer}>
+      <div style={loadingStyles.nucleus}>
+        <span style={loadingStyles.nucleusText}>N</span>
+      </div>
+      <div style={loadingStyles.electron} className="electron-1"></div>
+      <div style={loadingStyles.electron} className="electron-2"></div>
+      <div style={loadingStyles.electron} className="electron-3"></div>
+      <div style={loadingStyles.electron} className="electron-4"></div>
+    </div>
+    <span style={loadingStyles.analysingText}>
+      Analisando... {formatTime(elapsedTime)}
+    </span>
+  </div>
+);
+
 // --- Componente Principal da Aplicação ---
-export default function NovaiApp(): JSX.Element {
+export default function App(): JSX.Element {
   // --- Estados Globais da Aplicação ---
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const chatHistoryRef = useRef<ChatHistory[]>([]); // Mantém o histórico para a API
-  const [token, setToken] = useState('')
-  const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
-  transports: ['websocket'],
-  withCredentials: true, // ✅ necessário para enviar cookies (incl. HttpOnly)
-  reconnection: true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 2000,
-  timeout: 20000 // 20s
-});
+  const [elapsedTime, setElapsedTime] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [token, setToken] = useState('');
+  const chatHistoryRef = useRef<ChatHistory[]>([]);
 
-  // Efeito inicial para a mensagem de boas-vindas
+  // Efeito inicial para a mensagem de boas-vindas e conexão com o socket
   useEffect(() => {
+    const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
+      transports: ['websocket'],
+      withCredentials: true, // ✅ necessário para enviar cookies (incl. HttpOnly)
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 2000,
+      timeout: 20000 // 20s
+    });
     const tok = localStorage.getItem('authToken');
     console.log('token get do manager useeffect: ', tok)
     if (tok) setToken(tok);
@@ -76,51 +129,22 @@ export default function NovaiApp(): JSX.Element {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
-  
-  // Efeito para injetar estilos dinâmicos no DOM (apenas no lado do cliente)
+
+  // Efeito para o cronômetro
   useEffect(() => {
-    const dynamicStyles = `
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
-      
-      .navItem:hover {
-          background-color: #252525;
-          color: #FFF;
-      }
-      
-      .inputField:focus {
-          border-color: #F8DD82;
-      }
-      
-      .sendButton:disabled {
-          background-color: #3A3A3C;
-          cursor: not-allowed;
-      }
-      
-      @keyframes-typing {
-        0% { transform: translateY(0px) }
-        50% { transform: translateY(-3px) }
-        100% { transform: translateY(0px) }
-      }
-      
-      .typingIndicator span {
-          width: 8px; height: 8px;
-          border-radius: 50%;
-          background-color: #8E8E93;
-          animation: keyframes-typing 1s infinite ease-in-out;
-      }
-      .typingIndicator span:nth-child(2) { animation-delay: 0.2s; }
-      .typingIndicator span:nth-child(3) { animation-delay: 0.4s; }
-    `;
-
-    const styleSheet = document.createElement("style");
-    styleSheet.innerText = dynamicStyles;
-    document.head.appendChild(styleSheet);
-
-    // Função de limpeza para remover a folha de estilos quando o componente for desmontado
+    let timer: NodeJS.Timeout | null = null;
+    if (isLoading) {
+      timer = setInterval(() => {
+        setElapsedTime(prevTime => prevTime + 1);
+      }, 1000);
+    } else {
+      if (timer) clearInterval(timer);
+      setElapsedTime(0); // Reseta o tempo quando o carregamento termina
+    }
     return () => {
-      document.head.removeChild(styleSheet);
+      if (timer) clearInterval(timer);
     };
-  }, []); // O array vazio assegura que este efeito só é executado uma vez
+  }, [isLoading]);
 
   // --- Lógica de Interação com a API do Gemini ---
   const callOpenaiApi = async (prompt: string): Promise<string> => {
@@ -160,7 +184,6 @@ export default function NovaiApp(): JSX.Element {
       setIsLoading(false);
     }
   };
-        
 
   // --- Manipuladores de Eventos ---
   const handleSendMessage = async (messageText: string): Promise<void> => {
@@ -169,7 +192,6 @@ export default function NovaiApp(): JSX.Element {
     const userMessage: Message = { id: Date.now(), text: messageText, sender: 'user' };
     setMessages(prev => [...prev, userMessage]);
 
-    // O prompt é simplesmente a mensagem do usuário, pois o contexto é mantido no histórico.
     const aiResponseText = await callOpenaiApi(messageText);
     const aiMessage: Message = { id: Date.now() + 1, text: aiResponseText, sender: 'ai' };
     setMessages(prev => [...prev, aiMessage]);
@@ -186,7 +208,7 @@ export default function NovaiApp(): JSX.Element {
           NOVAI
         </div>
         <nav style={styles.nav}>
-          <a href="#" style={{...styles.navItem, ...styles.navItemActive}}>Novai Manager</a>
+          <a href="#" style={{ ...styles.navItem, ...styles.navItemActive }}>Manager</a>
           <a href="#" style={styles.navItem}>Dashboard</a>
           <a href="#" style={styles.navItem}>Relatórios</a>
         </nav>
@@ -199,15 +221,14 @@ export default function NovaiApp(): JSX.Element {
       <main style={styles.chatPanel}>
         <header style={styles.chatHeader}>
           <h2 style={styles.chatTitle}>Novai Manager</h2>
-          <p>Converse com seus dados em tempo real</p>
+          <p style={{ color: '#8E8E93' }}>Converse com seus dados em tempo real</p>
         </header>
         <div style={styles.messageList}>
-          {messages.map(msg => (
+          {messages.map((msg, index) => (
             <div
               key={msg.id}
               style={{
-                ...styles.messageBubble,
-                ...(msg.sender === 'user' ? styles.userBubble : styles.aiBubble),
+                ...(msg.sender === 'ai' ? styles.aiMessageText : styles.userBubble),
                 alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
               }}
             >
@@ -215,57 +236,144 @@ export default function NovaiApp(): JSX.Element {
                 <RespostaFormatada resposta={msg.text} />
               ) : (
                 msg.text
-              ) 
-            }
+              )}
             </div>
           ))}
           {isLoading && (
-            <div style={{...styles.messageBubble, ...styles.aiBubble, alignSelf: 'flex-start'}}>
-                <div style={styles.typingIndicator}><span></span><span></span><span></span></div>
+            <div style={loadingStyles.messageRow}>
+              <LoadingIndicator elapsedTime={elapsedTime} />
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
         <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
       </main>
+      <style>
+        {`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
+        
+        .navItem:hover { 
+          background-color: #252525; 
+          color: #FFF; 
+        } 
+        
+        .inputField:focus { 
+          border-color: #F8DD82; 
+        } 
+        
+        .sendButton:disabled { 
+          background-color: #3A3A3C; 
+          cursor: not-allowed; 
+        } 
+
+        /* Animações para a nova UI de carregamento */
+        @keyframes nucleus-pulse {
+          0% { box-shadow: 0 0 0 0 rgba(248, 221, 130, 0.4); }
+          70% { box-shadow: 0 0 0 10px rgba(248, 221, 130, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(248, 221, 130, 0); }
+        }
+
+        @keyframes electron-orbit-1 {
+            0% { transform: rotate(0deg) translateX(25px) translateY(5px); }
+            100% { transform: rotate(360deg) translateX(25px) translateY(5px); }
+        }
+        @keyframes electron-orbit-2 {
+            0% { transform: rotate(120deg) translateX(25px) translateY(8px); }
+            100% { transform: rotate(480deg) translateX(25px) translateY(8px); }
+        }
+        @keyframes electron-orbit-3 {
+            0% { transform: rotate(240deg) translateX(25px) translateY(-5px); }
+            100% { transform: rotate(600deg) translateX(25px) translateY(-5px); }
+        }
+        @keyframes electron-orbit-4 {
+            0% { transform: rotate(180deg) translateX(20px) translateY(-10px); }
+            100% { transform: rotate(540deg) translateX(20px) translateY(-10px); }
+        }
+
+        .electron-1 { animation: electron-orbit-1 2s infinite linear; }
+        .electron-2 { animation: electron-orbit-2 2.5s infinite linear; }
+        .electron-3 { animation: electron-orbit-3 2.2s infinite linear; }
+        .electron-4 { animation: electron-orbit-4 3s infinite linear; }
+        
+        @keyframes loading-bar {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+        `}
+      </style>
     </div>
   );
 }
 
-// --- Componente de Input do Chat ---
-const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
-  const [text, setText] = useState<string>('');
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    onSendMessage(text);
-    setText('');
-  };
-
-  return (
-    <form onSubmit={handleSubmit} style={styles.inputForm}>
-      <input
-        type="text"
-        style={styles.inputField}
-        value={text}
-        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value)}
-        placeholder={isLoading ? "Analisando..." : "Escreva sua pergunta..."}
-        disabled={isLoading}
-      />
-      <button type="submit" style={styles.sendButton} disabled={isLoading || !text.trim()}>
-        <SendIcon isDisabled={isLoading || !text.trim()} />
-      </button>
-    </form>
-  );
+// --- Estilos para a nova animação de carregamento ---
+const loadingStyles: { [key: string]: React.CSSProperties } = {
+  messageRow: {
+    display: 'flex',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    gap: '0.5rem',
+  },
+  container: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  },
+  analysingText: {
+    color: '#8E8E93',
+    fontSize: '0.875rem',
+  },
+  atomContainer: {
+    position: 'relative',
+    width: '40px',
+    height: '40px',
+  },
+  nucleus: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: '26px',
+    height: '26px',
+    borderRadius: '50%',
+    backgroundColor: '#1A1A1A',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    animation: 'nucleus-pulse 2s infinite cubic-bezier(0.66, 0.0, 0.34, 1.0)',
+    overflow: 'hidden',
+  },
+  nucleusText: {
+    fontSize: '1rem',
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    position: 'relative',
+    zIndex: 1,
+  },
+  nucleusLoadingBar: {
+    position: 'absolute',
+    bottom: '0',
+    left: '0',
+    height: '3px',
+    backgroundColor: '#F8DD82',
+    animation: 'loading-bar 5s infinite linear',
+  },
+  electron: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    backgroundColor: '#F8DD82',
+    transformOrigin: 'top left',
+  },
 };
 
-// --- Estilos (CSS-in-JS) ---
-// Para manter a consistência, os estilos permanecerão como um objeto JS,
-// mas em um projeto TS maior, poderiam ser tipados com CSS-in-JS libraries.
+// --- Estilos (CSS-in-JS) originais ---
 const styles: { [key: string]: React.CSSProperties } = {
   appContainer: {
     display: 'grid',
-    gridTemplateColumns: '240px 1fr', // Layout ajustado para 2 colunas
+    gridTemplateColumns: '240px 1fr',
     height: '100vh',
     backgroundColor: '#1A1A1A',
     color: '#E0E0E0',
@@ -293,7 +401,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   logo: {
     fontSize: '2rem',
     fontWeight: '800',
-    color: '#FFFFFF', // Logo agora é toda branca
+    color: '#FFFFFF',
     marginBottom: '3rem',
   },
   nav: {
@@ -312,7 +420,6 @@ const styles: { [key: string]: React.CSSProperties } = {
   navItemActive: {
     backgroundColor: '#2C2C2E',
     fontWeight: '600',
-    // Efeito de gradiente no texto
     background: 'linear-gradient(90deg, #F8DD82 0%, #FAE499 100%)',
     WebkitBackgroundClip: 'text',
     color: 'transparent',
@@ -322,13 +429,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '0.8rem',
     color: '#555',
   },
- chatPanel: {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100vh', // ADICIONE ISSO
-  zIndex: 1,
-  backgroundColor: '#1A1A1A', // opcional para manter visual consistente
-},
+  chatPanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100vh',
+    zIndex: 1,
+    backgroundColor: '#1A1A1A',
+  },
   chatHeader: {
     padding: '1.5rem 2rem',
     borderBottom: '1px solid #2A2A2A',
@@ -344,16 +451,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     WebkitBackgroundClip: 'text',
     color: 'transparent',
   },
-messageList: {
-  flex: 1, // Ocupa espaço restante
-  padding: '2rem',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '1rem',
-  scrollbarWidth: 'none', // Firefox
-  msOverflowStyle: 'none', // Edge
-  overflowY: 'auto',
-},
+  messageList: {
+    flex: 1,
+    padding: '2rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
+    scrollbarWidth: 'none',
+    msOverflowStyle: 'none',
+    overflowY: 'auto',
+  },
   messageBubble: {
     padding: '0.8rem 1.2rem',
     borderRadius: '18px',
@@ -364,9 +471,18 @@ messageList: {
     backgroundColor: '#2C2C2E',
     borderTopLeftRadius: '4px',
   },
+  aiMessageText: {
+    padding: '0',
+    backgroundColor: 'transparent',
+    color: '#E0E0E0',
+    maxWidth: '75%',
+    lineHeight: '1.5',
+  },
   userBubble: {
-    backgroundColor: '#F8DD82',
-    color: '#1A1A1A',
+    backgroundColor: '#2C2C2E',
+    color: '#E0E0E0',
+    padding: '0.8rem 1rem', // Aumenta o padding para o balão do usuário
+    borderRadius: '18px',
     borderTopRightRadius: '4px',
     alignSelf: 'flex-end',
   },
@@ -398,17 +514,12 @@ messageList: {
     justifyContent: 'center',
     cursor: 'pointer',
   },
-  typingIndicator: {
-    display: 'flex',
-    gap: '4px',
-  },
-
+  initialMessageText: {
+    // Estilo para a mensagem inicial sem balão
+    padding: '0',
+    backgroundColor: 'transparent',
+    color: '#E0E0E0',
+    maxWidth: '75%',
+    lineHeight: '1.5',
+  }
 };
-
-
-
-
-
-
-
-
