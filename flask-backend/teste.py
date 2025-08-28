@@ -1590,16 +1590,6 @@ def pegar_dados_gerais():
         print(f'erro: {str(e)}')
         return False
         
-def teste_mensagem(user_id,acess_token):
-    headers = {
-        'Authorization': f'Bearer {acess_token}'
-    }
-    url = 'https://api.mercadolibre.com/messages/unread?tag=post_sale'
-    resp = requests.get(url, headers=headers)
-    resposta = resp.json()
-    print(f'resposta teste mensagem : {resposta}')
-    
-
 def run_pipeline(user_id, room):
     try:
         # garante exclusividade por usuário
@@ -1626,9 +1616,6 @@ def run_pipeline(user_id, room):
 
         access_token = row['acess_token']
         seller_id    = row['id_ml']
-
-        teste_mensagem(user_id,access_token)
-        return
         # etapas com yields para cooperar com eventlet
         socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
         listar_todos_itens(user_id, seller_id, access_token)
@@ -1691,15 +1678,19 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
         conn = get_db_connection()
         cur = conn.cursor()
     
-        cur.execute("SELECT pack_id FROM pedidos_resumo WHERE usuario_id_pedidos_resumo = %s AND last_updated>= NOW() - INTERVAL '2 month'", (user_id,))
-        pack_id_lista = cur.fetchall()
-        pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
-        headers = {"Authorization": f"Bearer {access_token}"}
+        headers = {
+            'Authorization': f'Bearer {access_token}'
+        }
+        url = 'https://api.mercadolibre.com/messages/unread?tag=post_sale'
+        resp = requests.get(url, headers=headers)
+        resposta = resp.json()
+        results = resposta.get('results',[])
         count_20 = 0
         change = 0
-        for pack_id in pack_id_list:
+        for result in results:
+            resource = result.get('resource', None)
     
-            url = f"https://api.mercadolibre.com/messages/packs/{pack_id}/sellers/{seller_id}?mark_as_read=false&tag=post_sale"
+            url = f"https://api.mercadolibre.com/messages/{resource}?mark_as_read=false&tag=post_sale"
             response = requests.get(url, headers=headers)
             data = response.json()
             paging = data.get('paging')
@@ -3987,6 +3978,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
