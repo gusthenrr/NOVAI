@@ -1639,12 +1639,12 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
             paging = data.get('paging')
             total = paging.get('total')
             total_int = int(total)
-            if total>0:
+            if total>0 and isinstance(data,dict):
                 messages = data.get('messages')
         
                 if messages and isinstance(messages, list):
                     for message in messages:
-                        if message.get('text'):
+                        if isinstance(message,dict) and message.get('text'):
                             from_user = message.get('from', {}).get('user_id')
                             to_user = message.get('to', {}).get('user_id')
                             author = 'buyer' if from_user != seller_id else 'seller'
@@ -3879,6 +3879,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
