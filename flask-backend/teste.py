@@ -1627,7 +1627,7 @@ def run_pipeline(user_id, room):
         access_token = row['acess_token']
         seller_id    = row['id_ml']
 
-        teste_mensagem(user_id,acess_token)
+        teste_mensagem(user_id,access_token)
         return
         # etapas com yields para cooperar com eventlet
         socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
@@ -3987,6 +3987,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
