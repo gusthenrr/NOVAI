@@ -1677,10 +1677,10 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
                             conn.commit()
             count_20 +=1
             if count_20>20:
-                if change = 1:
+                if change == 1:
                     change = 0
                     message = 'Buscando menssagens pós-venda'
-                elif change = 0
+                else:
                     change = 1
                     message = 'Isso pode demorar um pouco'
                 socketio.emit('status_loading', {'message':message},room=room)                    
@@ -2059,7 +2059,7 @@ def faturamento_por_pedidos(user_id, room):
 
             count_20 += 1
             if count_20>20:
-                if change = 0:
+                if change == 0:
                     change = 1
                     message = 'isso pode demorar um pouco'
                 else:
@@ -3879,6 +3879,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
