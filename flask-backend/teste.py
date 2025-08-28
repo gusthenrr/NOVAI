@@ -1580,11 +1580,11 @@ def run_pipeline(user_id, room):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, room=room)
-        #faturamento_por_pedidos(user_id)
+        faturamento_por_pedidos(user_id,room)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, room=room)
-        listar_conversas_pos_venda(user_id, seller_id, access_token)
+        listar_conversas_pos_venda(user_id, seller_id, access_token,room)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, room=room)
@@ -1619,7 +1619,7 @@ def buscar_item(item_id,access_token):
     response=requests.get(url,headers=headers)
     return response.json()
 
-def listar_conversas_pos_venda(user_id, seller_id, access_token):
+def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
     try:
         print("Entrou na função listar_conversas_pos_venda")
         conn = get_db_connection()
@@ -1629,6 +1629,8 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
         pack_id_lista = cur.fetchall()
         pack_id_list = [pack['pack_id'] for pack in pack_id_lista]  # Convertendo para lista de tuplas
         headers = {"Authorization": f"Bearer {access_token}"}
+        count_20 = 0
+        change = 0
         for pack_id in pack_id_list:
     
             url = f"https://api.mercadolibre.com/messages/packs/{pack_id}/sellers/{seller_id}?mark_as_read=false&tag=post_sale"
@@ -1673,6 +1675,18 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token):
                                     user_id,
                                 ))
                             conn.commit()
+            count_20 +=1
+            if count_20>20:
+                if change = 1:
+                    change = 0
+                    message = 'Buscando menssagens pós-venda'
+                elif change = 0
+                    change = 1
+                    message = 'Isso pode demorar um pouco'
+                socketio.emit('status_loading', {'message':message},room=room)                    
+                count_20 = 0
+                socketio.sleep(1)
+                
         cur.close()
         conn.close()
     except Exception as e:
@@ -1927,7 +1941,7 @@ def reclamacoes(access_token, user_id):
 
     print("✅ Sincronização de reclamações finalizada com sucesso.")
 
-def faturamento_por_pedidos(user_id):
+def faturamento_por_pedidos(user_id, room):
     print("entrou no faturamento_por_pedidos")
     try:
         conn=get_db_connection()
@@ -1943,6 +1957,8 @@ def faturamento_por_pedidos(user_id):
         resposta=response.json()
         paging=resposta.get('paging')
         total_pages=paging.get('total')
+        count_20 = 0
+        change = 0
         for offset in range(0,total_pages,50):
             url = f"https://api.mercadolibre.com/orders/search?seller={id}&offset={offset}&limit=50&sort=date_desc"
 
@@ -2041,7 +2057,17 @@ def faturamento_por_pedidos(user_id):
                 except Exception as e:
                     print(f"Erro ao inserir pedido {id_order}: {e}")
 
-
+            count_20 += 1
+            if count_20>20:
+                if change = 0:
+                    change = 1
+                    message = 'isso pode demorar um pouco'
+                else:
+                    change = 0
+                    message = 'Buscando Pedidos...'
+                socketio.emit('status_loading', {'message':message}, room = room)
+                socketio.sleep(1)
+                count_20 = 0
 
         conn.close()
         #print('faturamento dos ultimos 50 pedidos: R$ ', faturamentos)
