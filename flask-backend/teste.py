@@ -1717,43 +1717,24 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
                             read_flag = message.get('message_date', {}).get('read') is not None
                             if text and created_at:
                                 created_at_brazil = converter_zona_pro_brasil(created_at)
-                                try:
-                                    cur.execute('''
-                                        INSERT INTO messages (
-                                            client_name, message, date_created, author,
-                                            type, read, pack_id, is_first_message,usuario_id_messages
-                                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                                    ''', (
-                                        client_name['nickname'],
-                                        text,
-                                        created_at_brazil,
-                                        author,
-                                        'post_sale',
-                                        read_flag,
-                                        int(pack_id),
-                                        is_first_message,
-                                        user_id,
-                                    ))
-                                except Exception as e:
-                                    print('erro ao armazenar mensagem do pos', e)
-                                    cur.execute('INSERT INTO packs (pack_id,usuario_id_packs) VALUES (%s,%s) ON CONFLICT (pack_id) DO NOTHING ',(int(pack_id),user_id,))
-                                    conn.commit()
-                                    cur.execute('''
-                                        INSERT INTO messages (
-                                            client_name, message, date_created, author,
-                                            type, read, pack_id, is_first_message,usuario_id_messages
-                                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) 
-                                    ''', (
-                                        client_name['nickname'],
-                                        text,
-                                        created_at_brazil,
-                                        author,
-                                        'post_sale',
-                                        read_flag,
-                                        int(pack_id),
-                                        is_first_message,
-                                        user_id,
-                                    ))
+                                cur.execute('INSERT INTO packs (pack_id,usuario_id_packs) VALUES (%s,%s) ON CONFLICT (pack_id) DO NOTHING ',(int(pack_id),user_id,))
+                                conn.commit()
+                                cur.execute('''
+                                    INSERT INTO messages (
+                                        client_name, message, date_created, author,
+                                        type, read, pack_id, is_first_message,usuario_id_messages
+                                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                ''', (
+                                    client_name['nickname'],
+                                    text,
+                                    created_at_brazil,
+                                    author,
+                                    'post_sale',
+                                    read_flag,
+                                    int(pack_id),
+                                    is_first_message,
+                                    user_id,
+                                )) 
                             conn.commit()
             count_20 +=1
             if count_20>20:
@@ -4001,6 +3982,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
