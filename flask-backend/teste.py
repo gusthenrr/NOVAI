@@ -1133,12 +1133,23 @@ def user_login():
                 else:
                     status='sync_nao_iniciada'
                 print("retornando front end tudo ok")
-                return jsonify({
+                resp=jsonify({
                     "message": "Login bem-sucedido",
                     "status": status,
                     "user": {"id": user['id'], "email": user['email']},
                     "token": jwt_token  # Aqui você pode implementar a geração de um token real
-                }), 200
+                })
+                resp.set_cookie(
+                key=COOKIE_NAME,
+                value=jwt_value,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path="/",          # obrigatório para __Host-
+                # sem Domain -> host-only
+                max_age=60*60*24,
+            )
+                return resp, 200
             else:
                 print("retornando erro 1")
                 return jsonify({"message": "Credenciais inválidas", "status": "error"}), 401
@@ -3962,6 +3973,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
