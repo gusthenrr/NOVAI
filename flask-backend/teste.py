@@ -1514,6 +1514,37 @@ def sync_lock_release(user_id: int):
 ###                         ###
 ### FUNÇÕES A SEREM CHAMADAS###
 ###                         ###
+
+@socketio.on('verificar_status')
+def verificar_status():
+    try: 
+        token = request.cookies.get("__Host-token")
+        print('token verificar_status', token)
+        if not token:
+            print('sem token')
+            return {'status': 'Sem Token'}
+        decoded = decode_token(token)
+        user_id = int(decoded.get('sub'))
+        print('user_id', user_id)
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM usuarios WHERE id=%s", (user_id,))
+            if cur.fetchone:
+                print('Encontrou o usuario')
+                cur.execute("SELECT status FROM first_sync WHERE usuario_id_first_sync= %s", (user_id,))
+                if cur.fetchone():
+                    print('usuario com status')
+                    status_dict = cur.fetchone()
+                    status = status_dict['status']
+                    return {'status':status,'token':token}
+                else:
+                    print('usuario sem status, Inserindo status')
+                    cur.execute('INSERT INTO first_sync (status,usuario_id_first_sync) VALUES (%s,%s)',('sync_em_processamento',user_id,))
+                    return {'status': 'sync_nao_iniciada','token':token}
+            else:
+                return {'status':'Sem Token'}
+    except Exception as e:
+        print('erro ao verificar_status: ', e)
+
 @socketio.on('pegar_dados_iniciais')
 def pegar_dados_gerais():
     try:
@@ -3921,6 +3952,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
