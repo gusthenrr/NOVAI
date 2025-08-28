@@ -1141,7 +1141,7 @@ def user_login():
                 })
                 resp.set_cookie(
                 key=COOKIE_NAME,
-                value=jwt_value,
+                value=jwt_token,
                 httponly=True,
                 secure=True,
                 samesite="None",
@@ -3975,6 +3975,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
