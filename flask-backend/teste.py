@@ -1568,15 +1568,15 @@ def run_pipeline(user_id, room):
 
         # etapas com yields para cooperar com eventlet
         socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
-        #listar_todos_itens(user_id, seller_id, access_token)
+        listar_todos_itens(user_id, seller_id, access_token)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, room=room)
-        #campanhas_e_anuncios(user_id, access_token)
+        campanhas_e_anuncios(user_id, access_token,room)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, room=room)
-        #dados_vendedor(access_token, user_id)
+        dados_vendedor(access_token, user_id)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, room=room)
@@ -2283,9 +2283,11 @@ def dados_vendedor(access_token,user_id):
     print('Terminou de pegar os dados do venedor')
 
 
-def campanhas_e_anuncios(user_id, access_token):
+def campanhas_e_anuncios(user_id, access_token,room):
     try:
         # Buscar anuncios
+        count_20=0
+        change=0
         print("Buscando anúncios do vendedor...")
         conn= get_db_connection()
         cur = conn.cursor()
@@ -2398,7 +2400,16 @@ def campanhas_e_anuncios(user_id, access_token):
             }
             #campanhas ativas do vendedor#
 
-
+            count_20+=1
+            if count_20>20:
+                if change==1:
+                    change=0
+                    message='Buscando anuncios e campanhas'
+                else:
+                    change = 1
+                    message = 'Isso pode demorar alguns minutos'
+                count_20=0
+                socketio.emit('status_loading', {'message':message}, room=room)
         conn.commit()
         cur.execute("""DELETE FROM anuncios_metricas_diarias
                     WHERE id_anuncio IN (
@@ -2489,8 +2500,16 @@ def campanhas_e_anuncios(user_id, access_token):
                     direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_units_amount, organic_items_quantity, acos,
                     cvr, roas, sov, impression_share, top_impression_share,lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, name,date, user_id,))
 
-
-
+            count_20+=1
+            if count_20>20:
+                if change==1:
+                    change=0
+                    message='Buscando reclamacoes'
+                else:
+                    change = 1
+                    message = 'Isso pode demorar alguns minutos'
+                count_20=0
+                socketio.emit('status_loading', {'message':message}, room=room)
         cur.execute("""DELETE FROM campanhas_metricas_diarias
                     WHERE campanha_id IN (
                     SELECT campanha_id
@@ -3902,6 +3921,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
