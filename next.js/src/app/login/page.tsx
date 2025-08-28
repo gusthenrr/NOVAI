@@ -24,7 +24,7 @@ export default function LoginPage() {
         console.log("token do login:",result.data.token)
         setToken(result.data.token)
         setUserValid(false)
-        if result.data.status==='concluido'{
+        if (result.data.status==='concluido'){
         window.location.replace("/Manager"); // Ou router.push('/prevend') se preferir a navegação do Next
         }
         else{
@@ -242,4 +242,5 @@ export default function LoginPage() {
     </div>
   );
 }
+
 
