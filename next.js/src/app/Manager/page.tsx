@@ -321,6 +321,7 @@ const loadingStyles: { [key: string]: React.CSSProperties } = {
   analysingText: {
     color: '#8E8E93',
     fontSize: '0.875rem',
+    paddingLeft: 10,
   },
   atomContainer: {
     position: 'relative',
@@ -523,3 +524,4 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
+
