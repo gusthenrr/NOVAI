@@ -1126,10 +1126,16 @@ def user_login():
                 session['user_id'] = user['id'] # Salva o ID do usuário na sessão
                 jwt_token=gerar_token(user['id'])
                 #getApiMercadoLivre(jwt_token)
+                cur.execute('SELECT status FROM first_sync WHERE usuario_id_first_sync = %s',(user['id'],))
+                status_dict=cur.fetchone()
+                if status_dict:
+                    status = status_dict['status']
+                else:
+                    status='sync_nao_iniciada'
                 print("retornando front end tudo ok")
                 return jsonify({
                     "message": "Login bem-sucedido",
-                    "status": "success",
+                    "status": status,
                     "user": {"id": user['id'], "email": user['email']},
                     "token": jwt_token  # Aqui você pode implementar a geração de um token real
                 }), 200
@@ -1528,17 +1534,18 @@ def verificar_status():
         print('user_id', user_id)
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT id FROM usuarios WHERE id=%s", (user_id,))
-            if cur.fetchone:
+            if cur.fetchone():
                 print('Encontrou o usuario')
                 cur.execute("SELECT status FROM first_sync WHERE usuario_id_first_sync= %s", (user_id,))
-                if cur.fetchone():
+                status_dict=cur.fetchone()
+                if status_dict:
                     print('usuario com status')
-                    status_dict = cur.fetchone()
                     status = status_dict['status']
                     return {'status':status,'token':token}
                 else:
                     print('usuario sem status, Inserindo status')
                     cur.execute('INSERT INTO first_sync (status,usuario_id_first_sync) VALUES (%s,%s)',('sync_em_processamento',user_id,))
+                    conn.commit()
                     return {'status': 'sync_nao_iniciada','token':token}
             else:
                 return {'status':'Sem Token'}
@@ -1631,6 +1638,9 @@ def run_pipeline(user_id, room):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Concluído!','status':True}, room=room)
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute('UPDATE first_sync SET status = %s WHERE usuario_id_first_sync =%s', ('concluido',user_id,))
+            conn.commit()
 
     except Exception as e:
         socketio.emit('status_loading',
@@ -3952,6 +3962,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
