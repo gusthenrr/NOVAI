@@ -28,9 +28,99 @@ interface ChatInputProps {
   isLoading: boolean;
 }
 // O componente RespostaFormatada é simulado aqui, pois não está disponível no ambiente
-const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => (
-    <div dangerouslySetInnerHTML={{ __html: resposta.replace(/\n/g, '<br />') }} />
-);
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => {
+  return (
+    <div className="markdown-body">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        // por padrão o react-markdown NÃO permite HTML bruto, o que é mais seguro
+      >
+        {resposta}
+      </ReactMarkdown>
+
+      {/* Estilos para Markdown em dark mode */}
+      <style>{`
+        .markdown-body {
+          color: #E0E0E0;
+          line-height: 1.6;
+          font-size: 0.95rem;
+        }
+
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+          margin: 0.75rem 0 0.5rem;
+          font-weight: 700;
+        }
+        .markdown-body h1 { font-size: 1.4rem; }
+        .markdown-body h2 { font-size: 1.2rem; }
+        .markdown-body h3 { font-size: 1.05rem; }
+
+        .markdown-body p { margin: 0.4rem 0; }
+
+        /* TABELAS */
+        .markdown-body table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 0.75rem 0 1rem;
+          background: #1f1f1f;
+          border: 1px solid #2f2f2f;
+          border-radius: 10px;
+          overflow: hidden; /* arredondar bordas da tabela */
+        }
+        .markdown-body thead {
+          background: #262626;
+        }
+        .markdown-body th, .markdown-body td {
+          padding: 10px 12px;
+          border-bottom: 1px solid #2f2f2f;
+          text-align: left;
+        }
+        .markdown-body th {
+          font-weight: 600;
+          color: #f0f0f0;
+        }
+        .markdown-body tr:last-child td {
+          border-bottom: none;
+        }
+        /* Alinha números à direita automaticamente se desejar */
+        .markdown-body td:nth-child(2) {
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+        }
+
+        /* LISTAS */
+        .markdown-body ul, .markdown-body ol {
+          margin: 0.4rem 0 0.8rem 1.25rem;
+        }
+
+        /* CÓDIGO */
+        .markdown-body code {
+          background: #2a2a2a;
+          padding: 2px 6px;
+          border-radius: 6px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+        .markdown-body pre code {
+          display: block;
+          padding: 12px;
+          overflow-x: auto;
+        }
+
+        /* LINKS */
+        .markdown-body a {
+          color: #f8dd82;
+          text-decoration: none;
+        }
+        .markdown-body a:hover {
+          text-decoration: underline;
+        }
+      `}</style>
+    </div>
+  );
+};
+
 
 // --- Ícones SVG para uma interface clean ---
 const SendIcon: React.FC<SendIconProps> = ({ isDisabled }) => (
@@ -524,4 +614,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
+
 
