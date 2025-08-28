@@ -1589,6 +1589,16 @@ def pegar_dados_gerais():
     except Exception as e:
         print(f'erro: {str(e)}')
         return False
+        
+def teste_mensagem(user_id,acess_token):
+    headers = {
+        'Authorization': f'Bearer {acess_token}'
+    }
+    url = 'https://api.mercadolibre.com/messages/unread?tag=post_sale'
+    resp = requests.get(url, headers=headers)
+    resposta = resp.json()
+    print(f'resposta teste mensagem : {resposta}')
+    
 
 def run_pipeline(user_id, room):
     try:
@@ -1617,6 +1627,8 @@ def run_pipeline(user_id, room):
         access_token = row['acess_token']
         seller_id    = row['id_ml']
 
+        teste_mensagem(user_id,acess_token)
+        return
         # etapas com yields para cooperar com eventlet
         socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
         listar_todos_itens(user_id, seller_id, access_token)
@@ -3975,6 +3987,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
