@@ -1,14 +1,15 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import { io } from 'socket.io-client';
+import React, { useEffect, useRef, useState } from 'react';
+import { io, Socket } from 'socket.io-client';
+
 declare global {
   interface Window {
     __redirecting__?: boolean;
   }
 }
+
 // Componente da Tela de Carregamento
 const LoadingScreen = ({ mensagem }: { mensagem: string }) => {
-  // --- Estilos CSS-in-JS para manter tudo em um único arquivo ---
   const styles: { [key: string]: React.CSSProperties } = {
     loadingOverlay: {
       position: 'fixed',
@@ -16,7 +17,7 @@ const LoadingScreen = ({ mensagem }: { mensagem: string }) => {
       left: 0,
       width: '100%',
       height: '100%',
-      backgroundColor: '#1a1a1a', // Um fundo escuro e sofisticado
+      backgroundColor: '#1a1a1a',
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
@@ -45,23 +46,22 @@ const LoadingScreen = ({ mensagem }: { mensagem: string }) => {
       fill: 'none',
     },
     dotStyle: {
-      fill: '#FFF159', // Amarelo do Mercado Livre
+      fill: '#FFF159',
       animation: 'pulse 1.5s ease-in-out infinite',
       transformOrigin: 'center center',
     },
-        logoText: {
-        color: '#ffffff',
-        fontSize: '32px',
-        fontWeight: '600',
-        letterSpacing: '1px',
-        // Adiciona uma borda preta de 1px ao redor do texto para melhor contraste
-        textShadow: '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000',
-        },
-    // Container para a mensagem, para controlar o overflow da animação
+    logoText: {
+      color: '#ffffff',
+      fontSize: '32px',
+      fontWeight: 600,
+      letterSpacing: '1px',
+      textShadow:
+        '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000',
+    },
     messageContainer: {
       marginTop: '30px',
       width: '320px',
-      height: '50px', // Altura suficiente para o texto
+      height: '50px',
       overflow: 'hidden',
       position: 'relative',
     },
@@ -72,56 +72,23 @@ const LoadingScreen = ({ mensagem }: { mensagem: string }) => {
       lineHeight: '1.5',
       position: 'absolute',
       width: '100%',
-      // Aplica a nova animação de escrita
       animation: 'slideAndFade 5s ease-in-out infinite',
     },
   };
 
-  // --- Keyframes para as animações ---
   const keyframes = `
-    @keyframes rotate {
-      from {
-        transform: rotate(0deg);
-      }
-      to {
-        transform: rotate(360deg);
-      }
-    }
+    @keyframes rotate { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
     @keyframes pulse {
-      0%, 100% {
-        transform: scale(0.8);
-        opacity: 0.7;
-      }
-      50% {
-        transform: scale(1.2);
-        opacity: 1;
-      }
+      0%, 100% { transform: scale(0.8); opacity: 0.7; }
+      50%      { transform: scale(1.2); opacity: 1; }
     }
-    /* Nova animação para a mensagem de texto */
     @keyframes slideAndFade {
-      0% { /* Texto visível e parado */
-        transform: translate(0, 0);
-        opacity: 1;
-      }
-      40% { /* Permanece visível */
-        transform: translate(0, 0);
-        opacity: 1;
-      }
-      50% { /* Desliza para baixo e some */
-        transform: translate(0, 25px);
-        opacity: 0;
-      }
-      51% { /* Move-se para a esquerda, invisível (preparando para reaparecer) */
-        transform: translate(-100%, 0);
-      }
-      60% { /* Pausa à esquerda, ainda invisível */
-        transform: translate(-100%, 0);
-        opacity: 0;
-      }
-      100% { /* Desliza da esquerda para o centro e aparece */
-        transform: translate(0, 0);
-        opacity: 1;
-      }
+      0%   { transform: translate(0, 0);     opacity: 1; }
+      40%  { transform: translate(0, 0);     opacity: 1; }
+      50%  { transform: translate(0, 25px);  opacity: 0; }
+      51%  { transform: translate(-100%, 0); opacity: 0; }
+      60%  { transform: translate(-100%, 0); opacity: 0; }
+      100% { transform: translate(0, 0);     opacity: 1; }
     }
   `;
 
@@ -130,119 +97,118 @@ const LoadingScreen = ({ mensagem }: { mensagem: string }) => {
       <style>{keyframes}</style>
       <div style={styles.loadingOverlay}>
         <div style={styles.animationContainer}>
-          {/* Animação de fundo com SVG
-            A propriedade viewBox foi ajustada de "0 0 100 100" para "-5 -5 110 110".
-            Isso cria uma "margem" de 5px em todos os lados dentro da área de desenho do SVG,
-            evitando que as bolinhas sejam cortadas ao pulsar nas bordas.
-          */}
           <svg style={styles.svgStyle} viewBox="-5 -5 110 110">
-            {/* Círculos de órbita */}
-            <path style={styles.pathStyle} d="M 50,50 m -40,0 a 40,40 0 1,1 80,0 a 40,40 0 1,1 -80,0"></path>
-            <path style={styles.pathStyle} d="M 50,50 m -30,0 a 30,30 0 1,1 60,0 a 30,30 0 1,1 -60,0"></path>
-            <path style={styles.pathStyle} d="M 50,50 m -20,0 a 20,20 0 1,1 40,0 a 20,20 0 1,1 -40,0"></path>
-            
-            {/* Pontos pulsantes */}
-            <circle style={{...styles.dotStyle, animationDelay: '0s'}} cx="50" cy="10" r="3"></circle>
-            <circle style={{...styles.dotStyle, animationDelay: '0.2s'}} cx="90" cy="50" r="3"></circle>
-            <circle style={{...styles.dotStyle, animationDelay: '0.4s'}} cx="50" cy="90" r="3"></circle>
-            <circle style={{...styles.dotStyle, animationDelay: '0.6s'}} cx="10" cy="50" r="3"></circle>
-            <circle style={{...styles.dotStyle, animationDelay: '0.8s'}} cx="78" cy="22" r="2"></circle>
-            <circle style={{...styles.dotStyle, animationDelay: '1s'}} cx="22" cy="78" r="2"></circle>
+            <path style={styles.pathStyle} d="M 50,50 m -40,0 a 40,40 0 1,1 80,0 a 40,40 0 1,1 -80,0" />
+            <path style={styles.pathStyle} d="M 50,50 m -30,0 a 30,30 0 1,1 60,0 a 30,30 0 1,1 -60,0" />
+            <path style={styles.pathStyle} d="M 50,50 m -20,0 a 20,20 0 1,1 40,0 a 20,20 0 1,1 -40,0" />
+            <circle style={{ ...styles.dotStyle, animationDelay: '0s' }}   cx="50" cy="10" r="3" />
+            <circle style={{ ...styles.dotStyle, animationDelay: '0.2s' }} cx="90" cy="50" r="3" />
+            <circle style={{ ...styles.dotStyle, animationDelay: '0.4s' }} cx="50" cy="90" r="3" />
+            <circle style={{ ...styles.dotStyle, animationDelay: '0.6s' }} cx="10" cy="50" r="3" />
+            <circle style={{ ...styles.dotStyle, animationDelay: '0.8s' }} cx="78" cy="22" r="2" />
+            <circle style={{ ...styles.dotStyle, animationDelay: '1s' }}   cx="22" cy="78" r="2" />
           </svg>
-          
-          {/* Texto da Logo no centro */}
           <span style={styles.logoText}>NOVAI</span>
         </div>
-        
-        {/* Container da Mensagem de Carregamento */}
         <div style={styles.messageContainer}>
-          <p style={styles.loadingMessage}>
-           {mensagem}
-          </p>
+          <p style={styles.loadingMessage}>{mensagem}</p>
         </div>
       </div>
     </>
   );
 };
 
-// Componente principal da aplicação para demonstração
+type VerificarStatusAck = { status: string; token?: string };
+type GuardarTokenEvt = { token?: string };
+type StatusLoadingEvt = { message?: string; status?: boolean };
+
 export default function App() {
-  const [isLoading, setIsLoading] = useState(true);
-  const[mensagem, setMensagem] = useState('Estamos nos preparando para sincronizar seus dados, não saia dessa pagina')
-  const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
-  transports: ['websocket'],
-  withCredentials: true, // ✅ necessário para enviar cookies (incl. HttpOnly)
-  reconnection: true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 2000,
-  timeout: 20000 // 20s
-});
+  const [mensagem, setMensagem] = useState(
+    'Estamos nos preparando para sincronizar seus dados, não saia desta página.'
+  );
+  const [showLoading, setShowLoading] = useState(true);
+  const socketRef = useRef<Socket | null>(null);
 
-  // Simula o carregamento de dados
- useEffect(() => {
-    console.log('Tela de loadig')
-    console.log('mudou alguma coisa nessa desgraça')
-    socket.emit('pegar_dados_iniciais');
-    socket.on('guardar_token', (resp)=>{
-    console.log('entrou no guardar_token')
-    if (resp){
-      console.log('entrou no if do resp')
-      console.log(resp)
-      localStorage.setItem("authToken", resp.token);    
-    }
-    })
-    socket.on('status_loading', (dados)=>{
-      console.log(dados)
-      setMensagem(dados.message)
-      if (dados.status){
-      if (window.__redirecting__) return;
-      window.__redirecting__ = true;
-
-    // 1) desconecta o socket
-    socket.once('disconnect', () => {
-      // 2) redireciona após desconectar
-      window.location.replace('/Manager');
+  useEffect(() => {
+    const url = process.env.NEXT_PUBLIC_API_URL as string;
+    const socket = io(url, {
+      transports: ['websocket'],
+      withCredentials: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 2000,
+      timeout: 20000, // 20s
     });
-    socket.disconnect(); // ou socket.close()
-    }
-    })
 
+    socketRef.current = socket;
+    console.log('Tela de loading montada');
+
+    // 1) Verificar status (ACK do servidor)
+    socket.emit('verificar_status', (resp: VerificarStatusAck) => {
+      if (resp?.status === 'Sem Token') {
+        window.location.replace('/login');
+        return;
+      }
+
+      // Guarda token se vier no ACK (menos seguro que HttpOnly cookie)
+      if (resp?.token) {
+        try {
+          localStorage.setItem('authToken', resp.token);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (resp?.status === 'sync_nao_iniciada') {
+        socket.emit('pegar_dados_iniciais');
+      }
+
+      setShowLoading(true);
+    });
+
+    // 2) Guardar token por evento
+    socket.on('guardar_token', (resp: GuardarTokenEvt) => {
+      if (resp?.token) {
+        try {
+          localStorage.setItem('authToken', resp.token);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
+    // 3) Atualizações de status de loading
+    socket.on('status_loading', (dados: StatusLoadingEvt) => {
+      if (dados?.message) setMensagem(dados.message);
+
+      if (dados?.status) {
+        // Concluído → desconectar e redirecionar
+        if (window.__redirecting__) return;
+        window.__redirecting__ = true;
+
+        socket.once('disconnect', () => {
+          window.location.replace('/Manager');
+        });
+        socket.disconnect();
+      }
+    });
+
+    // Cleanup ao desmontar
+    return () => {
+      socket.off('guardar_token');
+      socket.off('status_loading');
+      socket.disconnect();
+      socketRef.current = null;
+    };
   }, []);
 
-  // Estilo para o conteúdo principal da página
-  const mainContentStyle = {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '100vh',
-    backgroundColor: '#f0f0f0',
-    color: '#333',
-    fontFamily: "'Inter', sans-serif",
-  };
+  if (!showLoading) {
+    return (
+      <div>
+        <span>...</span>
+      </div>
+    );
+  }
 
-  return (
-    <div>
-      {isLoading ? (
-        <LoadingScreen mensagem={mensagem} />
-      ) : (
-        <div style={mainContentStyle}>
-          <h1>Conteúdo Principal Carregado!</h1>
-        </div>
-      )}
-    </div>
-  );
-
+  return <LoadingScreen mensagem={mensagem} />;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
