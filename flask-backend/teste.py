@@ -1554,6 +1554,7 @@ def verificar_status():
                     status = status_dict['status']
                     room=f'user:{user_id}'
                     join_room(room)
+                    socketio.emit('Aguarde mais alguns minutos,\n esse processo pode demorar um pouco...')
                     return {'status':status,'token':token}
                 else:
                     print('usuario sem status, Inserindo status')
@@ -3978,6 +3979,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
