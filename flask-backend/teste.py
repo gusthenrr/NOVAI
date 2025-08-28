@@ -1592,7 +1592,7 @@ def run_pipeline(user_id, room):
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Reclamações...'}, room=room)
-        reclamacoes(access_token, user_id)
+        reclamacoes(access_token, user_id, room)
         socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Promoções...'}, room=room)
@@ -1695,10 +1695,11 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
 
 
 
-def reclamacoes(access_token, user_id):
+def reclamacoes(access_token, user_id, room):
     try:
         print("Entrou na função de reclamações")
-    
+        change=0
+        count_20=0
         base_url = "https://api.mercadolibre.com"
         headers = {"Authorization": f"Bearer {access_token}"}
         offset = 0
@@ -1813,12 +1814,23 @@ def reclamacoes(access_token, user_id):
                  comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,user_id,
                 ))
                 conn.commit()
-    
+            count_20+=1
+            if count_20>20:
+                if change==1:
+                    change=0
+                    message='Buscando reclamacoes'
+                else:
+                    change = 1
+                    message = 'Isso pode demorar alguns minutos'
+                count_20=0
+                socketio.emit('status_loading', {'message':message}, room=room)
+                socketio.sleep(1)
             conn.commit()
             offset += limit
             time.sleep(0.2)
             #request para claims fechadas
         offset = 0
+        count_20=0
         while True:
             url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=closed&offset={offset}&limit={limit}"
             response = requests.get(url, headers=headers)
@@ -1931,9 +1943,20 @@ def reclamacoes(access_token, user_id):
                     fulfilled, quantity_type, site_id, date_created, last_updated,
                     comprador_id, vendedor_id, acoes_disponiveis,nome_reason,description,title,reason,resolution_date_created,benefited,closed_by,apllied_coverage,user_id,
                 ))
+            count_20+=1
+            if count_20>20:
+                if change==1:
+                    change=0
+                    message='Buscando reclamacoes'
+                else:
+                    change = 1
+                    message = 'Isso pode demorar alguns minutos'
+                count_20=0
+                socketio.emit('status_loading', {'message':message}, room=room)
             time.sleep(0.2)
             offset += limit
             conn.commit()
+        
     except Exception as e:
         print(f'erro: {str(e)}')
     print('Terminou de pegar as reclamacoes')
@@ -3879,6 +3902,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
