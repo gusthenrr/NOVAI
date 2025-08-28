@@ -1618,37 +1618,37 @@ def run_pipeline(user_id, room):
         access_token = row['acess_token']
         seller_id    = row['id_ml']
         # etapas com yields para cooperar com eventlet
-        socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
-        listar_todos_itens(user_id, seller_id, access_token)
-        socketio.sleep(0)
+        # socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
+        # listar_todos_itens(user_id, seller_id, access_token)
+        # socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, room=room)
-        campanhas_e_anuncios(user_id, access_token,room)
-        socketio.sleep(0)
+        # socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, room=room)
+        # campanhas_e_anuncios(user_id, access_token,room)
+        # socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, room=room)
-        dados_vendedor(access_token, user_id)
-        socketio.sleep(0)
+        # socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, room=room)
+        # dados_vendedor(access_token, user_id)
+        # socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, room=room)
-        faturamento_por_pedidos(user_id,room)
-        socketio.sleep(0)
+        # socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, room=room)
+        # faturamento_por_pedidos(user_id,room)
+        # socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, room=room)
         listar_conversas_pos_venda(user_id, seller_id, access_token,room)
         socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, room=room)
-        listar_conversas_pre_venda(user_id, seller_id, access_token)
-        socketio.sleep(0)
+        # socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, room=room)
+        # listar_conversas_pre_venda(user_id, seller_id, access_token)
+        # socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Reclamações...'}, room=room)
-        reclamacoes(access_token, user_id, room)
-        socketio.sleep(0)
+        # socketio.emit('status_loading', {'message': 'Reclamações...'}, room=room)
+        # reclamacoes(access_token, user_id, room)
+        # socketio.sleep(0)
 
-        socketio.emit('status_loading', {'message': 'Promoções...'}, room=room)
-        promocoes(user_id, access_token, seller_id)
-        socketio.sleep(0)
+        # socketio.emit('status_loading', {'message': 'Promoções...'}, room=room)
+        # promocoes(user_id, access_token, seller_id)
+        # socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Concluído!','status':True}, room=room)
         with get_db_connection() as conn, conn.cursor() as cur:
@@ -1690,7 +1690,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
         change = 0
         for result in results:
             resource = result.get('resource', None)
-            pack_id = resource.split('/')[1]
+            pack_id = resource.split('/')[2]
             print('pack id', pack_id)
     
             url = f"https://api.mercadolibre.com/messages/{resource}?mark_as_read=false&tag=post_sale"
@@ -1730,13 +1730,13 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
                                         author,
                                         'post_sale',
                                         read_flag,
-                                        pack_id,
+                                        int(pack_id),
                                         is_first_message,
                                         user_id,
                                     ))
                                 except Exception as e:
                                     print('erro ao armazenar mensagem do pos', e)
-                                    cur.execute('INSERT INTO packs (pack_id,usuario_id_packs) VALUES (%s,%s) ON CONCLICT (pack_id) DO NOTHING ',(pack_id,user_id,))
+                                    cur.execute('INSERT INTO packs (pack_id,usuario_id_packs) VALUES (%s,%s) ON CONFLICT (pack_id) DO NOTHING ',(int(pack_id),user_id,))
                                     conn.commit()
                                     cur.execute('''
                                         INSERT INTO messages (
@@ -1750,7 +1750,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
                                         author,
                                         'post_sale',
                                         read_flag,
-                                        pack_id,
+                                        int(pack_id),
                                         is_first_message,
                                         user_id,
                                     ))
@@ -4001,6 +4001,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
