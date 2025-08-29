@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { io } from 'socket.io-client';
 // A biblioteca 'remark-gfm' não pôde ser resolvida, então a removi.
 // import remarkGfm from 'remark-gfm';
@@ -35,7 +36,8 @@ const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => {
   return (
     <div className="markdown-body">
       <ReactMarkdown
-        // O plugin remark-gfm foi removido para resolver o erro de compilação.
+        remarkPlugins={[remarkGfm]}
+        // por padrão o react-markdown NÃO permite HTML bruto, o que é mais seguro
       >
         {resposta}
       </ReactMarkdown>
@@ -119,7 +121,6 @@ const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => {
     </div>
   );
 };
-
 
 // --- Ícones SVG para uma interface clean ---
 const SendIcon: React.FC<SendIconProps> = ({ isDisabled }) => (
@@ -791,5 +792,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
+
 
 
