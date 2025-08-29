@@ -1,7 +1,9 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
+import ReactMarkdown from 'react-markdown';
+// A biblioteca 'remark-gfm' não pôde ser resolvida, então a removi.
+// import remarkGfm from 'remark-gfm';
 
 // --- Tipos para maior segurança e clareza ---
 interface Message {
@@ -27,16 +29,12 @@ interface ChatInputProps {
   onSendMessage: (messageText: string) => void;
   isLoading: boolean;
 }
-// O componente RespostaFormatada é simulado aqui, pois não está disponível no ambiente
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => {
   return (
     <div className="markdown-body">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        // por padrão o react-markdown NÃO permite HTML bruto, o que é mais seguro
+        // O plugin remark-gfm foi removido para resolver o erro de compilação.
       >
         {resposta}
       </ReactMarkdown>
@@ -130,6 +128,23 @@ const SendIcon: React.FC<SendIconProps> = ({ isDisabled }) => (
   </svg>
 );
 
+const MenuIcon: React.FC = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E0E0E0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="3" y1="12" x2="21" y2="12"></line>
+    <line x1="3" y1="6" x2="21" y2="6"></line>
+    <line x1="3" y1="18" x2="21" y2="18"></line>
+  </svg>
+);
+
+const ChatHistoryIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E0E0E0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V3a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    <path d="M8 8h.01"></path>
+    <path d="M12 8h.01"></path>
+    <path d="M16 8h.01"></path>
+  </svg>
+);
+
 // --- Componente de Input do Chat ---
 const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
   const [text, setText] = useState<string>('');
@@ -189,8 +204,17 @@ export default function App(): JSX.Element {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [token, setToken] = useState('');
   const chatHistoryRef = useRef<ChatHistory[]>([]);
+  
+  // Novos estados para controlar a abertura/fechamento dos painéis
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(false);
+  const [isLeftPanelPinned, setIsLeftPanelPinned] = useState(false);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
+  const [isRightPanelPinned, setIsRightPanelPinned] = useState(false);
+  
+  const [isHoveringLeft, setIsHoveringLeft] = useState(false);
+  const [isHoveringRight, setIsHoveringRight] = useState(false);
+
 
   // Efeito inicial para a mensagem de boas-vindas e conexão com o socket
   useEffect(() => {
@@ -287,24 +311,87 @@ export default function App(): JSX.Element {
     setMessages(prev => [...prev, aiMessage]);
   };
 
+ const handleLeftPanelToggle = () => {
+    setIsLeftPanelPinned(!isLeftPanelPinned);
+    // Se o painel estava aberto, agora ele vai fechar
+    if (isLeftPanelOpen) {
+      setIsLeftPanelOpen(false);
+    }
+  };
+
+  const handleRightPanelToggle = () => {
+    setIsRightPanelPinned(!isRightPanelPinned);
+    setIsRightPanelOpen(!isRightPanelPinned);
+  };
+
+  const getLeftTooltipText = () => {
+    if (isLeftPanelPinned) {
+      return 'Fechar menu';
+    } else if (isLeftPanelOpen) {
+      return 'Manter menu aberto';
+    } else {
+      return 'Abrir menu';
+    }
+  };
+
+  const getRightTooltipText = () => {
+    if (isRightPanelPinned) {
+      return 'Fechar histórico';
+    } else if (isRightPanelOpen) {
+      return 'Manter histórico aberto';
+    } else {
+      return 'Abrir histórico';
+    }
+  };
+
+
   // --- Renderização da UI ---
   return (
     <div style={styles.appContainer}>
       <div style={styles.backgroundGradient}></div>
 
       {/* PAINEL ESQUERDO - NAVEGAÇÃO/MARCA */}
-      <aside style={styles.leftPanel}>
-        <div style={styles.logo}>
-          NOVAI
+      <aside
+        style={{ ...styles.panel, ...styles.leftPanel, width: isLeftPanelPinned || isLeftPanelOpen ? '240px' : '60px' }}
+        onMouseEnter={() => !isLeftPanelPinned && setIsLeftPanelOpen(true)}
+        onMouseLeave={() => !isLeftPanelPinned && setIsLeftPanelOpen(false)}
+      >
+        <div style={styles.panelHeader}>
+          <div
+            style={styles.buttonWrapper}
+            onMouseEnter={() => setIsHoveringLeft(true)}
+            onMouseLeave={() => setIsHoveringLeft(false)}
+          >
+            <button
+              onClick={handleLeftPanelToggle}
+              style={{
+                ...styles.panelToggleButton,
+                ...(isHoveringLeft ? styles.panelToggleButtonHover : {})
+              }}
+            >
+              <MenuIcon />
+            </button>
+            {isHoveringLeft && (
+              <div style={styles.tooltip}>{getLeftTooltipText()}</div>
+            )}
+          </div>
+          {/* Renderiza o título somente quando o painel está aberto */}
+          {(isLeftPanelPinned || isLeftPanelOpen) && (
+            <span style={styles.logoText}>NOVAI</span>
+          )}
         </div>
-        <nav style={styles.nav}>
-          <a href="#" style={{ ...styles.navItem, ...styles.navItemActive }}>Manager</a>
-          <a href="#" style={styles.navItem}>Dashboard</a>
-          <a href="#" style={styles.navItem}>Relatórios</a>
-        </nav>
-        <div style={styles.footer}>
-          &copy; {new Date().getFullYear()} Novai Inc.
-        </div>
+        {(isLeftPanelPinned || isLeftPanelOpen) && (
+          <>
+            <nav style={styles.nav}>
+              <a href="#" style={{ ...styles.navItem, ...styles.navItemActive }}>Manager</a>
+              <a href="#" style={styles.navItem}>Dashboard</a>
+              <a href="#" style={styles.navItem}>Relatórios</a>
+            </nav>
+            <div style={styles.footer}>
+              &copy; {new Date().getFullYear()} Novai Inc.
+            </div>
+          </>
+        )}
       </aside>
 
       {/* PAINEL CENTRAL - CHAT */}
@@ -338,6 +425,47 @@ export default function App(): JSX.Element {
         </div>
         <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
       </main>
+
+      {/* NOVO PAINEL DIREITO - HISTÓRICO DE CONVERSAS */}
+      <aside
+        style={{ ...styles.panel, ...styles.rightPanel, width: isRightPanelPinned || isRightPanelOpen ? '240px' : '60px' }}
+        onMouseEnter={() => !isRightPanelPinned && setIsRightPanelOpen(true)}
+        onMouseLeave={() => !isRightPanelPinned && setIsRightPanelOpen(false)}
+      >
+        <div style={styles.panelHeader}>
+          <div
+            style={styles.buttonWrapper}
+            onMouseEnter={() => setIsHoveringRight(true)}
+            onMouseLeave={() => setIsHoveringRight(false)}
+          >
+            <button
+              onClick={handleRightPanelToggle}
+              style={{
+                ...styles.panelToggleButton,
+                ...(isHoveringRight ? styles.panelToggleButtonHover : {})
+              }}
+            >
+              <ChatHistoryIcon />
+            </button>
+            {isHoveringRight && (
+              <div style={styles.tooltip}>{getRightTooltipText()}</div>
+            )}
+          </div>
+          {/* Renderiza o título somente quando o painel está aberto */}
+          {(isRightPanelPinned || isRightPanelOpen) && (
+            <span style={styles.logoText}>Histórico</span>
+          )}
+        </div>
+        {(isRightPanelPinned || isRightPanelOpen) && (
+          <nav style={styles.nav}>
+            <div style={styles.navItem}>Conversa de Hoje</div>
+            <div style={styles.navItem}>Análise de Março</div>
+            <div style={styles.navItem}>Relatório Financeiro</div>
+            <div style={styles.navItem}>Vendas Q1 2024</div>
+          </nav>
+        )}
+      </aside>
+
       <style>
         {`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
@@ -460,11 +588,11 @@ const loadingStyles: { [key: string]: React.CSSProperties } = {
   },
 };
 
-// --- Estilos (CSS-in-JS) originais ---
+// --- Estilos (CSS-in-JS) originais + novos ---
 const styles: { [key: string]: React.CSSProperties } = {
   appContainer: {
     display: 'grid',
-    gridTemplateColumns: '240px 1fr',
+    gridTemplateColumns: 'auto 1fr auto', // Ajustado para os 3 painéis
     height: '100vh',
     backgroundColor: '#1A1A1A',
     color: '#E0E0E0',
@@ -480,20 +608,67 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: 'radial-gradient(ellipse at 70% 30%, rgba(248, 221, 130, 0.05), transparent 70%)',
     zIndex: 0,
   },
-  leftPanel: {
+  panel: {
     backgroundColor: 'rgba(18, 18, 18, 0.8)',
     backdropFilter: 'blur(10px)',
-    borderRight: '1px solid #2A2A2A',
-    padding: '2rem',
+    padding: '1rem 0.5rem', // Reduzido o padding para o estado recolhido
     display: 'flex',
     flexDirection: 'column',
+    transition: 'width 0.3s ease-in-out',
     zIndex: 1,
+    overflow: 'hidden',
   },
-  logo: {
-    fontSize: '2rem',
+  panelHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1rem',
+    marginBottom: '2rem',
+  },
+  panelToggleButton: {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    position: 'relative', // Adicionado para posicionamento do tooltip
+  },
+  panelToggleButtonHover: {
+    background: '#3A3A3C', // Cor do círculo ao passar o mouse
+  },
+  buttonWrapper: {
+    position: 'relative',
+    display: 'inline-block', // Para que o tooltip se posicione corretamente
+  },
+  tooltip: {
+    position: 'absolute',
+    bottom: '-30px', // Posicionado abaixo do botão
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: 'rgba(50, 50, 50, 0.9)',
+    color: '#E0E0E0',
+    fontSize: '0.7rem', // Fonte menor
+    padding: '0.2rem 0.5rem', // Padding menor
+    borderRadius: '4px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    zIndex: 2,
+    transition: 'opacity 0.2s ease-in-out',
+  },
+  leftPanel: {
+    borderRight: '1px solid #2A2A2A',
+  },
+  rightPanel: {
+    borderLeft: '1px solid #2A2A2A',
+  },
+  logoText: {
+    fontSize: '1.5rem',
     fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: '3rem',
+    whiteSpace: 'nowrap',
   },
   nav: {
     display: 'flex',
@@ -525,7 +700,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexDirection: 'column',
     height: '100vh',
     zIndex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: 'transparent',
   },
   chatHeader: {
     padding: '1.5rem 2rem',
@@ -572,7 +747,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   userBubble: {
     backgroundColor: '#2C2C2E',
     color: '#E0E0E0',
-    padding: '0.8rem 1rem', // Aumenta o padding para o balão do usuário
+    padding: '0.8rem 1rem',
     borderRadius: '18px',
     borderTopRightRadius: '4px',
     alignSelf: 'flex-end',
@@ -614,5 +789,3 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
-
-
