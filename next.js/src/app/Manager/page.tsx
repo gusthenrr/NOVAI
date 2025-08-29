@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { io } from 'socket.io-client';
 // A biblioteca 'remark-gfm' não pôde ser resolvida, então a removi.
 // import remarkGfm from 'remark-gfm';
 
@@ -789,3 +790,4 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
+
