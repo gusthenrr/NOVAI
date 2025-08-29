@@ -215,6 +215,7 @@ export default function App(): JSX.Element {
   
   const [isHoveringLeft, setIsHoveringLeft] = useState(false);
   const [isHoveringRight, setIsHoveringRight] = useState(false);
+  const [token, setToken] = useState('');
 
 
   // Efeito inicial para a mensagem de boas-vindas e conexão com o socket
@@ -790,4 +791,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
+
 
