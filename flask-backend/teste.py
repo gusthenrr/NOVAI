@@ -3362,9 +3362,14 @@ def chat_novai_manager_requisicao():
     except:
         return
     mensagem = data.get('message')
+    first_message = data.get('first_message')
+    id_conversa = data.get('conversa_id')
+    data = datetime.now()
     print('token', token)
     if not user_id:
         return
+    with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(mensagem, id_conversa, user_id, data, 'vendedor'))    
     model = ChatOpenAI(model='gpt-4o-mini')
     descricao_db = '''
 Descrição do banco de dados PostgreSQL:
@@ -3496,7 +3501,10 @@ Se não for possível usar Markdown, apenas responda normalmente.
 )
         chain= prompt | model | StrOutputParser()
         resposta_final=chain.invoke({'mensagem_final':return_final, 'mensagem':guardar_mensagem})
+        data = datatime.now()
         print('resposta final:', resposta_final)
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(resposta_final, id_conversa, user_id, data, 'novai'))  
         return jsonify({'resposta_final':resposta_final})
     except Exception as e:
         print(f'Erro ao processar o modelo: {e}')
@@ -3982,6 +3990,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
