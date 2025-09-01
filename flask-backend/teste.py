@@ -3338,8 +3338,29 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
 
 
 
+@app.route('/get_conversation', methods=['GET'])
+def get_conversation():
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+    try:
+        decoded_token=decode_token(token)
+        print(decoded_token)
+        user_id=decoded_token.get("sub")
+        print(user_id)
+        exp_timestamp = decoded_token.get("exp")
+        now = int(time.time())
+        if exp_timestamp and exp_timestamp < now:
+            return jsonify({"error": "Token expirado"}), 333
+    except:
+        return
+    with get_db_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT mensagem, id_conversa, data_envio, author FROM history_messages WHERE usuario_id_history=%s",(user_id,))
+        conversas_dict=cur.fetchall()
+    if not conversas_dict:
+        return []
+    conversas_dict
+    
 
-
+    
 @app.route('/chat_novai_manager', methods=['POST'])
 def chat_novai_manager_requisicao():
     data = request.get_json()
@@ -3990,6 +4011,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
