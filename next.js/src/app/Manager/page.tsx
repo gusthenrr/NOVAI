@@ -355,7 +355,7 @@ export default function App(): JSX.Element {
     try {
       console.log('entrou no get_conversartion')
        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_conversation`, {
-         method: 'POST',
+         method: 'GET',
          headers: {
            'Content-Type': 'application/json',
            Authorization: `Bearer ${tok}`
@@ -1064,6 +1064,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
