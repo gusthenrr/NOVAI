@@ -510,7 +510,8 @@ const startNewConversation = () => {
 
     // Se já houver um rascunho, a função para por aqui.
     if (hasExistingDraft) {
-      setActiveConversaId(hasExistingDraft);
+      setActiveConversaId(hasExistingDraft.conversa_id);
+      draftIdRef.current = existingDraftMsg.conversa_id; 
       return;
     }
   const draftId = `draft-${Date.now()}`;
@@ -1089,6 +1090,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
