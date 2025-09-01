@@ -3451,9 +3451,8 @@ def chat_novai_manager_requisicao():
     except:
         return
     mensagem = data.get('message')
-    first_message = data.get('first_message')
+    data = data.get('date')
     id_conversa = data.get('conversa_id')
-    data = datetime.now()
     print('token', token)
     if not user_id:
         return
@@ -4079,6 +4078,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
