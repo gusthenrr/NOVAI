@@ -366,9 +366,8 @@ export default function App(): JSX.Element {
         throw new Error(`API Error: ${response}`);
       }
       const result = await response.json();
-      if (result.conversas){
-          setMessages(result)
-
+      if (result){
+          setMessages(result.messages)
       }
      } catch (error) {
       console.error("Erro ao obter conversa:", error);
@@ -1065,5 +1064,6 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
