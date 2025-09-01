@@ -42,6 +42,9 @@ const formatDatePtBR = (d: Date) =>
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit'
   });
+  const buildConversaIdByDate = (createdAtMs: number) => {
+  return `Nova Conversa • ${formatDatePtBR(new Date(createdAtMs))}`;
+};
 
 const sanitizeOneLine = (s: string) =>
   s.replace(/\s+/g, ' ').trim();
@@ -336,7 +339,7 @@ export default function App(): JSX.Element {
 
 
   // Efeito inicial para a mensagem de boas-vindas
-   useEffect(() => {
+   useEffect (() => {
     const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
       transports: ['websocket'],
       withCredentials: true, // ✅ necessário para enviar cookies (incl. HttpOnly)
@@ -348,8 +351,32 @@ export default function App(): JSX.Element {
     const tok = localStorage.getItem('authToken');
     console.log('token get do manager useeffect: ', tok)
     if (tok) setToken(tok);
-    
-    const initialMessage = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
+    const get_conversation = async ()=>{
+    try {
+      console.log('entrou no get_conversartion')
+       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_conversation`, {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+           Authorization: `Bearer ${tok}`
+         },
+         body: JSON.stringify({}),
+       });
+       if (!response.ok) {
+        throw new Error(`API Error: ${response}`);
+      }
+      const result = await response.json();
+      if (result.conversas){
+          setMessages(result)
+
+      }
+     } catch (error) {
+      console.error("Erro ao obter conversa:", error);
+      return "Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.";
+     }
+    }
+    get_conversation()
+     const initialMessage = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
      const draftId = `draft-${Date.now()}`;
   draftIdRef.current = draftId;
   setActiveConversaId(draftId);
@@ -384,50 +411,54 @@ export default function App(): JSX.Element {
     };
   }, [isLoading]);
 
+
+
   // --- Lógica de Interação com a API (SIMULAÇÃO) ---
-  const callOpenaiApi = async (prompt: string): Promise<string> => {
-    setIsLoading(true);
-    const token_jwt = localStorage.getItem('authToken')
-    console.log('aqui esta o token:', token_jwt)
-    console.log("Chamando a API com o prompt:", prompt);
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat_novai_manager`, {
-        method: 'POST',
-        headers:{'Content-Type':'application/json',
-            Authorization: `Bearer ${token_jwt}`
-          },
-        body: JSON.stringify({'message':prompt}),
-      });
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.statusText}`);
-      }
-      const result = await response.json();
-      
+  const callOpenaiApi = async (prompt: string, conversaId: string, date:number): Promise<string> => {
+  setIsLoading(true);
+  const token_jwt = localStorage.getItem('authToken');
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat_novai_manager`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token_jwt}`
+      },
+      body: JSON.stringify({
+        message: prompt,
+        conversa_id: conversaId,   // ✅ agora o back recebe e pode persistir
+        date:date
+      }),
+    });
 
-      if (result.resposta_final) {
-        const aiResponseText = result.resposta_final;
-        // Atualiza o histórico para manter a conversa fluindo
-        chatHistoryRef.current.push({ role: "user", parts: [{ text: prompt }] });
-        chatHistoryRef.current.push({ role: "model", parts: [{ text: aiResponseText }] });
-        return aiResponseText;
-      } else {
-        // Se a resposta for bloqueada por segurança ou vier vazia
-        return "Não consegui processar essa informação. Podemos tentar de outra forma?";
-      }
-
-    } catch (error) {
-      console.error("Gemini API call failed:", error);
-      return "Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.";
-    } finally {
-      setIsLoading(false);
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
-  };
+
+    const result = await response.json();
+
+    if (result.resposta_final) {
+      const aiResponseText = result.resposta_final;
+      chatHistoryRef.current.push({ role: 'user', parts: [{ text: prompt }] });
+      chatHistoryRef.current.push({ role: 'model', parts: [{ text: aiResponseText }] });
+      return aiResponseText;
+    } else {
+      return 'Não consegui processar essa informação. Podemos tentar de outra forma?';
+    }
+  } catch (error) {
+    console.error('API call failed:', error);
+    return 'Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.';
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   // --- Manipuladores de Eventos ---
-  const ensureFinalConversaId = (firstUserText: string): string => {
+ const ensureFinalConversaId = (firstUserMessageTimestampMs: number): string => {
   if (!activeConversaId.startsWith('draft-')) return activeConversaId;
 
-  const finalId = buildConversaId(firstUserText, new Date());
+  const finalId = buildConversaIdByDate(firstUserMessageTimestampMs);
 
   // renomeia todas as mensagens do rascunho para o ID final
   setMessages(prev =>
@@ -438,7 +469,7 @@ export default function App(): JSX.Element {
 
   setActiveConversaId(finalId);
   return finalId;
-}
+};
 
 /** Inicia uma nova conversa rascunho (com saudação) */
 const startNewConversation = () => {
@@ -455,13 +486,14 @@ const startNewConversation = () => {
   // Se você mantém histórico para o modelo:
   chatHistoryRef.current = [{ role: 'model', parts: [{ text: welcome }] }];
 };
-  const handleSendMessage = async (messageText: string): Promise<void> => {
+const handleSendMessage = async (messageText: string): Promise<void> => {
   if (messageText.trim() === '' || isLoading) return;
 
-  // Se for a primeira mensagem do usuário desta conversa, define o conversa_id final
-  const idForThisConversation = ensureFinalConversaId(messageText);
-
   const now = Date.now();
+
+  // Se for a primeira mensagem do usuário desta conversa, define o conversa_id final
+  const idForThisConversation = ensureFinalConversaId(now);
+
   const userMessage: Message = {
     id: now,
     text: messageText,
@@ -470,7 +502,7 @@ const startNewConversation = () => {
   };
   setMessages(prev => [...prev, userMessage]);
 
-  // (Opcional) alimente seu histórico p/ o modelo
+  // (Opcional) histórico p/ modelo
   chatHistoryRef.current = [
     ...(chatHistoryRef.current || []),
     { role: 'user', parts: [{ text: messageText }] },
@@ -478,12 +510,14 @@ const startNewConversation = () => {
 
   setIsLoading(true);
   try {
-    const aiResponseText = await callOpenaiApi(messageText);
+    // 🟡 Envie o conversa_id junto para o backend
+    const aiResponseText = await callOpenaiApi(messageText, idForThisConversation, now);
+
     const aiMessage: Message = {
       id: now + 1,
       text: aiResponseText,
       sender: 'ai',
-      conversa_id: idForThisConversation, // <- importante
+      conversa_id: idForThisConversation,
     };
     setMessages(prev => [...prev, aiMessage]);
 
@@ -495,6 +529,7 @@ const startNewConversation = () => {
     setIsLoading(false);
   }
 };
+
 const visibleMessages = useMemo(
   () => messages.filter(m => m.conversa_id === activeConversaId),
   [messages, activeConversaId]
@@ -1014,4 +1049,3 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
-
