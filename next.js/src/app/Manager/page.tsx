@@ -455,15 +455,31 @@ export default function App(): JSX.Element {
 
 
   // --- Manipuladores de Eventos ---
- const ensureFinalConversaId = (firstUserMessageTimestampMs: number): string => {
-  if (!activeConversaId.startsWith('draft-')) return activeConversaId;
+ const ensureFinalConversaId = (
+  firstUserText: string,
+  firstUserMessageTimestampMs: number
+): string => {
+  const currentId = activeConversaId;
 
-  const finalId = buildConversaIdByDate(firstUserMessageTimestampMs);
+  // Já existe alguma mensagem de usuário nesta conversa?
+  const hasUserMsg = messages.some(
+    (m) => m.conversa_id === currentId && m.sender === 'user'
+  );
 
-  // renomeia todas as mensagens do rascunho para o ID final
-  setMessages(prev =>
-    prev.map(m =>
-      m.conversa_id === activeConversaId ? { ...m, conversa_id: finalId } : m
+  if (hasUserMsg) {
+    // Não é a primeira: mantém o id atual
+    return currentId;
+  }
+
+  // Primeira mensagem do usuário → batiza usando o TEXTO + DATA
+  const finalId = buildConversaId(firstUserText, new Date(firstUserMessageTimestampMs));
+
+  if (finalId === currentId) return currentId;
+
+  // Renomeia todas as mensagens já existentes dessa conversa para o id final
+  setMessages((prev) =>
+    prev.map((m) =>
+      m.conversa_id === currentId ? { ...m, conversa_id: finalId } : m
     )
   );
 
@@ -492,7 +508,7 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
   const now = Date.now();
 
   // Se for a primeira mensagem do usuário desta conversa, define o conversa_id final
-  const idForThisConversation = ensureFinalConversaId(now);
+  const idForThisConversation = ensureFinalConversaId(messageText,now);
 
   const userMessage: Message = {
     id: now,
@@ -1049,4 +1065,5 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
