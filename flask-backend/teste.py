@@ -3357,6 +3357,9 @@ def _to_epoch_ms(dt):
 
 @app.route('/get_conversation', methods=['GET'])
 def get_conversation():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
     token = auth_header.split(" ")[1] if " " in auth_header else auth_header
     try:
         decoded_token=decode_token(token)
@@ -4039,6 +4042,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
