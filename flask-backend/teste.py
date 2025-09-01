@@ -4069,6 +4069,8 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
                 print(f"Erro ao executar a query {respost}: {e}")       
 
     chain = prompt | model.with_structured_output(Queries) | route
+    date=datetime.now()
+    print(date)
     chain.invoke({'data_atual':datetime.now(),'descricao_table':descricao_tables,'user_id':user_id,'mensagem':mensagem})
     print('dados retornados')
     print('\n'*8)
@@ -4079,6 +4081,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
