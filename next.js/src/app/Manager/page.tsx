@@ -420,7 +420,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
     const firstUser = msgs.find(m => m.sender === 'user');
 
     // Se ainda não tem mensagem de usuário (ex.: rascunho), cria um título amigável
-    const fallback = `(sem mensagem) • ${formatDatePtBR(new Date(createdAt))}`;
+    const fallback = `Nova conversa • ${formatDatePtBR(new Date(createdAt))}`;
     const title = firstUser
       ? buildConversaId(firstUser.text, new Date(createdAt))
       : fallback;
@@ -938,5 +938,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
+
 
 
