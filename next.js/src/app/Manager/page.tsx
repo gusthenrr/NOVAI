@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import io from 'socket.io-client';
 
 // --- Tipos para maior segurança e clareza ---
@@ -60,80 +62,86 @@ const buildConversaId = (firstUserText: string, when: Date) => {
   return `${preview} • ${formatDatePtBR(when)}`;
 };
 
-const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => {
+type Props = { resposta: string };
+
+const RespostaFormatada: React.FC<Props> = ({ resposta }) => {
   return (
     <div className="markdown-body">
       <ReactMarkdown
-        // O plugin remark-gfm foi removido para resolver o erro de compilação.
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSanitize]}
+        // abre links externos em nova aba com segurança
+        linkTarget="_blank"
+        components={{
+          // Torna tabelas responsivas ao envolver em um container com overflow
+          table: ({ node, ...props }) => (
+            <div className="table-wrap">
+              <table {...props} />
+            </div>
+          ),
+          a: ({ node, ...props }) => (
+            <a {...props} rel="noopener noreferrer" />
+          ),
+        }}
       >
         {resposta}
       </ReactMarkdown>
 
-      {/* Estilos para Markdown em dark mode */}
       <style>{`
         .markdown-body {
-          color: #E0E0E0;
-          line-height: 1.6;
+          color: #e6e6e6;
+          line-height: 1.65;
           font-size: 0.95rem;
+          -webkit-font-smoothing: antialiased;
+          max-width: 80ch;
+          word-break: break-word;
+          overflow-wrap: anywhere;
         }
 
-        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
-          margin: 0.75rem 0 0.5rem;
+        .markdown-body h1, .markdown-body h2, .markdown-body h3,
+        .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+          margin: 0.9rem 0 0.5rem;
           font-weight: 700;
+          line-height: 1.25;
         }
-        .markdown-body h1 { font-size: 1.4rem; }
-        .markdown-body h2 { font-size: 1.2rem; }
-        .markdown-body h3 { font-size: 1.05rem; }
+        .markdown-body h1 { font-size: 1.45rem; }
+        .markdown-body h2 { font-size: 1.25rem; }
+        .markdown-body h3 { font-size: 1.1rem; }
+        .markdown-body p { margin: 0.5rem 0; }
 
-        .markdown-body p { margin: 0.4rem 0; }
-
-        /* TABELAS */
-        .markdown-body table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 0.75rem 0 1rem;
+        /* CITAÇÕES */
+        .markdown-body blockquote {
+          margin: 0.75rem 0;
+          padding: 0.6rem 0.9rem;
+          border-left: 3px solid #3a3a3a;
           background: #1f1f1f;
-          border: 1px solid #2f2f2f;
-          border-radius: 10px;
-          overflow: hidden; /* arredondar bordas da tabela */
-        }
-        .markdown-body thead {
-          background: #262626;
-        }
-        .markdown-body th, .markdown-body td {
-          padding: 10px 12px;
-          border-bottom: 1px solid #2f2f2f;
-          text-align: left;
-        }
-        .markdown-body th {
-          font-weight: 600;
-          color: #f0f0f0;
-        }
-        .markdown-body tr:last-child td {
-          border-bottom: none;
-        }
-        /* Alinha números à direita automaticamente se desejar */
-        .markdown-body td:nth-child(2) {
-          text-align: right;
-          font-variant-numeric: tabular-nums;
+          border-radius: 6px;
+          color: #d7d7d7;
         }
 
         /* LISTAS */
         .markdown-body ul, .markdown-body ol {
-          margin: 0.4rem 0 0.8rem 1.25rem;
+          margin: 0.4rem 0 0.9rem 1.25rem;
+        }
+        .markdown-body li + li {
+          margin-top: 0.25rem;
         }
 
         /* CÓDIGO */
         .markdown-body code {
-          background: #2a2a2a;
-          padding: 2px 6px;
+          background: #262626;
+          padding: 0.15rem 0.4rem;
           border-radius: 6px;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          font-size: 0.92em;
         }
         .markdown-body pre code {
           display: block;
-          padding: 12px;
+          padding: 0.9rem 1rem;
           overflow-x: auto;
+          border-radius: 10px;
+          background: #1f1f1f;
+          border: 1px solid #2c2c2c;
         }
 
         /* LINKS */
@@ -141,8 +149,55 @@ const RespostaFormatada: React.FC<{ resposta: string }> = ({ resposta }) => {
           color: #f8dd82;
           text-decoration: none;
         }
-        .markdown-body a:hover {
-          text-decoration: underline;
+        .markdown-body a:hover { text-decoration: underline; }
+
+        /* TABELAS */
+        .markdown-body .table-wrap {
+          margin: 0.8rem 0 1rem;
+          border: 1px solid #2f2f2f;
+          border-radius: 10px;
+          overflow: auto; /* scroll horizontal quando precisar */
+          background: #1f1f1f;
+          /* melhora a rolagem no iOS */
+          -webkit-overflow-scrolling: touch;
+        }
+        .markdown-body table {
+          border-collapse: collapse;
+          width: 100%;
+          min-width: 420px; /* evita quebrar tabelas estreitas */
+        }
+        .markdown-body thead {
+          background: #262626;
+          position: sticky;
+          top: 0; /* cabeçalho “gruda” ao fazer scroll no container */
+          z-index: 1;
+        }
+        .markdown-body th, .markdown-body td {
+          padding: 10px 12px;
+          border-bottom: 1px solid #2f2f2f;
+          text-align: start; /* remark-gfm pode sobrescrever com style inline */
+          vertical-align: top;
+          white-space: nowrap;
+        }
+        .markdown-body tr:last-child td {
+          border-bottom: none;
+        }
+        .markdown-body tbody tr:hover {
+          background: #212121;
+        }
+
+        /* IMAGENS */
+        .markdown-body img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 8px;
+        }
+
+        /* HR */
+        .markdown-body hr {
+          border: 0;
+          border-top: 1px solid #2f2f2f;
+          margin: 1rem 0;
         }
       `}</style>
     </div>
@@ -1090,6 +1145,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
