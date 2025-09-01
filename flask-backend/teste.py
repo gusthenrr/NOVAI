@@ -3336,7 +3336,24 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
     print('return pilot:', return_final)
     return return_final
 
+def _sender_from_author(author: str) -> str:
+    """
+    Converte o 'author' do seu banco para o enum do front: 'ai' | 'user'.
+    Ajuste as regras conforme seus valores reais.
+    """
+    if not author:
+        return 'user'
+    a = author.lower()
+    # exemplos: 'bot', 'bot|vendedor', 'ai'
+    if 'bot' in a or a == 'ai':
+        return 'ai'
+    return 'user'
 
+def _to_epoch_ms(dt):
+    # dt é TIMESTAMPTZ; garanta que é timezone-aware
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
 
 @app.route('/get_conversation', methods=['GET'])
 def get_conversation():
@@ -3354,11 +3371,62 @@ def get_conversation():
         return
     with get_db_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT mensagem, id_conversa, data_envio, author FROM history_messages WHERE usuario_id_history=%s",(user_id,))
-        conversas_dict=cur.fetchall()
-    if not conversas_dict:
+        rows=cur.fetchall()
+    if not rows:
         return []
-    conversas_dict
-    
+    messages=[]
+    for r in rows:
+        messages.append({
+        "id": _to_epoch_ms(r["data_envio"]),
+        "text": r['mensagem'],
+        "sender":r['author'],
+        "conversa_id":r['id_conversa'],
+        })
+    cur.execute("""
+            WITH base AS (
+                SELECT
+                    id_conversa,
+                    MIN(data_envio) AS created_at,
+                    COUNT(*) AS total_msgs
+                FROM history_messages
+                WHERE usuario_id_history = %s
+                GROUP BY id_conversa
+            ),
+            first_user AS (
+                SELECT DISTINCT ON (id_conversa)
+                    id_conversa,
+                    mensagem AS first_user_text,
+                    data_envio AS first_user_created_at
+                FROM history_messages
+                WHERE usuario_id_history = %s
+                  AND LOWER(COALESCE(author,'')) NOT LIKE 'bot%%'
+                  AND LOWER(COALESCE(author,'')) <> 'ai'
+                ORDER BY id_conversa, data_envio ASC
+            )
+            SELECT
+                b.id_conversa,
+                b.created_at,
+                b.total_msgs,
+                fu.first_user_text
+            FROM base b
+            LEFT JOIN first_user fu USING (id_conversa)
+            ORDER BY b.created_at DESC
+        """, (user_id, user_id))
+    conv_rows = cur.fetchall()
+    conversation=[]
+    for c in conv_rows:
+        conversations.append({
+                "id": c["id_conversa"],                                  # igual ao conversa_id das mensagens
+                "first_user_text": c["first_user_text"],                  # pode ser null se só teve 'ai'
+                "createdAt": c["created_at"].astimezone(timezone.utc).isoformat(),
+                "count": c["total_msgs"]
+        })
+    print('conversas:', conversation)
+    print('mensagens:', messages)
+    return jsonify({
+        "conversations": conversations,
+        "messages": messages
+    }), 200
 
     
 @app.route('/chat_novai_manager', methods=['POST'])
@@ -3390,7 +3458,7 @@ def chat_novai_manager_requisicao():
     if not user_id:
         return
     with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(mensagem, id_conversa, user_id, data, 'vendedor'))    
+            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(mensagem, id_conversa, user_id, data, 'user'))    
     model = ChatOpenAI(model='gpt-4o-mini')
     descricao_db = '''
 Descrição do banco de dados PostgreSQL:
@@ -3525,7 +3593,7 @@ Se não for possível usar Markdown, apenas responda normalmente.
         data = datatime.now()
         print('resposta final:', resposta_final)
         with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(resposta_final, id_conversa, user_id, data, 'novai'))  
+            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(resposta_final, id_conversa, user_id, data, 'ai'))  
         return jsonify({'resposta_final':resposta_final})
     except Exception as e:
         print(f'Erro ao processar o modelo: {e}')
@@ -4011,6 +4079,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
