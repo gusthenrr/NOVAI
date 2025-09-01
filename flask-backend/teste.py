@@ -3549,7 +3549,7 @@ Se não for possível usar Markdown, apenas responda normalmente.
 )
         chain= prompt | model | StrOutputParser()
         resposta_final=chain.invoke({'mensagem_final':return_final, 'mensagem':guardar_mensagem})
-        date = datatime.now()
+        date = datetime.now()
         print('resposta final:', resposta_final)
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(resposta_final, id_conversa, user_id, date, 'ai'))  
@@ -3811,7 +3811,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     - "finish_date": TIMESTAMP
     - "deadline_date": TIMESTAMP
     - "type_promotion": TEXT
-    - "usuario_id_promotion": INTEGER, FOREIGN KEY → usuarios(id)
+    - "usuario_id_promotions": INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
     - promotion → ponte_item_promotions (1:N)
     ''',
@@ -4028,7 +4028,6 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
                 print(f"Erro ao executar a query {respost}: {e}")       
 
     chain = prompt | model.with_structured_output(Queries) | route
-    date=datetime.now()
     print(date)
     chain.invoke({'data_atual':datetime.now(),'descricao_table':descricao_tables,'user_id':user_id,'mensagem':mensagem})
     print('dados retornados')
@@ -4040,6 +4039,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
