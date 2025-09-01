@@ -360,10 +360,10 @@ export default function App(): JSX.Element {
            'Content-Type': 'application/json',
            Authorization: `Bearer ${tok}`
          },
-         body: JSON.stringify({}),
        });
-       if (!response.ok) {
-        throw new Error(`API Error: ${response}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API Error: ${response.status} ${response.statusText}: ${errorText}`);
       }
       const result = await response.json();
       if (result){
@@ -371,7 +371,7 @@ export default function App(): JSX.Element {
       }
      } catch (error) {
       console.error("Erro ao obter conversa:", error);
-      return "Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.";
+      return;
      }
     }
     get_conversation()
@@ -1064,6 +1064,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
