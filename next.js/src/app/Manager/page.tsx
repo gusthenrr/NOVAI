@@ -339,55 +339,73 @@ export default function App(): JSX.Element {
 
 
   // Efeito inicial para a mensagem de boas-vindas
-   useEffect (() => {
+  useEffect(() => {
+    // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
     const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
-      transports: ['websocket'],
-      withCredentials: true, // ✅ necessário para enviar cookies (incl. HttpOnly)
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 2000,
-      timeout: 20000 // 20s
+        transports: ['websocket'],
+        withCredentials: true,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 2000,
+        timeout: 20000 // 20s
     });
     const tok = localStorage.getItem('authToken');
-    console.log('token get do manager useeffect: ', tok)
     if (tok) setToken(tok);
-    const get_conversation = async ()=>{
-    try {
-      console.log('entrou no get_conversartion')
-       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_conversation`, {
-         method: 'GET',
-         headers: {
-           'Content-Type': 'application/json',
-           Authorization: `Bearer ${tok}`
-         },
-       });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API Error: ${response.status} ${response.statusText}: ${errorText}`);
-      }
-      const result = await response.json();
-      if (result){
-          setMessages(result.messages)
-      }
-     } catch (error) {
-      console.error("Erro ao obter conversa:", error);
-      return;
-     }
-    }
-    get_conversation()
-     const initialMessage = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
-     const draftId = `draft-${Date.now()}`;
-  draftIdRef.current = draftId;
-  setActiveConversaId(draftId);
 
-  setMessages([
-    { id: Date.now(), text: initialMessage, sender: 'ai', conversa_id: draftId }
-  ]);
+    const get_conversation = async () => {
+        let fetchedMessages = [];
+        try {
+            console.log('entrou no get_conversation');
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_conversation`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${tok}`,
+                },
+            });
 
-  chatHistoryRef.current = [
-    { role: 'model', parts: [{ text: initialMessage }] }
-  ];
-  }, []);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API Error: ${response.status} ${response.statusText}: ${errorText}`);
+            }
+
+            const result = await response.json();
+            if (result && result.messages) {
+                fetchedMessages = result.messages;
+            }
+        } catch (error) {
+            console.error("Erro ao obter conversa:", error);
+            // Continua a execução mesmo com erro, para criar a nova conversa.
+        }
+
+        // ✅ Ações que sempre devem acontecer após a tentativa de buscar o histórico:
+        const initialMessage = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
+        const draftId = `draft-${Date.now()}`;
+
+        // Define a nova conversa como a ativa.
+        setActiveConversaId(draftId);
+
+        // Cria a mensagem inicial do AI
+        const initialAiMessage = {
+            id: Date.now(), 
+            text: initialMessage, 
+            sender: 'ai', 
+            conversa_id: draftId
+        };
+        
+        // Combina a nova mensagem inicial com as mensagens do histórico.
+        // O `draftIdRef` é usado aqui para garantir que a referência seja a correta.
+        draftIdRef.current = draftId;
+        setMessages([initialAiMessage, ...fetchedMessages]);
+
+        // Atualiza o histórico para o modelo de linguagem, que é um novo chat.
+        chatHistoryRef.current = [
+            { role: 'model', parts: [{ text: initialMessage }] }
+        ];
+    };
+
+    get_conversation();
+}, []);
 
   // Scroll automático para novas mensagens
   useEffect(() => {
@@ -1064,6 +1082,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
