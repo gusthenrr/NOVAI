@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { io } from 'socket.io-client';
@@ -12,7 +12,15 @@ interface Message {
   id: number;
   text: string;
   sender: 'ai' | 'user';
+  conversa_id: string;
 }
+
+type ConversationListItem = {
+  id: string;
+  title: string;   // "primeira mensagem do usuário • data/hora"
+  createdAt: number;
+  count: number;
+};
 
 interface ChatHistoryPart {
   text: string;
@@ -217,6 +225,8 @@ export default function App(): JSX.Element {
   const [isHoveringLeft, setIsHoveringLeft] = useState(false);
   const [isHoveringRight, setIsHoveringRight] = useState(false);
   const [token, setToken] = useState('');
+  const [activeConversaId, setActiveConversaId] = useState<string>('');
+  const draftIdRef = useRef<string>('');
 
 
   // Efeito inicial para a mensagem de boas-vindas e conexão com o socket
@@ -234,12 +244,17 @@ export default function App(): JSX.Element {
     if (tok) setToken(tok);
     
     const initialMessage = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
-    setMessages([
-      { id: Date.now(), text: initialMessage, sender: 'ai' }
-    ]);
-    chatHistoryRef.current = [
-        { role: "model", parts: [{ text: initialMessage }] }
-    ];
+     const draftId = `draft-${Date.now()}`;
+  draftIdRef.current = draftId;
+  setActiveConversaId(draftId);
+
+  setMessages([
+    { id: Date.now(), text: initialMessage, sender: 'ai', conversa_id: draftId }
+  ]);
+
+  chatHistoryRef.current = [
+    { role: 'model', parts: [{ text: initialMessage }] }
+  ];
   }, []);
 
   // Scroll automático para novas mensagens
@@ -301,18 +316,123 @@ export default function App(): JSX.Element {
       setIsLoading(false);
     }
   };
+const formatDatePtBR = (d: Date) =>
+  d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
 
+const sanitizeOneLine = (s: string) =>
+  s.replace(/\s+/g, ' ').trim();
+
+const truncate = (s: string, n: number) =>
+  s.length > n ? s.slice(0, n - 1) + '…' : s;
+
+/**
+ * Gera o conversa_id: "primeira mensagem do usuário • dd/mm/aaaa hh:mm"
+ */
+const buildConversaId = (firstUserText: string, when: Date) => {
+  const preview = truncate(sanitizeOneLine(firstUserText), 40);
+  return `${preview} • ${formatDatePtBR(when)}`;
+};
   // --- Manipuladores de Eventos ---
-  const handleSendMessage = async (messageText: string): Promise<void> => {
-    if (messageText.trim() === '' || isLoading) return;
 
-    const userMessage: Message = { id: Date.now(), text: messageText, sender: 'user' };
-    setMessages(prev => [...prev, userMessage]);
+  const ensureFinalConversaId = (firstUserText: string): string => {
+  if (!activeConversaId.startsWith('draft-')) return activeConversaId;
 
-    const aiResponseText = await callOpenaiApi(messageText);
-    const aiMessage: Message = { id: Date.now() + 1, text: aiResponseText, sender: 'ai' };
-    setMessages(prev => [...prev, aiMessage]);
+  const finalId = buildConversaId(firstUserText, new Date());
+
+  // renomeia todas as mensagens do rascunho para o ID final
+  setMessages(prev =>
+    prev.map(m =>
+      m.conversa_id === activeConversaId ? { ...m, conversa_id: finalId } : m
+    )
+  );
+
+  setActiveConversaId(finalId);
+  return finalId;
+}
+
+/** Inicia uma nova conversa rascunho (com saudação) */
+  const startNewConversation = () => {
+    const draftId = `draft-${Date.now()}`;
+    draftIdRef.current = draftId;
+    setActiveConversaId(draftId);
+
+    const welcome = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
+    setMessages(prev => [
+      ...prev,
+      { id: Date.now(), text: welcome, sender: 'ai', conversa_id: draftId }
+    ]);
+
+    // Se você mantém histórico para o modelo:
+    chatHistoryRef.current = [{ role: 'model', parts: [{ text: welcome }] }];
   };
+
+ const handleSendMessage = async (messageText: string): Promise<void> => {
+  if (messageText.trim() === '' || isLoading) return;
+
+  // Se for a primeira mensagem do usuário desta conversa, define o conversa_id final
+  const idForThisConversation = ensureFinalConversaId(messageText);
+
+  const now = Date.now();
+  const userMessage: Message = {
+    id: now,
+    text: messageText,
+    sender: 'user',
+    conversa_id: idForThisConversation,
+  };
+  setMessages(prev => [...prev, userMessage]);
+
+  // (Opcional) alimente seu histórico p/ o modelo
+  chatHistoryRef.current = [
+    ...(chatHistoryRef.current || []),
+    { role: 'user', parts: [{ text: messageText }] },
+  ];
+
+  setIsLoading(true);
+  try {
+    const aiResponseText = await callOpenaiApi(messageText);
+    const aiMessage: Message = {
+      id: now + 1,
+      text: aiResponseText,
+      sender: 'ai',
+      conversa_id: idForThisConversation, // <- importante
+    };
+    setMessages(prev => [...prev, aiMessage]);
+
+    chatHistoryRef.current = [
+      ...(chatHistoryRef.current || []),
+      { role: 'model', parts: [{ text: aiResponseText }] },
+    ];
+  } finally {
+    setIsLoading(false);
+  }
+};
+const conversationList: ConversationListItem[] = useMemo(() => {
+  const ids = Array.from(
+    messages.reduce((acc, m) => acc.add(m.conversa_id), new Set<string>())
+  );
+
+  return ids.map((id) => {
+    const msgs = messages.filter(m => m.conversa_id === id);
+    const createdAt = msgs[0]?.id ?? 0; // você usa Date.now() como id, OK
+    const firstUser = msgs.find(m => m.sender === 'user');
+
+    // Se ainda não tem mensagem de usuário (ex.: rascunho), cria um título amigável
+    const fallback = `(sem mensagem) • ${formatDatePtBR(new Date(createdAt))}`;
+    const title = firstUser
+      ? buildConversaId(firstUser.text, new Date(createdAt))
+      : fallback;
+
+    return {
+      id,
+      title,
+      createdAt,
+      count: msgs.length,
+    };
+  }).sort((a, b) => b.createdAt - a.createdAt); // mais recentes primeiro
+}, [messages]);
 
  const handleLeftPanelToggle = () => {
     setIsLeftPanelPinned(!isLeftPanelPinned);
@@ -346,7 +466,10 @@ export default function App(): JSX.Element {
       return 'Abrir histórico';
     }
   };
-
+  const visibleMessages = useMemo(
+  () => messages.filter(m => m.conversa_id === activeConversaId),
+  [messages, activeConversaId]
+);
 
   // --- Renderização da UI ---
   return (
@@ -404,28 +527,28 @@ export default function App(): JSX.Element {
           <p style={{ color: '#8E8E93' }}>Converse com seus dados em tempo real</p>
         </header>
         <div style={styles.messageList}>
-          {messages.map((msg, index) => (
-            <div
-              key={msg.id}
-              style={{
-                ...(msg.sender === 'ai' ? styles.aiMessageText : styles.userBubble),
-                alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-              }}
-            >
-              {msg.sender === 'ai' ? (
-                <RespostaFormatada resposta={msg.text} />
-              ) : (
-                msg.text
-              )}
-            </div>
-          ))}
-          {isLoading && (
-            <div style={loadingStyles.messageRow}>
-              <LoadingIndicator elapsedTime={elapsedTime} />
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+  {visibleMessages.map((msg: Message) => (
+    <div
+      key={msg.id}
+      style={{
+        ...(msg.sender === 'ai' ? styles.aiMessageText : styles.userBubble),
+        alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+      }}
+    >
+      {msg.sender === 'ai' ? (
+        <RespostaFormatada resposta={msg.text} />
+      ) : (
+        msg.text
+      )}
+    </div>
+  ))}
+  {isLoading && (
+    <div style={loadingStyles.messageRow}>
+      <LoadingIndicator elapsedTime={elapsedTime} />
+    </div>
+  )}
+  <div ref={messagesEndRef} />
+</div>
         <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
       </main>
 
@@ -460,12 +583,35 @@ export default function App(): JSX.Element {
           )}
         </div>
         {(isRightPanelPinned || isRightPanelOpen) && (
-          <nav style={styles.nav}>
-            <div style={styles.navItem}>Conversa de Hoje</div>
-            <div style={styles.navItem}>Análise de Março</div>
-            <div style={styles.navItem}>Relatório Financeiro</div>
-            <div style={styles.navItem}>Vendas Q1 2024</div>
-          </nav>
+         <nav style={styles.nav}>
+  <div style={{ display: 'flex', gap: 8, padding: '0 12px 8px' }}>
+    <button onClick={startNewConversation} style={{ ...styles.smallButton }}>
+      + Nova conversa
+    </button>
+  </div>
+
+  {conversationList.map((conv) => {
+    const isActive = conv.id === activeConversaId;
+    return (
+      <div
+        key={conv.id}
+        style={{
+          ...styles.navItem,
+          ...(isActive ? { background: '#2a2a2a', fontWeight: 600 } : {}),
+          cursor: 'pointer',
+          lineHeight: 1.2,
+        }}
+        title={conv.title}
+        onClick={() => setActiveConversaId(conv.id)}
+      >
+        {truncate(conv.title, 32)}
+        <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
+          {conv.count} mensagem{conv.count !== 1 ? 's' : ''}
+        </div>
+      </div>
+    );
+  })}
+</nav>
         )}
       </aside>
 
@@ -792,6 +938,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '1.5',
   }
 };
-
 
 
