@@ -726,7 +726,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
       >
         {truncate(conv.title, 32)}
         <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
-          {conv.count} mensagem{conv.count !== 1 ? 's' : ''}
+          {conv.count} {conv.count !== 1 ? 'mensagens' : 'mensagem'}
         </div>
       </div>
     );
@@ -1049,3 +1049,4 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
