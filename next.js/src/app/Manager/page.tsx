@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeSanitize from 'rehype-sanitize';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import io from 'socket.io-client';
 
 // --- Tipos para maior segurança e clareza ---
@@ -63,24 +63,33 @@ const buildConversaId = (firstUserText: string, when: Date) => {
 };
 
 type Props = { resposta: string };
-
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    a: [
+      ...(defaultSchema.attributes?.a || []),
+      ['a', 'target'],
+      ['a', 'rel'],
+    ],
+  },
+};
 const RespostaFormatada: React.FC<Props> = ({ resposta }) => {
   return (
     <div className="markdown-body">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSanitize]}
-        // abre links externos em nova aba com segurança
-        linkTarget="_blank"
+        rehypePlugins={[[rehypeSanitize, sanitizeSchema]]}
         components={{
-          // Torna tabelas responsivas ao envolver em um container com overflow
+          // Tabela responsiva com scroll horizontal
           table: ({ node, ...props }) => (
             <div className="table-wrap">
               <table {...props} />
             </div>
           ),
+          // Links externos seguros
           a: ({ node, ...props }) => (
-            <a {...props} rel="noopener noreferrer" />
+            <a {...props} target="_blank" rel="noopener noreferrer" />
           ),
         }}
       >
@@ -1145,6 +1154,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
