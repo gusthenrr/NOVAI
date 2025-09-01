@@ -506,8 +506,11 @@ export default function App(): JSX.Element {
 
 /** Inicia uma nova conversa rascunho (com saudação) */
 const startNewConversation = () => {
-  if (activeConversaId.startsWith('draft-')) {
-        return; 
+   const hasExistingDraft = messages.some(msg => msg.conversa_id.startsWith('draft-'));
+
+    // Se já houver um rascunho, a função para por aqui.
+    if (hasExistingDraft) {
+        return;
     }
   const draftId = `draft-${Date.now()}`;
   draftIdRef.current = draftId;
@@ -1085,6 +1088,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
