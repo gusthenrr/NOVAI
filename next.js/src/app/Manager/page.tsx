@@ -510,7 +510,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
     const firstUser = msgs.find(m => m.sender === 'user');
 
     // Se ainda não tem mensagem de usuário (ex.: rascunho), cria um título amigável
-    const fallback = `(sem mensagem) • ${formatDatePtBR(new Date(createdAt))}`;
+    const fallback = `Nova Conversa • ${formatDatePtBR(new Date(createdAt))}`;
     const title = firstUser
       ? buildConversaId(firstUser.text, new Date(createdAt))
       : fallback;
@@ -1014,3 +1014,4 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
