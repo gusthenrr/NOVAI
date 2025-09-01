@@ -3382,49 +3382,8 @@ def get_conversation():
         "sender":r['author'],
         "conversa_id":r['id_conversa'],
         })
-    cur.execute("""
-            WITH base AS (
-                SELECT
-                    id_conversa,
-                    MIN(data_envio) AS created_at,
-                    COUNT(*) AS total_msgs
-                FROM history_messages
-                WHERE usuario_id_history = %s
-                GROUP BY id_conversa
-            ),
-            first_user AS (
-                SELECT DISTINCT ON (id_conversa)
-                    id_conversa,
-                    mensagem AS first_user_text,
-                    data_envio AS first_user_created_at
-                FROM history_messages
-                WHERE usuario_id_history = %s
-                  AND LOWER(COALESCE(author,'')) NOT LIKE 'bot%%'
-                  AND LOWER(COALESCE(author,'')) <> 'ai'
-                ORDER BY id_conversa, data_envio ASC
-            )
-            SELECT
-                b.id_conversa,
-                b.created_at,
-                b.total_msgs,
-                fu.first_user_text
-            FROM base b
-            LEFT JOIN first_user fu USING (id_conversa)
-            ORDER BY b.created_at DESC
-        """, (user_id, user_id))
-    conv_rows = cur.fetchall()
-    conversation=[]
-    for c in conv_rows:
-        conversations.append({
-                "id": c["id_conversa"],                                  # igual ao conversa_id das mensagens
-                "first_user_text": c["first_user_text"],                  # pode ser null se só teve 'ai'
-                "createdAt": c["created_at"].astimezone(timezone.utc).isoformat(),
-                "count": c["total_msgs"]
-        })
-    print('conversas:', conversation)
     print('mensagens:', messages)
     return jsonify({
-        "conversations": conversations,
         "messages": messages
     }), 200
 
@@ -4081,6 +4040,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
