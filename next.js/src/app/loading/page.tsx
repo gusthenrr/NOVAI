@@ -162,6 +162,10 @@ export default function App() {
       if (resp?.status === 'sync_nao_iniciada') {
         socket.emit('pegar_dados_iniciais');
       }
+      else if(resp?.status === 'concluido'){
+        window.location.replace('/Manager')
+        return
+      }
 
       setShowLoading(true);
     });
@@ -212,3 +216,4 @@ export default function App() {
 
   return <LoadingScreen mensagem={mensagem} />;
 }
+
