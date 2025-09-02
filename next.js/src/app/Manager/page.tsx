@@ -1096,7 +1096,7 @@ aiMessageText: {
   padding: 0,
   backgroundColor: 'transparent',
   color: '#E0E0E0',
-  maxWidth: '90%',
+  maxWidth: '100%',
   lineHeight: 1.5,
   alignSelf: 'flex-start',
   wordWrap: 'break-word',
@@ -1154,6 +1154,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
