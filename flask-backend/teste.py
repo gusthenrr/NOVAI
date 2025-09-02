@@ -1668,37 +1668,37 @@ def run_pipeline(user_id, room):
         access_token = row['acess_token']
         seller_id    = row['id_ml']
         # etapas com yields para cooperar com eventlet
-        # socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
-        # listar_todos_itens(user_id, seller_id, access_token)
-        # socketio.sleep(0)
+        socketio.emit('status_loading', {'message': 'Pegando itens do vendedor...'}, room=room)
+        listar_todos_itens(user_id, seller_id, access_token)
+        socketio.sleep(0)
 
-        # socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, room=room)
-        # campanhas_e_anuncios(user_id, access_token,room)
-        # socketio.sleep(0)
+        socketio.emit('status_loading', {'message': 'Analisando anúncios e campanhas...'}, room=room)
+        campanhas_e_anuncios(user_id, access_token,room)
+        socketio.sleep(0)
 
-        # socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, room=room)
-        # dados_vendedor(access_token, user_id)
-        # socketio.sleep(0)
+        socketio.emit('status_loading', {'message': 'Sincronizando dados do vendedor...'}, room=room)
+        dados_vendedor(access_token, user_id)
+        socketio.sleep(0)
 
-        # socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, room=room)
-        # faturamento_por_pedidos(user_id,room)
-        # socketio.sleep(0)
+        socketio.emit('status_loading', {'message': 'Armazenando pedidos...'}, room=room)
+        faturamento_por_pedidos(user_id,room)
+        socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Mensagens pós-venda...'}, room=room)
         listar_conversas_pos_venda(user_id, seller_id, access_token,room)
         socketio.sleep(0)
 
-        # socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, room=room)
-        # listar_conversas_pre_venda(user_id, seller_id, access_token)
-        # socketio.sleep(0)
+        socketio.emit('status_loading', {'message': 'Perguntas pré-venda...'}, room=room)
+        listar_conversas_pre_venda(user_id, seller_id, access_token)
+        socketio.sleep(0)
 
-        # socketio.emit('status_loading', {'message': 'Reclamações...'}, room=room)
-        # reclamacoes(access_token, user_id, room)
-        # socketio.sleep(0)
+        socketio.emit('status_loading', {'message': 'Reclamações...'}, room=room)
+        reclamacoes(access_token, user_id, room)
+        socketio.sleep(0)
 
-        # socketio.emit('status_loading', {'message': 'Promoções...'}, room=room)
-        # promocoes(user_id, access_token, seller_id)
-        # socketio.sleep(0)
+        socketio.emit('status_loading', {'message': 'Promoções...'}, room=room)
+        promocoes(user_id, access_token, seller_id)
+        socketio.sleep(0)
 
         socketio.emit('status_loading', {'message': 'Concluído!','status':True}, room=room)
         with get_db_connection() as conn, conn.cursor() as cur:
@@ -4092,6 +4092,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
