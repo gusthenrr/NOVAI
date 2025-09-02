@@ -27,7 +27,8 @@ from jwt import ExpiredSignatureError, InvalidTokenError
 import time
 from langchain.callbacks.tracers import LangChainTracer 
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate , MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 from langchain.prompts.few_shot import FewShotPromptTemplate
@@ -407,6 +408,8 @@ def payments_notifications(data, acess_token_data):
 
 def public_offers_notifications(data, acess_token_data):
     try:
+        conn= get_db_connection()
+        cur = conn.cursor()
         print("🔔 Notificação de ofertas públicas recebida:", data)
         resource=data.get('resource', '')
         url_offers = f"https://api.mercadolibre.com{resource}"
@@ -417,10 +420,10 @@ def public_offers_notifications(data, acess_token_data):
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         offer_data = response.json()
         item_id = offer_data.get('item_id')
+        
         promotion_id = offer_data.get('promotion_id')
         user_id = acess_token_data['usuario_id']
-        conn= get_db_connection()
-        cur = conn.cursor()
+        
         cur.execute("SELECT * FROM ponte_item_promotions WHERE AND promotion_id = %s", (promotion_id,))
         existing_offers = cur.fetchone()
         url_promocao = f'https://api.mercadolibre.com/seller-promotions/promotions/{promotion_id}?promotion_type={type_promotion}&app_version=v2'
@@ -531,6 +534,9 @@ def public_offers_notifications(data, acess_token_data):
         for result in results:
             id_promotion_item = id_promotion
             item_id = result.get('id', None)
+            cur.execute('SELECT nome_item from itens where item_id = %s',(item_id,))
+            nome_item_dict = cur.fetchone()
+            nome_item = nome_item_dict.get('nome_item', None)
             status = result.get('status', None)
             price = result.get('price', None)
             original_price = result.get('original_price', None)
@@ -554,18 +560,18 @@ def public_offers_notifications(data, acess_token_data):
                 cur.execute("""UPDATE ponte_item_promotions SET status = %s,price = %s,original_price = %s,min_discounted_price = %s,max_discounted_price = %s,
                 suggested_discounted_price = %s,start_date = %s,end_date = %s,sub_type = %s,offer_id = %s,meli_percentage = %s,seller_percentage = %s,
                 buy_quantity = %s,pay_quantity = %s,allow_combination = %s,fixed_amount = %s,fixed_percentage = %s,top_deal_price = %s,
-                discount_percentage = %s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
+                discount_percentage = %s,nome_item=%s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
                 min_discounted_price,max_discounted_price,suggested_discounted_price,start_date,end_date,sub_type,offer_id,meli_percentage,seller_percentage,
-                buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,id_promotion_item,item_id,user_id))
+                buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,nome_item,id_promotion_item,item_id,user_id))
     
             else:
                 cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
                                     min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
                                     seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                    discount_percentage, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
+                                    discount_percentage,nome_item, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
                                     min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
                                     seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                    discount_percentage, user_id,))
+                                    discount_percentage, nome_item, user_id,))
     except Exception as e:
         print("Erro nas notificacao das promocoes: ", str(e))
     finally:
@@ -3440,7 +3446,46 @@ def get_conversation():
         "messages": messages
     }), 200
 
-    
+def _row_to_message(author: str, content: str) -> BaseMessage:
+    a = (author or "").lower()
+    if a == "user":
+        return HumanMessage(content=content)
+    elif a == "ai":
+        return AIMessage(content=content)
+    else:
+        return SystemMessage(content=content)
+
+
+def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limit: int = 6) -> list[BaseMessage]:
+    """
+    Busca as últimas `limit` mensagens dessa conversa/usuário e retorna em ordem cronológica
+    como objetos HumanMessage/AIMessage/SystemMessage.
+    - Compatível com colunas 'mensagem' OU 'mesagem' (se houver typo).
+    - Tenta ordenar por data_envio; se a coluna não existir, faz fallback sem ORDER BY.
+    """
+    with conexao.cursor() as cur:
+        try:
+            cur.execute("""
+                SELECT author, mensagem AS conteudo
+                FROM history_messages
+                WHERE id_conversa = %s AND usuario_id_history = %s
+                ORDER BY data_envio ASC
+                LIMIT %s
+            """, (conversa_id, usuario_id, limit))
+            rows = cur.fetchall()
+        except Exception:
+            # Fallback caso não exista data_envio
+            cur.execute("""
+                SELECT author, mensagem AS conteudo
+                FROM history_messages
+                WHERE id_conversa = %s AND usuario_id_history = %s
+                LIMIT %s
+            """, (conversa_id, usuario_id, limit))
+            rows = cur.fetchall()
+
+    msgs = [_row_to_message(r["author"], r["conteudo"]) for r in rows]
+    return msgs
+
 @app.route('/chat_novai_manager', methods=['POST'])
 def chat_novai_manager_requisicao():
     data = request.get_json()
@@ -3463,7 +3508,7 @@ def chat_novai_manager_requisicao():
     except:
         return
     mensagem = data.get('message')
-    id_conversa = data.get('conversa_id')
+    id_conversa = data.get('conversa_id', '')
     date_unix = data.get('date')
     date = datetime.fromtimestamp(date_unix / 1000)
     print('token', token)
@@ -3527,7 +3572,7 @@ Seja extremamente direto.
         },
         {
             "pergunta": "Qual meu prazo para responder uma mensagem no pós-venda?",
-            "pensamento": "analisando a descricao das tables, é possivel agregar a resposta através da table mensagens_clientes: q contem as mensagens e detalhes sobre as conversas com os clientes"
+            "pensamento": "analisando a descricao das tables, é possivel agregar a resposta através da table 'messages', que contem as mensagens e detalhes sobre as conversas com os clientes"
         },
         {
             "pergunta":"me mande qual item que mais vendi e a descricao dele",
@@ -3553,7 +3598,7 @@ Responda com base apenas na descrição das tables.
         input_variables=["input", "detalhes"]
     )
 
-    final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
+
     class Simplificador(BaseModel):
         '''Decide se é possível agregar dados com as tabelas disponíveis.'''
         possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
@@ -3571,37 +3616,51 @@ Responda com base apenas na descrição das tables.
             print('\n--- Próxima etapa: consultar essas tables ---\n')
             print(f"Tabelas a consultar: {out.tables}")
             # Exemplo: chamar a próxima etapa de busca real
-            return_final =  chat_novai_manager_table_verification(out.tables, guardar_mensagem, user_id)
+            return_final =  chat_novai_manager_table_verification(out.tables, guardar_mensagem, user_id,id_conversa)
     try:
 
-        chain = model.with_structured_output(Simplificador) | route
-        chain.invoke(final_prompt_text)
+        final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
+
+        # Carrega histórico (já inclui a mensagem do usuário que você inseriu antes)
+        with get_db_connection() as conn_hist:
+            history_msgs = carregar_historico_conversa(conn_hist, id_conversa, user_id, limit=6)
+        
+        # Constrói um prompt "chat" com placeholder de histórico
+        decisao_prompt = ChatPromptTemplate.from_messages([
+            MessagesPlaceholder("history"),
+            ("human", "{final_prompt}")
+        ])
+        
+        decisao_chain = decisao_prompt | model.with_structured_output(Simplificador) | route
+        
+        decisao_chain.invoke({
+            "history": history_msgs,
+            "final_prompt": final_prompt_text
+        })
         print("chegou aqui")
         print('return final:', return_final)
         #respostas = await model.abatch([{"messages": [{"role": "user", "content": json.dumps(p['dados retornados da query']),"function":'sintetize os dados em no max 10 linhas'}]} for p in return_final])
-        prompt = ChatPromptTemplate.from_template(
-    '''Você é um assistente de um vendedor do Mercado Livre. Uma outra IA buscou informações no banco de dados para responder à seguinte pergunta:
-
-{mensagem}
-
-Com base nos seguintes dados:
-{mensagem_final}
-
-📌 Responda de forma simples, clara e completa, como se estivesse explicando para um vendedor comum.
-
-- Seja robusto e objetivo na resposta.
-- Se os dados permitirem, **use Markdown** para deixar a visualização mais agradável (ex: listas, tabelas ou blocos de código com três crases).
-- Exemplo de formatação recomendada:
-  - **Negrito**
-  - Listas numeradas ou com pontos
-  - Quebras de linha (`\n`)
-  - Tabelas com `| Coluna | Valor |`
-
-Se não for possível usar Markdown, apenas responda normalmente.
-'''
-)
-        chain= prompt | model | StrOutputParser()
-        resposta_final=chain.invoke({'mensagem_final':return_final, 'mensagem':guardar_mensagem})
+        sintese_prompt = ChatPromptTemplate.from_messages([
+    ("system", 
+     "Você é um assistente de um vendedor do Mercado Livre. "
+     "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
+     "Use Markdown quando ajudar (listas, tabelas)."),
+    MessagesPlaceholder("history"),
+    ("human", 
+     "Pergunta atual:\n{mensagem}\n\n"
+     "Dados retornados do banco (se houver):\n{mensagem_final}\n\n"
+     "Gere a melhor resposta possível para o vendedor.")
+])
+        
+        sintese_chain = sintese_prompt | model | StrOutputParser()
+        
+        # Reaproveita o mesmo histórico carregado acima (ou recarregue, se preferir)
+        resposta_final = sintese_chain.invoke({
+            "history": history_msgs,
+            "mensagem": guardar_mensagem,
+            # garanta que mensagem_final seja string; se vier lista/dict, serialize:
+            "mensagem_final": json.dumps(return_final, ensure_ascii=False, default=str) if not isinstance(return_final, str) else return_final
+        })
         date = datetime.now()
         print('resposta final:', resposta_final)
         with get_db_connection() as conn, conn.cursor() as cur:
@@ -3614,7 +3673,7 @@ Se não for possível usar Markdown, apenas responda normalmente.
 
 
 
-def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int):
+def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int, conversa_id: str):
 
     model = ChatOpenAI(model='gpt-4o')
 
@@ -3859,7 +3918,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     Colunas:
     - "id_promotion": TEXT, PRIMARY KEY
     - "name": TEXT
-    - "status": TEXT (active, pending, candidate)
+    - "status": TEXT (started, pending, candidate)
     - "start_date": TIMESTAMP
     - "finish_date": TIMESTAMP
     - "deadline_date": TIMESTAMP
@@ -3935,7 +3994,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     Colunas:
     - "id_promotion": TEXT, FOREIGN KEY → promotion(id)
     - "item_id": TEXT, FOREIGN KEY → itens(item_id)
-    - "status": TEXT (active, pending, candidate)
+    - "status": TEXT (started, pending, candidate)
     - "price": NUMERIC(10,2)
     - "original_price": NUMERIC(10,2)
     - "min_discounted_price": NUMERIC(10,2)
@@ -3999,99 +4058,99 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 }
 
 
-    prompt = ChatPromptTemplate.from_template("""
-    Você é um assistente especializado em PostgreSQL. Dada a descrição das tabelas abaixo e uma pergunta em linguagem natural, gere uma ou no maximo 5 queries SQL puras separadas por vírgula que busquem todos os dados necessários para que uma segunda IA possa realizar os cálculos e raciocínios necessários para responder.
+    descricao_tables = ''
+        for table in tables:
+            descricao_tables += f'{descricao_table.get(table)}\n'
 
-    🧠 Regras obrigatórias:
-    - NÃO responda a pergunta diretamente.
-    - As queries devem funcionar em postgreSQL no python então se atente na sintaxe.
-    - Sua única tarefa é gerar as SQLs que trazem os dados brutos da pergunta.
-    - A resposta deve conter apenas SQLs puras, sem comentários, sem explicações e sem uso de blocos de código (como ``` ou markdown).
-    - As queries devem ser válidas e executáveis no PostgreSQL.
-    - Sempre use os nomes exatos das colunas e tabelas conforme fornecido na descrição.
-    - Toda query deve conter o filtro de usuário adequado, por exemplo:
-    - WHERE usuario_id_item = {user_id}
-    - WHERE usuario_id_mensagem = {user_id}
-    -⚠️ Muito importante: Nao crie queries que retornem muitas linhas, seja objetivo e sintetize os dados, sendo mais direto possível nas querys.
-    - Tome máximo cuidado para evitar divisões por zero, especialmente em métricas como CTR, CVR, ROAS, etc.
-    - Prefira sempre usar prefixo com o nome da tabela nas colunas, para evitar ambiguidade, como: a.item_id, m.data_envio.
-    - Se a pergunta não especificar uma data, pegue os dados de no maximo 90 dias atras
+    # ==== carrega histórico (janela de 6; ajuste se quiser) ====
+    with get_db_connection() as conn_hist:
+        history_msgs = carregar_historico_conversa(conn_hist, conversa_id, user_id, limit=6)
 
-   📊 REFORÇO IMPORTANTE – Busque DADOS EXTRAS de forma estratégica e contida:
-    -Além das queries mínimas para responder à pergunta principal, inclua queries complementares que ajudem a segunda IA a criar uma resposta mais completa, contextualizada, visual e explicativa.
-    -Mas atenção: essas queries complementares não devem ser pesadas ou exageradas. Evite consultas que retornem muitas linhas ou dados brutos demais – prefira queries simples, agregadas e mais analíticas.
-    -⚠️ Muito importante: Sempre que possivel agrupe e some dados para diminuir a quantidade de linhas retornadas.
-    -⚠️ Muito importante: Nao crie queries que retornem muitas linhas, seja objetivo e sintetize os dados, sendo mais direto possível nas querys.
-    -O foco é enriquecer a análise, não sobrecarregar com volume de dados.
-    -Se possivel mande ate 3 querys, mas no maximo 5 querys.
-    -A primeira query deve ser a mais importante e direta para responder a pergunta principal as demais sao apenas para um enriquecimento na resposta.
-    -⚠️ Muito importante: As querys de enriquecimento devem ser limitadas por ate no maximo do maximo até 1000 linhas de retorno (LIMIT 1000),                                    
-    -⚠️ Muito importante: Sempre use os nomes exatos das colunas e tabelas conforme fornecido na descrição.
-                                              
-    ⚠️ Contexto:
-    - Data de hoje = {data_atual}
+    # ==== prompt em formato de chat com histórico ====
+    regras_sql = """
+Você é um assistente especializado em PostgreSQL. Dada a descrição das tabelas e uma pergunta,
+gere UMA ou no máximo 5 queries SQL puras, separadas por vírgula, que tragam os dados necessários
+para que uma segunda IA faça os cálculos.
 
-    Sempre use aliases e alias claros quando possível.
+🧠 Regras obrigatórias:
+- NÃO responda a pergunta diretamente.
+- Postgres puro (sintaxe correta para Python/psycopg2).
+- Saída = APENAS as SQLs (sem comentários/markdown/explicações).
+- Use os nomes exatos de colunas/tabelas informados.
+- TODA query deve filtrar por usuário (use o id {user_id}).
+- Se a pergunta não especificar data, restrinja aos últimos 90 dias.
+- Evite divisões por zero.
+- Prefira prefixos/aliases nas colunas para evitar ambiguidade.
+- Seja objetivo; evite retornar muitas linhas.
+- Se precisar enriquecer, inclua até 2–4 queries agregadas e leves (com LIMIT quando fizer sentido).
+- Queries de enriquecimento: limite até 1000 linhas (LIMIT 1000).
+- Sempre que possível, agregue (SUM/COUNT/AVG/…).
 
-    Retorne múltiplas queries separadas em uma lista de strings em python para compor a resposta completa.
+⚠️ Contexto:
+- Data de hoje = {data_atual}
+"""
 
-    Exemplo de entrada:
-    Pergunta: quanto eu faturei tirando o product ads?
-
-    Resposta:
-    SELECT SUM(organic_units_amount) FROM anuncios_metricas_diarias WHERE usuario_id_anuncios_metricas_diarias = {user_id} AND date >= CURRENT_DATE - INTERVAL '90 days',
-    SELECT date, SUM(organic_units_amount) FROM anuncios_metricas_diarias WHERE usuario_id_anuncios_metricas_diarias = {user_id} AND date >= CURRENT_DATE - INTERVAL '90 days' GROUP BY date ORDER BY date,
-    SELECT SUM(direct_amount + indirect_amount) FROM anuncios_metricas_diarias WHERE usuario_id_anuncios_metricas_diarias = {user_id} AND date >= CURRENT_DATE - INTERVAL '90 days'
-
-
-    Agora responda à pergunta:
-    {mensagem}
-    Descrição das tabelas:
-    {descricao_table}
-
-
-
-    """)
-    descricao_tables=''
-    for table in tables:
-        descricao_tables+=f'{descricao_table.get(table)}\n'
+    decisao_prompt = ChatPromptTemplate.from_messages([
+        ("system", regras_sql),
+        MessagesPlaceholder("history"),
+        ("human",
+         "Pergunta do vendedor:\n{mensagem}\n\n"
+         "Descrição das tabelas selecionadas:\n{descricao_tables}\n\n"
+         "Gere as SQLs conforme as regras.")
+    ])
 
     class Queries(BaseModel):
-        lista: list[str] = Field(description='separe uma ou mais querys q estarão separadas por "," ou ";" ,tire os \n e "," no final e coisas que possam dar erro de sintaxe na query ,e retorne uma lista com elas para serem executadas')
+        lista: list[str] = Field(
+            description=("Retorne as queries como uma lista de strings SQL puras. "
+                         "Sem \\n no fim, sem vírgulas extras, sem markdown.")
+        )
+
     dados = None
-    count = 0
+
     def route(output: Queries):
-        print('output lista: ', output.lista)
         nonlocal dados
-        nonlocal count
-        conn=get_db_connection()
-        cur=conn.cursor()
-
-        dados = []
-        for respost in output.lista:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            dados = []
+            for respost in output.lista:
+                try:
+                    cur.execute(respost)
+                    rows = cur.fetchall()
+                    dados.append({
+                        'query': respost,
+                        'dados retornados da query': rows
+                    })
+                except Exception as e:
+                    print(f"Erro ao executar a query {respost}: {e}")
+        finally:
             try:
-                cur.execute(respost)
-                dados_resposta=cur.fetchall()
-                dado = {
-                    'query': respost,
-                    'dados retornados da query': dados_resposta
-                }
-                dados.append(dado)
-            except Exception as e:
-                print(f"Erro ao executar a query {respost}: {e}")       
-
-    chain = prompt | model.with_structured_output(Queries) | route
-    print(date)
-    chain.invoke({'data_atual':datetime.now(),'descricao_table':descricao_tables,'user_id':user_id,'mensagem':mensagem})
-    print('dados retornados')
-    print('\n'*8)
+                cur.close()
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+    try:
+        chain = decisao_prompt | model.with_structured_output(Queries) | route
+    
+        chain.invoke({
+            "history": history_msgs,
+            "mensagem": mensagem,
+            "descricao_tables": descricao_tables,
+            "data_atual": datetime.now(),
+            "user_id": user_id
+        })
+    except Exception as e:
+        print('erro no final:', e)
 
     return dados
-
 
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
