@@ -3675,7 +3675,7 @@ Responda com base apenas na descrição das tables.
 
 def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int, conversa_id: str):
 
-    model = ChatOpenAI(model='gpt-4o')
+    model = ChatOpenAI(model='gpt-4o-mini')
 
     descricao_table = {
     "campanhas": """Tabela: 'campanhas'
@@ -3898,7 +3898,8 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     "messages": '''Tabela: "messages"
     Descrição: Armazena mensagens trocadas entre o vendedor e o cliente.
     Colunas:
-    - "pack_id": TEXT, FOREIGN KEY → packs(pack_id), obs: (apenas para type = 'post_sale')
+    - "pack_id": TEXT, FOREIGN KEY → packs(pack_id), obs: (apenas para type = 'post_sale, pode se relacionar com a table itens para pegar detalhes do item)
+    - "item_id": TEXT, FOREIGN KEY → itens(item_id), obs:(apenas para type = 'pre_sale')
     - "client_name": TEXT
     - "message": TEXT
     - "date_created": TIMESTAMP
@@ -3906,7 +3907,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     - "type": TEXT (post_sale, pre_sale)
     - "read": BOOLEAN
     - "is_first_message": TEXT, obs:(apenas para type = 'post_sale')
-    - "item_id": TEXT, FOREIGN KEY → itens(item_id), obs:(apenas para type = 'pre_sale')
+    
     - "status": TEXT (answered,active,etc), obs:(apenas para type = 'pre_sale')
     - "usuario_id_messages": INTEGER, FOREIGN KEY → usuarios(id)
     Relacionamentos:
@@ -4150,6 +4151,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
