@@ -244,17 +244,29 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
   const [text, setText] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Alturas de referência
+  const BASE = 52;   // mesma altura do botão
+  const MAX  = 200;  // seu limite atual
+
   useEffect(() => {
-    // Reseta a altura do textarea quando o texto é enviado
-    if (!text && textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+    if (!textareaRef.current) return;
+    // quando não há texto, fixa a altura base
+    if (!text) {
+      textareaRef.current.style.height = `${BASE}px`;
     }
   }, [text]);
 
+  const autoSize = (el: HTMLTextAreaElement) => {
+    // reseta para calcular o scrollHeight corretamente
+    el.style.height = 'auto';
+    const next = Math.min(el.scrollHeight, MAX);
+    // aplica no mínimo a BASE
+    el.style.height = `${Math.max(next, BASE)}px`;
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Permite que o usuário use Enter para enviar a mensagem
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault(); // Evita a quebra de linha padrão do textarea
+      e.preventDefault();
       onSendMessage(text);
       setText('');
     }
@@ -267,16 +279,19 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} style={styles.inputForm}>
+    <form onSubmit={handleSubmit} style={{ ...styles.inputForm, alignItems: 'center' }}>
       <textarea
         ref={textareaRef}
+        rows={1} // começa com 1 linha
         style={styles.inputField}
         value={text}
-        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        onChange={(e) => {
           setText(e.target.value);
-          // Ajusta a altura automaticamente com base no conteúdo
-          e.currentTarget.style.height = 'auto';
-          e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 200) + 'px'; // Limita a altura máxima em 200px
+          autoSize(e.currentTarget);
+        }}
+        onFocus={(e) => {
+          // garante que ao focar a altura base seja aplicada
+          if (!text) e.currentTarget.style.height = `${BASE}px`;
         }}
         onKeyDown={handleKeyDown}
         placeholder={isLoading ? "Analisando..." : "Escreva sua pergunta..."}
@@ -400,6 +415,9 @@ export default function App(): JSX.Element {
   const [token, setToken] = useState('');
   const [activeConversaId, setActiveConversaId] = useState<string>('');
   const draftIdRef = useRef<string>('');
+  const [isHoveringNew, setIsHoveringNew] = useState<Boolean>(false)
+  const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
+
 
 
   // Efeito inicial para a mensagem de boas-vindas
@@ -778,12 +796,15 @@ const conversationList: ConversationListItem[] = useMemo(() => {
       </main>
 
       {/* NOVO PAINEL DIREITO - HISTÓRICO DE CONVERSAS */}
-      <aside
+     <aside
         style={{ ...styles.panel, ...styles.rightPanel, width: isRightPanelPinned || isRightPanelOpen ? '240px' : '60px' }}
         onMouseEnter={() => !isRightPanelPinned && setIsRightPanelOpen(true)}
         onMouseLeave={() => !isRightPanelPinned && setIsRightPanelOpen(false)}
       >
-        <div style={styles.panelHeader}>
+        <div style={{ ...styles.panelHeader, justifyContent: 'flex-end' }}>
+          {(isRightPanelPinned || isRightPanelOpen) && (
+            <span style={styles.logoText}>Histórico</span>
+          )}
           <div
             style={styles.buttonWrapper}
             onMouseEnter={() => setIsHoveringRight(true)}
@@ -802,41 +823,53 @@ const conversationList: ConversationListItem[] = useMemo(() => {
               <div style={styles.tooltipRight}>{getRightTooltipText()}</div>
             )}
           </div>
-          {/* Renderiza o título somente quando o painel está aberto */}
-          {(isRightPanelPinned || isRightPanelOpen) && (
-            <span style={styles.logoText}>Histórico</span>
-          )}
         </div>
         {(isRightPanelPinned || isRightPanelOpen) && (
           <nav style={styles.nav}>
-  <div style={{ display: 'flex', gap: 8, padding: '0 12px 8px' }}>
-    <button onClick={startNewConversation} style={{ ...styles.smallButton }}>
-      + Nova conversa
-    </button>
-  </div>
+            <div style={{ display: 'flex', gap: 8, padding: '0 12px 8px' }}>
+              <button
+                onClick={startNewConversation}
+                style={{
+                  ...styles.smallButton,
+                  ...(isHoveringNew ? styles.smallButtonHover : {})
+                }}
+                onMouseEnter={() => setIsHoveringNew(true)}
+                onMouseLeave={() => setIsHoveringNew(false)}
+              >
+                + Nova conversa
+            </button>
+            </div>
+           {conversationList.map((conv) => {
+  const isActive = conv.id === activeConversaId;
+  const isHovered = hoveredConvId === conv.id;
 
-  {conversationList.map((conv) => {
-    const isActive = conv.id === activeConversaId;
-    return (
-      <div
-        key={conv.id}
-        style={{
-          ...styles.navItem,
-          ...(isActive ? { background: '#2a2a2a', fontWeight: 600 } : {}),
-          cursor: 'pointer',
-          lineHeight: 1.2,
-        }}
-        title={conv.title}
-        onClick={() => setActiveConversaId(conv.id)}
-      >
-        {truncate(conv.title, 32)}
-        <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
-          {conv.count} {conv.count !== 1 ? 'mensagens' : 'mensagem'}
-        </div>
+  return (
+    <div
+      key={conv.id}
+      style={{
+        ...styles.navItem,
+        ...(isActive
+          ? { background: '#2a2a2a', fontWeight: 600 }
+          : isHovered
+          ? { background: '#3a3a3a' } // cinza claro quando hover
+          : {}),
+        cursor: 'pointer',
+        lineHeight: 1.2,
+      }}
+      title={conv.title}
+      onClick={() => setActiveConversaId(conv.id)}
+      onMouseEnter={() => setHoveredConvId(conv.id)}
+      onMouseLeave={() => setHoveredConvId(null)}
+    >
+      {truncate(conv.title, 32)}
+      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
+        {conv.count} {conv.count !== 1 ? 'mensagens' : 'mensagem'}
       </div>
-    );
-  })}
-</nav>
+    </div>
+  );
+})}
+
+          </nav>
         )}
       </aside>
 
@@ -1103,48 +1136,63 @@ aiMessageText: {
   overflowWrap: 'anywhere', // evita overflow de links/palavras longas
 },
   userBubble: {
-  backgroundColor: '#2C2C2E',
+    backgroundColor: '#F8DD82',
+    color: '#1A1A1A',
+    padding: '0.8rem 1rem',
+    borderRadius: 18,
+    borderTopRightRadius: 4,
+    alignSelf: 'flex-end',
+    wordWrap: 'break-word',
+    overflowWrap: 'anywhere',
+    maxWidth: '85%', // use maxWidth em vez de width pra não “empurrar”
+  },
+    smallButton: {
+  background: 'transparent',
   color: '#E0E0E0',
-  padding: '0.8rem 1rem',
-  borderRadius: 18,
-  borderTopRightRadius: 4,
-  alignSelf: 'flex-end',
-  wordWrap: 'break-word',
-  overflowWrap: 'anywhere',
-  maxWidth: '85%',         // use maxWidth em vez de width pra não “empurrar”
+  borderRadius: '8px',
+  padding: '6px 12px',
+  cursor: 'pointer',
+  transition: 'background 0.2s ease',
+},
+smallButtonHover: {
+  background: '#2A2A2A', // cinza leve
 },
   inputForm: {
-    display: 'flex',
-    padding: '1.5rem 2rem',
-    borderTop: '1px solid #2A2A2A',
-    gap: '1rem',
-    backgroundColor: 'rgba(26, 26, 26, 0.5)',
-    alignItems: 'flex-end',
-  },
-  inputField: {
-    flex: 1,
-    backgroundColor: '#2C2C2E',
-    border: '1px solid #3A3A3C',
-    borderRadius: '12px',
-    padding: '1rem',
-    fontSize: '1rem',
-    color: '#FFFFFF',
-    outline: 'none',
-    resize: 'none', // Impede que o usuário redimensione manualmente
-    overflowY: 'auto', // Adiciona scrollbar quando o texto é muito longo
-    maxHeight: '200px', // Define uma altura máxima para o textarea
-  },
+  display: 'flex',
+  padding: '1.5rem 2rem',
+  borderTop: '1px solid #2A2A2A',
+  gap: '1rem',
+  backgroundColor: 'rgba(26, 26, 26, 0.5)',
+  alignItems: 'flex-end', // 👈 garante que o botão não sobe
+},
+inputField: {
+  flex: 1,
+  backgroundColor: '#2C2C2E',
+  border: '1px solid #3A3A3C',
+  borderRadius: '12px',
+  padding: '0.75rem 1rem',
+  fontSize: '1rem',
+  lineHeight: 1.2,
+  color: '#FFFFFF',
+  outline: 'none',
+  resize: 'none',
+  overflowY: 'auto',
+  maxHeight: '200px',
+  boxSizing: 'border-box',
+},
+
   sendButton: {
-    width: '52px',
-    height: '52px',
-    borderRadius: '12px',
-    border: 'none',
-    backgroundColor: '#F8DD82',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-  },
+  alignSelf: 'flex-end',
+  width: '52px',
+  height: '52px',
+  borderRadius: '12px',
+  border: 'none',
+  backgroundColor: '#F8DD82',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+},
   initialMessageText: {
     // Estilo para a mensagem inicial sem balão
     padding: '0',
@@ -1154,6 +1202,7 @@ aiMessageText: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
