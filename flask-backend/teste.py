@@ -104,7 +104,6 @@ def clear_legacy_cookies(resp):
 def add_usuario():
     print('Entrou no add-usuario')
     try:
-        print('entrou no try')
         email = request.form.get('email')
         senha = request.form.get('senha')
         usuario = request.form.get('usuario')  # Novo campo
@@ -120,20 +119,18 @@ def add_usuario():
         cur = conn.cursor()
 
         # Verificar se o email já está cadastrado
-        #cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
-        #if cur.fetchone():
-            #cur.close()
-            #conn.close()
-            #return jsonify({"error": "Usuário já cadastrado"}), 400
+        cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuário já cadastrado"}), 400
 
-        # Inserir novo usuário no banco de dados
-        #cur.execute(
-            #"INSERT INTO usuarios (usuario, email, senha,modo_automatico) VALUES (%s, %s, %s,%s) RETURNING id;",
-            #(usuario, email, hashed_password,False)
-        #)
-        cur.execute("SELECT id FROM usuarios") 
-        novo_id_dict = cur.fetchone()
-        novo_id=novo_id_dict['id']
+        #Inserir novo usuário no banco de dados
+        cur.execute(
+            "INSERT INTO usuarios (usuario, email, senha,modo_automatico) VALUES (%s, %s, %s,%s) RETURNING id;",
+            (usuario, email, hashed_password,False)
+        )
+        novo_id=cur.fetchone()['id']
         print(f"Novo ID: {novo_id}")
         session['novo_id']=novo_id
         conn.commit()
@@ -4095,6 +4092,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
