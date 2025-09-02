@@ -4059,8 +4059,8 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 
 
     descricao_tables = ''
-        for table in tables:
-            descricao_tables += f'{descricao_table.get(table)}\n'
+    for table in tables:
+        descricao_tables += f'{descricao_table.get(table)}\n'
 
     # ==== carrega histórico (janela de 6; ajuste se quiser) ====
     with get_db_connection() as conn_hist:
@@ -4150,6 +4150,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
