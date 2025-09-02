@@ -103,8 +103,8 @@ def clear_legacy_cookies(resp):
 @app.route('/add-usuario', methods=['POST'])
 def add_usuario():
     print('Entrou no add-usuario')
-
     try:
+        print('entrou no try')
         email = request.form.get('email')
         senha = request.form.get('senha')
         usuario = request.form.get('usuario')  # Novo campo
@@ -4095,6 +4095,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
