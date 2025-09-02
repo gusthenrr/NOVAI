@@ -145,6 +145,12 @@ def add_usuario():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 
 
@@ -1149,6 +1155,8 @@ def user_login():
                 # sem Domain -> host-only
                 max_age=60*60*24,
             )
+                cur.close()
+                conn.close()
                 return resp, 200
             else:
                 print("retornando erro 1")
@@ -4042,6 +4050,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
