@@ -392,6 +392,11 @@ def processar_notificacao_ml(data: dict, user_id):
         except Exception as e:
             app.logger.exception("Erro no worker de notificação: %s", e)
         finally:
+        # Certifique-se de fechar o cursor e a conexão
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
             if user_id is not None and got_lock:
                 sync_lock_release(int(user_id))
 
@@ -404,332 +409,350 @@ def payments_notifications(data, acess_token_data):
 
 
 def public_offers_notifications(data, acess_token_data):
-    print("🔔 Notificação de ofertas públicas recebida:", data)
-    resource=data.get('resource', '')
-    url_offers = f"https://api.mercadolibre.com{resource}"
-    headers = {"Authorization": f"Bearer {acess_token_data['acess_token']}"}
-    response = requests.get(url_offers, headers=headers)
-    if response.status_code != 200 and response.status_code != 206:
-        print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
-        return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
-    offer_data = response.json()
-    item_id = offer_data.get('item_id')
-    promotion_id = offer_data.get('promotion_id')
-    user_id = acess_token_data['usuario_id']
-    conn= get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM ponte_item_promotions WHERE AND promotion_id = %s", (promotion_id,))
-    existing_offers = cur.fetchone()
-    url_promocao = f'https://api.mercadolibre.com/seller-promotions/promotions/{promotion_id}?promotion_type={type_promotion}&app_version=v2'
-    response = requests.get(url_promocao, headers=headers)
-    if response.status_code not in [200]:
-        print(f"Erro ao consultar promoções")
-        return
-    resposta = response.json()
-    id_promotion = resposta.get('id', None)
-    type_promotion = resposta.get('type', None)
-    status = resposta.get('status', None)
-    finish_date = resposta.get('finish_date')
-    start_date = resposta.get('start_date', None)
-    deadline = resposta.get('deadline_date', None)
-    name = resposta.get('name', None)
-    cur.execute('INSERT INTO promotion (id_promotion,type_promotion,status,finish_date,start_date,deadline_date,name, usuario_id_promotions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, status, finish_date, start_date, deadline, name,user_id,))
-    conn.commit()
-    if type_promotion == 'MARKET_PLACE_CAMPAIGN':
-        benefits = resposta.get('benefits', {})
-        if benefits:
-            meli_percent = benefits.get('meli_percent', None)
-            seller_percent = benefits.get('seller_percent', None)
-            benefits_type = benefits.get('type', None)
+    try:
+        print("🔔 Notificação de ofertas públicas recebida:", data)
+        resource=data.get('resource', '')
+        url_offers = f"https://api.mercadolibre.com{resource}"
+        headers = {"Authorization": f"Bearer {acess_token_data['acess_token']}"}
+        response = requests.get(url_offers, headers=headers)
+        if response.status_code != 200 and response.status_code != 206:
+            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
+            return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
+        offer_data = response.json()
+        item_id = offer_data.get('item_id')
+        promotion_id = offer_data.get('promotion_id')
+        user_id = acess_token_data['usuario_id']
+        conn= get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM ponte_item_promotions WHERE AND promotion_id = %s", (promotion_id,))
+        existing_offers = cur.fetchone()
+        url_promocao = f'https://api.mercadolibre.com/seller-promotions/promotions/{promotion_id}?promotion_type={type_promotion}&app_version=v2'
+        response = requests.get(url_promocao, headers=headers)
+        if response.status_code not in [200]:
+            print(f"Erro ao consultar promoções")
+            return
+        resposta = response.json()
+        id_promotion = resposta.get('id', None)
+        type_promotion = resposta.get('type', None)
+        status = resposta.get('status', None)
+        finish_date = resposta.get('finish_date')
+        start_date = resposta.get('start_date', None)
+        deadline = resposta.get('deadline_date', None)
+        name = resposta.get('name', None)
+        cur.execute('INSERT INTO promotion (id_promotion,type_promotion,status,finish_date,start_date,deadline_date,name, usuario_id_promotions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, status, finish_date, start_date, deadline, name,user_id,))
+        conn.commit()
+        if type_promotion == 'MARKET_PLACE_CAMPAIGN':
+            benefits = resposta.get('benefits', {})
+            if benefits:
+                meli_percent = benefits.get('meli_percent', None)
+                seller_percent = benefits.get('seller_percent', None)
+                benefits_type = benefits.get('type', None)
+                if existing_offers:
+                    print("Oferta já existe, atualizando dados.")
+                    cur.execute('''UPDATE market_place_campaign_type_promotion SET type_promotion = %s,
+                    type_benefits = %s,meli_percent = %s,seller_percent = %s WHERE id_promotion = %s AND usuario_id_marketplace_campaign_type_promotion = %s''',
+                    (type_promotion,benefits_type,meli_percent,seller_percent,id_promotion,user_id))
+                else:
+                    print("Oferta não existe, inserindo dados.")
+                    cur.execute('INSERT INTO market_place_campaign_type_promotion (id_promotion, type_promotion, type_benefits, meli_percent,seller_percent,usuario_id_marketplace_campaign_type_promotion) VALULES (%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, benefits_type, meli_percent, seller_percent,user_id,))
+    
+        elif type_promotion == 'PRE_NEGOTIATED' or type_promotion == 'UNHEALTHY_STOCK':
+            offers = resposta.get('offers',[])
+            for offer in offers:
+                offer_id = offer.get('id', None)
+                original_price = offer.get('original_price', None)
+                new_price = offer.get('new_price', None)
+                status_offer = offer.get('status', None)
+                start_date_offer = offer.get('start_date', None)
+                end_date_offer = offer.get('end_date', None)
+                benefits = offer.get('benefits', {})
+                meli_percent = benefits.get('meli_percent', None)
+                seller_percent = benefits.get('seller_percent', None)
+                benefits_type = benefits.get('type', None)
+                if existing_offers:
+                    print("Oferta já existe, atualizando dados.")
+                    cur.execute('''UPDATE pre_negotiated_type_promotion SET type_promotion = %s,offer_id = %s,
+                    type_benefits = %s,meli_percent = %s,seller_percent = %s,start_date = %s,end_date = %s,status = %s,
+                    original_price = %s,new_price = %s WHERE id_promotion = %s AND usuario_id_pre_negotiated_type_promotion_offers = %s''',
+                    (type_promotion,offer_id,benefits_type,meli_percent,seller_percent,start_date_offer,end_date_offer,status_offer,
+                    original_price,new_price,id_promotion,user_id))
+                else:
+                    cur.execute('''INSERT INTO pre_negotiated_type_promotion (id_promotion,type_promotion, 
+                    offer_id,type_benefits, meli_percent, seller_percent, start_date, end_date, status, 
+                    original_price, new_price, usuario_id_pre_negotiated_type_promotion_offers) 
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion, offer_id, benefits_type, meli_percent, seller_percent, start_date_offer, end_date_offer, status_offer, original_price, new_price,user_id,))
+        elif type_promotion == 'SELLER_COUPON_CAMPAIGN':
+            sub_type = resposta.get('sub_type', None)
+            fixed_amount = resposta.get('fixed_amount', None)
+            min_purchase_amount = resposta.get('min_purchase_amount',None)
+            max_purchase_amount = resposta.get('max_purchase_amount', None)
+            coupon_code = resposta.get('coupon_code', None)
+            redeems_per_user = resposta.get('redeems_per_user', None)
+            budget = resposta.get('budget',None)
+            remaining_budget = resposta.get('remaining_budget', None)
+            used_coupons = resposta.get('used_coupons', None)
+            fixed_percentage = resposta.get('fixed_percentage', None)
             if existing_offers:
                 print("Oferta já existe, atualizando dados.")
-                cur.execute('''UPDATE market_place_campaign_type_promotion SET type_promotion = %s,
-                type_benefits = %s,meli_percent = %s,seller_percent = %s WHERE id_promotion = %s AND usuario_id_marketplace_campaign_type_promotion = %s''',
-                (type_promotion,benefits_type,meli_percent,seller_percent,id_promotion,user_id))
+                cur.execute('''UPDATE seller_coupon_type_promotion SET type_promotion = %s, sub_type = %s,
+                fixed_amount = %s,min_purchase_amount = %s,max_purchase_amount = %s,
+                coupon_code = %s,redeems_per_user = %s,budget = %s,remaining_budget = %s,used_coupons = %s,fixed_coupons = %s WHERE
+                id_promotion = %s AND usuario_id_seller_coupon_type_promotion = %s''',(type_promotion,sub_type,fixed_amount,min_purchase_amount,
+                max_purchase_amount,coupon_code,redeems_per_user,budget,remaining_budget,used_coupons,fixed_percentage,id_promotion,user_id))
             else:
                 print("Oferta não existe, inserindo dados.")
-                cur.execute('INSERT INTO market_place_campaign_type_promotion (id_promotion, type_promotion, type_benefits, meli_percent,seller_percent,usuario_id_marketplace_campaign_type_promotion) VALULES (%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, benefits_type, meli_percent, seller_percent,user_id,))
-
-    elif type_promotion == 'PRE_NEGOTIATED' or type_promotion == 'UNHEALTHY_STOCK':
-        offers = resposta.get('offers',[])
-        for offer in offers:
-            offer_id = offer.get('id', None)
-            original_price = offer.get('original_price', None)
-            new_price = offer.get('new_price', None)
-            status_offer = offer.get('status', None)
-            start_date_offer = offer.get('start_date', None)
-            end_date_offer = offer.get('end_date', None)
-            benefits = offer.get('benefits', {})
-            meli_percent = benefits.get('meli_percent', None)
-            seller_percent = benefits.get('seller_percent', None)
-            benefits_type = benefits.get('type', None)
+                cur.execute('''INSERT INTO seller_coupon_type_promotion (id_promotion,type_promotion,sub_type, fixed_amount, min_purchase_amount, max_purchase_amount, coupon_code, redeems_per_user,
+                budget, remaining_budget, used_coupons, fixed_coupons, usuario_id_seller_coupon_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion,sub_type,
+                fixed_amount,min_purchase_amount,max_purchase_amount,coupon_code,redeems_per_user, budget, remaining_budget, used_coupons, fixed_percentage, user_id,))
+    
+        elif type_promotion == 'VOLUME':
+            buy_quantity = resposta.get('buy_quantity', None)
+            pay_quantity= resposta.get('pay_quantity', None)
+            allow_combination = resposta.get('allow_combination', None)
+            sub_type = resposta.get('sub_type', None)
             if existing_offers:
                 print("Oferta já existe, atualizando dados.")
-                cur.execute('''UPDATE pre_negotiated_type_promotion SET type_promotion = %s,offer_id = %s,
-                type_benefits = %s,meli_percent = %s,seller_percent = %s,start_date = %s,end_date = %s,status = %s,
-                original_price = %s,new_price = %s WHERE id_promotion = %s AND usuario_id_pre_negotiated_type_promotion_offers = %s''',
-                (type_promotion,offer_id,benefits_type,meli_percent,seller_percent,start_date_offer,end_date_offer,status_offer,
-                original_price,new_price,id_promotion,user_id))
+                cur.execute('''UPDATE volume_type_promotion SET type_promotion = %s,buy_quantity = %s,pay_quantity = %s,sub_type = %s,
+                allow_combination = %s WHERE id_promotion = %s AND usuario_id_volume_type_promotion = %s''',(type_promotion,buy_quantity,
+                pay_quantity,sub_type,allow_combination,id_promotion,user_id))
             else:
-                cur.execute('''INSERT INTO pre_negotiated_type_promotion (id_promotion,type_promotion, 
-                offer_id,type_benefits, meli_percent, seller_percent, start_date, end_date, status, 
-                original_price, new_price, usuario_id_pre_negotiated_type_promotion_offers) 
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion, offer_id, benefits_type, meli_percent, seller_percent, start_date_offer, end_date_offer, status_offer, original_price, new_price,user_id,))
-    elif type_promotion == 'SELLER_COUPON_CAMPAIGN':
-        sub_type = resposta.get('sub_type', None)
-        fixed_amount = resposta.get('fixed_amount', None)
-        min_purchase_amount = resposta.get('min_purchase_amount',None)
-        max_purchase_amount = resposta.get('max_purchase_amount', None)
-        coupon_code = resposta.get('coupon_code', None)
-        redeems_per_user = resposta.get('redeems_per_user', None)
-        budget = resposta.get('budget',None)
-        remaining_budget = resposta.get('remaining_budget', None)
-        used_coupons = resposta.get('used_coupons', None)
-        fixed_percentage = resposta.get('fixed_percentage', None)
-        if existing_offers:
-            print("Oferta já existe, atualizando dados.")
-            cur.execute('''UPDATE seller_coupon_type_promotion SET type_promotion = %s, sub_type = %s,
-            fixed_amount = %s,min_purchase_amount = %s,max_purchase_amount = %s,
-            coupon_code = %s,redeems_per_user = %s,budget = %s,remaining_budget = %s,used_coupons = %s,fixed_coupons = %s WHERE
-            id_promotion = %s AND usuario_id_seller_coupon_type_promotion = %s''',(type_promotion,sub_type,fixed_amount,min_purchase_amount,
-            max_purchase_amount,coupon_code,redeems_per_user,budget,remaining_budget,used_coupons,fixed_percentage,id_promotion,user_id))
-        else:
-            print("Oferta não existe, inserindo dados.")
-            cur.execute('''INSERT INTO seller_coupon_type_promotion (id_promotion,type_promotion,sub_type, fixed_amount, min_purchase_amount, max_purchase_amount, coupon_code, redeems_per_user,
-            budget, remaining_budget, used_coupons, fixed_coupons, usuario_id_seller_coupon_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion,sub_type,
-            fixed_amount,min_purchase_amount,max_purchase_amount,coupon_code,redeems_per_user, budget, remaining_budget, used_coupons, fixed_percentage, user_id,))
-
-    elif type_promotion == 'VOLUME':
-        buy_quantity = resposta.get('buy_quantity', None)
-        pay_quantity= resposta.get('pay_quantity', None)
-        allow_combination = resposta.get('allow_combination', None)
-        sub_type = resposta.get('sub_type', None)
-        if existing_offers:
-            print("Oferta já existe, atualizando dados.")
-            cur.execute('''UPDATE volume_type_promotion SET type_promotion = %s,buy_quantity = %s,pay_quantity = %s,sub_type = %s,
-            allow_combination = %s WHERE id_promotion = %s AND usuario_id_volume_type_promotion = %s''',(type_promotion,buy_quantity,
-            pay_quantity,sub_type,allow_combination,id_promotion,user_id))
-        else:
-            print("Oferta não existe, inserindo dados.")
-            cur.execute('''INSERT INTO volume_type_promotion (id_promotion,type_promotion,buy_quantity, pay_quantity, sub_type, allow_combination, usuario_id_volume_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-            (id_promotion, type_promotion, buy_quantity, pay_quantity, sub_type, allow_combination, user_id ,))
-    url=f'https://api.mercadolibre.com/seller-promotions/promotions/{id_promotion}/items?promotion_type={type_promotion}&item_id={item_id}&app_version=v2'
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200 and response.status_code != 206:
-        print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
-        return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
-    item_promotion_data = response.json()
-    results = item_promotion_data.get('results', [])
-    if not results:
-        print("Nenhum item encontrado na promoção.")
-        return jsonify({"error": "Nenhum item encontrado na promoção"}), 404
-    cur.execute("SELECT * FROM ponte_item_promotions WHERE promotion_id = %s AND item_id = %s AND usuario_id_ponte_item_promotions=%s", (id_promotion, item_id, user_id,))
-    existing_item_promotion = cur.fetchone()
-    for result in results:
-        id_promotion_item = id_promotion
-        item_id = result.get('id', None)
-        status = result.get('status', None)
-        price = result.get('price', None)
-        original_price = result.get('original_price', None)
-        min_discounted_price= result.get('min_discounted_price', None)
-        max_discounted_price= result.get('max_discounted_price', None)
-        suggested_discounted_price= result.get('suggested_discounted_price', None)
-        start_date= result.get('start_date', None)
-        end_date = result.get('end_date', None)
-        sub_type = result.get('sub_type', None)
-        offer_id = result.get('offer_id', None)
-        meli_percentage = result.get('meli_percentage', None)
-        seller_percentage = result.get('seller_percentage', None)
-        buy_quantity = result.get('buy_quantity', None)
-        pay_quantity = result.get('pay_quantity', None)
-        allow_combination = result.get('allow_combination', None)
-        fixed_amount = result.get('fixed_amount', None)
-        fixed_percentage = result.get('fixed_percentage', None)
-        top_deal_price = result.get('top_deal_price', None)
-        discount_percentage = result.get('descount_percentage', None)
-        if existing_item_promotion:
-            cur.execute("""UPDATE ponte_item_promotions SET status = %s,price = %s,original_price = %s,min_discounted_price = %s,max_discounted_price = %s,
-            suggested_discounted_price = %s,start_date = %s,end_date = %s,sub_type = %s,offer_id = %s,meli_percentage = %s,seller_percentage = %s,
-            buy_quantity = %s,pay_quantity = %s,allow_combination = %s,fixed_amount = %s,fixed_percentage = %s,top_deal_price = %s,
-            discount_percentage = %s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
-            min_discounted_price,max_discounted_price,suggested_discounted_price,start_date,end_date,sub_type,offer_id,meli_percentage,seller_percentage,
-            buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,id_promotion_item,item_id,user_id))
-
-        else:
-            cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
-                                min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
-                                seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                discount_percentage, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
-                                min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
-                                seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                discount_percentage, user_id,))
+                print("Oferta não existe, inserindo dados.")
+                cur.execute('''INSERT INTO volume_type_promotion (id_promotion,type_promotion,buy_quantity, pay_quantity, sub_type, allow_combination, usuario_id_volume_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                (id_promotion, type_promotion, buy_quantity, pay_quantity, sub_type, allow_combination, user_id ,))
+        url=f'https://api.mercadolibre.com/seller-promotions/promotions/{id_promotion}/items?promotion_type={type_promotion}&item_id={item_id}&app_version=v2'
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200 and response.status_code != 206:
+            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
+            return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
+        item_promotion_data = response.json()
+        results = item_promotion_data.get('results', [])
+        if not results:
+            print("Nenhum item encontrado na promoção.")
+            return jsonify({"error": "Nenhum item encontrado na promoção"}), 404
+        cur.execute("SELECT * FROM ponte_item_promotions WHERE promotion_id = %s AND item_id = %s AND usuario_id_ponte_item_promotions=%s", (id_promotion, item_id, user_id,))
+        existing_item_promotion = cur.fetchone()
+        for result in results:
+            id_promotion_item = id_promotion
+            item_id = result.get('id', None)
+            status = result.get('status', None)
+            price = result.get('price', None)
+            original_price = result.get('original_price', None)
+            min_discounted_price= result.get('min_discounted_price', None)
+            max_discounted_price= result.get('max_discounted_price', None)
+            suggested_discounted_price= result.get('suggested_discounted_price', None)
+            start_date= result.get('start_date', None)
+            end_date = result.get('end_date', None)
+            sub_type = result.get('sub_type', None)
+            offer_id = result.get('offer_id', None)
+            meli_percentage = result.get('meli_percentage', None)
+            seller_percentage = result.get('seller_percentage', None)
+            buy_quantity = result.get('buy_quantity', None)
+            pay_quantity = result.get('pay_quantity', None)
+            allow_combination = result.get('allow_combination', None)
+            fixed_amount = result.get('fixed_amount', None)
+            fixed_percentage = result.get('fixed_percentage', None)
+            top_deal_price = result.get('top_deal_price', None)
+            discount_percentage = result.get('descount_percentage', None)
+            if existing_item_promotion:
+                cur.execute("""UPDATE ponte_item_promotions SET status = %s,price = %s,original_price = %s,min_discounted_price = %s,max_discounted_price = %s,
+                suggested_discounted_price = %s,start_date = %s,end_date = %s,sub_type = %s,offer_id = %s,meli_percentage = %s,seller_percentage = %s,
+                buy_quantity = %s,pay_quantity = %s,allow_combination = %s,fixed_amount = %s,fixed_percentage = %s,top_deal_price = %s,
+                discount_percentage = %s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
+                min_discounted_price,max_discounted_price,suggested_discounted_price,start_date,end_date,sub_type,offer_id,meli_percentage,seller_percentage,
+                buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,id_promotion_item,item_id,user_id))
+    
+            else:
+                cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
+                                    min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
+                                    seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
+                                    discount_percentage, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
+                                    min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
+                                    seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
+                                    discount_percentage, user_id,))
+    except Exception as e:
+        print("Erro nas notificacao das promocoes: ", str(e))
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 
 def claims_notifications(data, acess_token_data):
-    print("🔔 Notificação de reclamações recebida:", data)
-    conn= get_db_connection()
-    cur = conn.cursor()
-    resource = data.get('resource', '')
-    url_claims = f"https://api.mercadolibre.com{resource}"
-    headers= {"Authorization": f"Bearer {acess_token_data['acess_token']}"} 
-    response = requests.get(url_claims, headers=headers)
-    if response.status_code != 200 and response.status_code != 206:
-        print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
-        return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
-    if response.status_code != 200 and response.status_code != 206:
-        print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
-        return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
-    claim_data = response.json() 
-    print('claim_data:', claim_data)
-    claim_id = claim_data.get('id')
-    resource_id= claim_data.get('resource')
-    status= claim_data.get('status')
-    tipo= claim_data.get('type')
-    stage= claim_data.get('stage')
-    parent_id= claim_data.get('parent_id')
-
-    if resource_id=='order':
-        resource_id = 'pack_id'
-        order_id=claim_data.get("resource_id")
-        cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
-        pack_id_dict = cur.fetchone()
-        pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-    elif resource_id=='shipment':
-        print('shipment')
-        resource_id = 'pack_id'
-        url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim_data.get('resource_id', 0)}/items"
-        response_order_shipment = requests.get(url_order_shipment, headers=headers)
-        if response_order_shipment.status_code in [200,206]:
-            order_data = response_order_shipment.json()
-            order_id = order_data[0].get("order_id")
-            print("Order ID:", order_id)
+    try:
+        print("🔔 Notificação de reclamações recebida:", data)
+        conn= get_db_connection()
+        cur = conn.cursor()
+        resource = data.get('resource', '')
+        url_claims = f"https://api.mercadolibre.com{resource}"
+        headers= {"Authorization": f"Bearer {acess_token_data['acess_token']}"} 
+        response = requests.get(url_claims, headers=headers)
+        if response.status_code != 200 and response.status_code != 206:
+            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
+            return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
+        if response.status_code != 200 and response.status_code != 206:
+            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
+            return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
+        claim_data = response.json() 
+        print('claim_data:', claim_data)
+        claim_id = claim_data.get('id')
+        resource_id= claim_data.get('resource')
+        status= claim_data.get('status')
+        tipo= claim_data.get('type')
+        stage= claim_data.get('stage')
+        parent_id= claim_data.get('parent_id')
+    
+        if resource_id=='order':
+            resource_id = 'pack_id'
+            order_id=claim_data.get("resource_id")
             cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
             pack_id_dict = cur.fetchone()
             pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-            print(f"Pack ID encontrado: {pack_id}")
-    else:
-        pack_id= None
-
-    reason_id = claim_data.get('reason', None)
-    fulfilled= claim_data.get('fulfilled', False)
-    quantity_type= claim_data.get('quantity_type', None)
-    site_id= claim_data.get('site_id', None)
-    date_created= claim_data.get('date_created', None)
-    last_updated= claim_data.get('last_updated', None)
-    comprador_id = None
-    vendedor_id = None
-    acoes_disponiveis = []
-
-    players = claim_data.get("players", [])
-    for player in players:
-        if player["role"] == "complainant" and player["type"] == "buyer":
-            comprador_id = player["user_id"]
-        if player["role"] == "respondent" and player["type"] == "seller":
-            vendedor_id = player["user_id"]
-            acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
-    resolution = claim_data.get("resolution", {})
-    if resolution:
-        reason_resolution = resolution.get("reason", None)
-        date_resolution = resolution.get("date", None)
-        benefited = resolution.get("benefited",[]) 
-        resolution_closed_by = resolution.get("closed_by", None)
-        applied_coverage = resolution.get("applied_coverage", False)
-        print("Motivo da resolução:", reason_resolution)
-        print("Data da resolução:", date_resolution)
-        print("Beneficiado:", benefited)
-        print("Resolução fechada por:", resolution_closed_by)
-        print("Cobertura aplicada:", applied_coverage)
-    url_reason = f"https://api.mercadolibre.com/post-purchase/v1/claims/reasons/{reason_id}"
-    response_reason = requests.get(url_reason, headers=headers)
-    if response_reason.status_code != 200:
-        print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
-        reason = None
-        nome_reason = None
-        expected_solution = []
-    else:
-        reason_data = response_reason.json()
-        #print(f'reason_data: {reason_data}')
-        nome_reason = reason_data.get("name")
-        #print(f"Nome da razão: {nome_reason}")
-        settings = reason_data.get("settings", {})
-        expected_solution = settings.get('expected_resolutions', [])
-        print("Nome da razão:", nome_reason)
-        print("Soluções esperadas:", expected_solution)
-
-    #print('--------------------------------')
-    url_details = f"https://api.mercadolibre.com/post-purchase/v1/claims/{claim_id}/detail"
-    response_details = requests.get(url_details, headers=headers)
-
-    if response_details.status_code != 200:
-        print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
-        title = None
-        due_date_detail = None
-        description = None
-        action_responsible = None
-        problem= None
-    else:
-        details = response_details.json()
-        #print(f'Details: {details}')
-        title = details.get("title")
-        due_date_detail = details.get("due_date")
-        description = details.get("description")
-        action_responsible = details.get("action_responsible")
-        problem= details.get("problem")
-        print("Problema:", problem)
-        print("description:", description)
-        print("due_date_detail:", due_date_detail)
-        print("Title:", title)
-        print("Action responsible:", action_responsible)
-    print("ID da reclamação:", claim_id)
-    print("resource_id:", resource_id)
-    print("status:", status)
-    print("tipo:", tipo)
-    print("stage:", stage)
-    print("parent_id:", parent_id)
-    print("order_id:", order_id)
-    print("pack_id:", pack_id)
-    print("fulfilled:", fulfilled)
-    print("quantity_type:", quantity_type)
-    print("site_id:", site_id)
-    print("date_created:", date_created)
-    print("last_updated:", last_updated)
-    print("ID do comprador:", comprador_id)
-    print("ID do vendedor:", vendedor_id)
-    print("Ações disponíveis:", acoes_disponiveis)
-    cur.execute("SELECT * FROM reclamacoes WHERE claim_id = %s", (claim_id,))
-    existing_claim = cur.fetchone()
-    if existing_claim:
-        print("Reclamação já existe, atualizando dados.")
+        elif resource_id=='shipment':
+            print('shipment')
+            resource_id = 'pack_id'
+            url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim_data.get('resource_id', 0)}/items"
+            response_order_shipment = requests.get(url_order_shipment, headers=headers)
+            if response_order_shipment.status_code in [200,206]:
+                order_data = response_order_shipment.json()
+                order_id = order_data[0].get("order_id")
+                print("Order ID:", order_id)
+                cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
+                pack_id_dict = cur.fetchone()
+                pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
+                print(f"Pack ID encontrado: {pack_id}")
+        else:
+            pack_id= None
+    
+        reason_id = claim_data.get('reason', None)
+        fulfilled= claim_data.get('fulfilled', False)
+        quantity_type= claim_data.get('quantity_type', None)
+        site_id= claim_data.get('site_id', None)
+        date_created= claim_data.get('date_created', None)
+        last_updated= claim_data.get('last_updated', None)
+        comprador_id = None
+        vendedor_id = None
+        acoes_disponiveis = []
+    
+        players = claim_data.get("players", [])
+        for player in players:
+            if player["role"] == "complainant" and player["type"] == "buyer":
+                comprador_id = player["user_id"]
+            if player["role"] == "respondent" and player["type"] == "seller":
+                vendedor_id = player["user_id"]
+                acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
+        resolution = claim_data.get("resolution", {})
+        if resolution:
+            reason_resolution = resolution.get("reason", None)
+            date_resolution = resolution.get("date", None)
+            benefited = resolution.get("benefited",[]) 
+            resolution_closed_by = resolution.get("closed_by", None)
+            applied_coverage = resolution.get("applied_coverage", False)
+            print("Motivo da resolução:", reason_resolution)
+            print("Data da resolução:", date_resolution)
+            print("Beneficiado:", benefited)
+            print("Resolução fechada por:", resolution_closed_by)
+            print("Cobertura aplicada:", applied_coverage)
+        url_reason = f"https://api.mercadolibre.com/post-purchase/v1/claims/reasons/{reason_id}"
+        response_reason = requests.get(url_reason, headers=headers)
+        if response_reason.status_code != 200:
+            print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
+            reason = None
+            nome_reason = None
+            expected_solution = []
+        else:
+            reason_data = response_reason.json()
+            #print(f'reason_data: {reason_data}')
+            nome_reason = reason_data.get("name")
+            #print(f"Nome da razão: {nome_reason}")
+            settings = reason_data.get("settings", {})
+            expected_solution = settings.get('expected_resolutions', [])
+            print("Nome da razão:", nome_reason)
+            print("Soluções esperadas:", expected_solution)
+    
+        #print('--------------------------------')
+        url_details = f"https://api.mercadolibre.com/post-purchase/v1/claims/{claim_id}/detail"
+        response_details = requests.get(url_details, headers=headers)
+    
+        if response_details.status_code != 200:
+            print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
+            title = None
+            due_date_detail = None
+            description = None
+            action_responsible = None
+            problem= None
+        else:
+            details = response_details.json()
+            #print(f'Details: {details}')
+            title = details.get("title")
+            due_date_detail = details.get("due_date")
+            description = details.get("description")
+            action_responsible = details.get("action_responsible")
+            problem= details.get("problem")
+            print("Problema:", problem)
+            print("description:", description)
+            print("due_date_detail:", due_date_detail)
+            print("Title:", title)
+            print("Action responsible:", action_responsible)
+        print("ID da reclamação:", claim_id)
+        print("resource_id:", resource_id)
+        print("status:", status)
+        print("tipo:", tipo)
+        print("stage:", stage)
+        print("parent_id:", parent_id)
+        print("order_id:", order_id)
+        print("pack_id:", pack_id)
+        print("fulfilled:", fulfilled)
+        print("quantity_type:", quantity_type)
+        print("site_id:", site_id)
+        print("date_created:", date_created)
+        print("last_updated:", last_updated)
+        print("ID do comprador:", comprador_id)
+        print("ID do vendedor:", vendedor_id)
+        print("Ações disponíveis:", acoes_disponiveis)
         cur.execute("SELECT * FROM reclamacoes WHERE claim_id = %s", (claim_id,))
-        data_reclamacao = cur.fetchone()
-        print("Dados da reclamação existente:", data_reclamacao)
-        cur.execute("""UPDATE reclamacoes SET resource_id = %s, status = %s, tipo = %s, stage = %s, parent_id = %s, pack_id = %s, reason_id = %s,
-                    fulfilled = %s, quantity_type = %s, site_id = %s, date_created = %s, last_updated = %s,
-                    comprador_id = %s, vendedor_id = %s, acoes_disponiveis=%s,name_reason=%s,expected_solutions=%s,problem=%s,
-                    description=%s,due_date=%s,title=%s,action_responsible=%s WHERE claim_id = %s AND usuario_id_reclamacoes=%s""",
-                    (resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
-                     fulfilled, quantity_type, site_id, date_created, last_updated,
-                     comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,
-                     problem, description,due_date_detail,title,action_responsible,
-                     claim_id, acess_token_data['usuario_id']))
-    else:
-        print("Reclamação não existe, inserindo dados.")
-        cur.execute('''
-                    INSERT INTO reclamacoes (
-                        claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
+        existing_claim = cur.fetchone()
+        if existing_claim:
+            print("Reclamação já existe, atualizando dados.")
+            cur.execute("SELECT * FROM reclamacoes WHERE claim_id = %s", (claim_id,))
+            data_reclamacao = cur.fetchone()
+            print("Dados da reclamação existente:", data_reclamacao)
+            cur.execute("""UPDATE reclamacoes SET resource_id = %s, status = %s, tipo = %s, stage = %s, parent_id = %s, pack_id = %s, reason_id = %s,
+                        fulfilled = %s, quantity_type = %s, site_id = %s, date_created = %s, last_updated = %s,
+                        comprador_id = %s, vendedor_id = %s, acoes_disponiveis=%s,name_reason=%s,expected_solutions=%s,problem=%s,
+                        description=%s,due_date=%s,title=%s,action_responsible=%s WHERE claim_id = %s AND usuario_id_reclamacoes=%s""",
+                        (resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
+                         fulfilled, quantity_type, site_id, date_created, last_updated,
+                         comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,
+                         problem, description,due_date_detail,title,action_responsible,
+                         claim_id, acess_token_data['usuario_id']))
+        else:
+            print("Reclamação não existe, inserindo dados.")
+            cur.execute('''
+                        INSERT INTO reclamacoes (
+                            claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
+                        fulfilled, quantity_type, site_id, date_created, last_updated,
+                            comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes
+                        )
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (claim_id) DO NOTHING
+                    ''', (
+                    claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
                     fulfilled, quantity_type, site_id, date_created, last_updated,
-                        comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes
-                    )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (claim_id) DO NOTHING
-                ''', (
-                claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
-                fulfilled, quantity_type, site_id, date_created, last_updated,
-                comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,acess_token_data['usuario_id'],
-                ))
-    conn.commit()
-    conn.close()
-    cur.close()
+                    comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,acess_token_data['usuario_id'],
+                    ))
+        conn.commit()
+        conn.close()
+        cur.close()
+    except Exception as e:
+        print("Erro nas notificacao das reclamacoes(claims): ", str(e))
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 def orders_notifications(resource,acess_token, data_ant):
     print("🔔 Notificação de pedidos recebida:", resource)
@@ -834,132 +857,149 @@ def orders_notifications(resource,acess_token, data_ant):
 
 
 def pos_venda_notifications(data,acess_token_data, data_ant):
-    print("🔔 Notificação de pós-venda recebida:", data)
-    resource_id = data.get('resource')
-    access_token = acess_token_data['acess_token']  # ou busque do banco
-    url = f"https://api.mercadolibre.com/messages/{resource_id}?tag=post_sale"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200 and response.status_code != 206:
-        print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
-        return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
-    m = response.json()
-    id_ml=472633863
-    conn= get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT usuario_id FROM contas_mercado_livre WHERE id_ml=%s",(id_ml,))
-    user_id = cur.fetchone()
-    print('order_data:', m)
-    cur.execute("UPDATE notification SET dados_retornados_api = %s WHERE notificacao = %s", (json.dumps(m),data_ant,))
-    if isinstance(m.get('messages'), list):
-        for i in m.get('messages'):
-            message_resources = i.get('message_resources', [])
-            for resource in message_resources:
-                if resource.get('name') == 'packs':
-                    print("entrou no packs: ", resource)
-                    pack_id= resource.get('id')
-                    break
-            print("pack_id:", pack_id)
-            autor_comp = i.get('from').get('user_id')
-            if autor_comp!=id_ml:
-                autor = 'cliente'
-                client_id = autor_comp
+    try:
+        print("🔔 Notificação de pós-venda recebida:", data)
+        resource_id = data.get('resource')
+        access_token = acess_token_data['acess_token']  # ou busque do banco
+        url = f"https://api.mercadolibre.com/messages/{resource_id}?tag=post_sale"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200 and response.status_code != 206:
+            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
+            return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
+        m = response.json()
+        id_ml=472633863
+        conn= get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT usuario_id FROM contas_mercado_livre WHERE id_ml=%s",(id_ml,))
+        user_id = cur.fetchone()
+        print('order_data:', m)
+        cur.execute("UPDATE notification SET dados_retornados_api = %s WHERE notificacao = %s", (json.dumps(m),data_ant,))
+        if isinstance(m.get('messages'), list):
+            for i in m.get('messages'):
+                message_resources = i.get('message_resources', [])
+                for resource in message_resources:
+                    if resource.get('name') == 'packs':
+                        print("entrou no packs: ", resource)
+                        pack_id= resource.get('id')
+                        break
+                print("pack_id:", pack_id)
+                autor_comp = i.get('from').get('user_id')
+                if autor_comp!=id_ml:
+                    autor = 'cliente'
+                    client_id = autor_comp
+                else:
+                    autor = 'vendedor'
+                    client_id = i.get('to').get('user_id')
+                cliente_nome = 'eu'
+                mensagem = i.get('text')
+                message_date = i.get('message_date', {})
+                data_envio = message_date.get('created')
+                tipo = 'post_sale'
+                read= message_date.get('read')
+                if read :
+                    read = True
+                message_moderation = i.get('message_moderation', {})
+                status = message_moderation.get('status')
+                is_first_message = i.get('conversation_first_message', False)
+                cur.execute("SELECT message,item_id,date_created FROM messages WHERE usuario_id_messages=%s AND client_name=%s AND pack_id=%s",(user_id['usuario_id'],cliente_nome,pack_id,))
+                mensagem_existente = set()
+                data_envio_existente = set()
+                for row in cur.fetchall():
+                    mensagem_existente.add(row['message'])
+                    data_envio_existente.add(row['date_created'])
+                if m.get('message_date') and data_envio_existente and mensagem_existente:
+                    print("autor",autor)
+                    mensagem=m.get('text')
+                    if m.get('attachments'):
+                        urls=[]
+                        for atch in m.get('attachments'):
+                            urls.append(atch.get('url'))
+                    message_date=m.get('message_date')
+                    data_envi=message_date['created']
+    
+                    if data_envi in data_envio_existente and mensagem in mensagem_existente:
+                        print("Mensagem já existe no banco de dados, não inserindo novamente.")
+                        conn.close()
+                        cur.close()
+                        return
+            cur.execute('SELECT message,author FROM messages WHERE pack_id = %s',(pack_id,))
+            mensagens_contexto = cur.fetchall() 
+            if not mensagens_contexto :
+              mensagens_contexto_com_usuario = 'nao existe'    
             else:
-                autor = 'vendedor'
-                client_id = i.get('to').get('user_id')
-            cliente_nome = 'eu'
-            mensagem = i.get('text')
-            message_date = i.get('message_date', {})
-            data_envio = message_date.get('created')
-            tipo = 'post_sale'
-            read= message_date.get('read')
-            if read :
-                read = True
-            message_moderation = i.get('message_moderation', {})
-            status = message_moderation.get('status')
-            is_first_message = i.get('conversation_first_message', False)
-            cur.execute("SELECT message,item_id,date_created FROM messages WHERE usuario_id_messages=%s AND client_name=%s AND pack_id=%s",(user_id['usuario_id'],cliente_nome,pack_id,))
-            mensagem_existente = set()
-            data_envio_existente = set()
-            for row in cur.fetchall():
-                mensagem_existente.add(row['message'])
-                data_envio_existente.add(row['date_created'])
-            if m.get('message_date') and data_envio_existente and mensagem_existente:
-                print("autor",autor)
-                mensagem=m.get('text')
-                if m.get('attachments'):
-                    urls=[]
-                    for atch in m.get('attachments'):
-                        urls.append(atch.get('url'))
-                message_date=m.get('message_date')
-                data_envi=message_date['created']
-
-                if data_envi in data_envio_existente and mensagem in mensagem_existente:
-                    print("Mensagem já existe no banco de dados, não inserindo novamente.")
-                    conn.close()
-                    cur.close()
-                    return
-        cur.execute('SELECT message,author FROM messages WHERE pack_id = %s',(pack_id,))
-        mensagens_contexto = cur.fetchall() 
-        if not mensagens_contexto :
-          mensagens_contexto_com_usuario = 'nao existe'    
-        else:
-            mensagens_contexto_com_usuario=''
-            for mensagem in mensagens_contexto:
-              mensagens_contexto_com_usuario += f"{mensagem['author']}: mensagem:{mensagem['message']}\n"
+                mensagens_contexto_com_usuario=''
+                for mensagem in mensagens_contexto:
+                  mensagens_contexto_com_usuario += f"{mensagem['author']}: mensagem:{mensagem['message']}\n"
+                print("data de envio:", data_envio)
+                read_existe = message_date.get('read', False)
+                read = True if read_existe else False
+            cur.execute('INSERT INTO messages (usuario_id_messages,client_name,message,date_created,author,type,read,pack_id,is_first_message, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(user_id['usuario_id'],cliente_nome,mensagem,data_envio,autor,tipo,read,pack_id,is_first_message, status))
+            print("mensagem:", mensagem)
             print("data de envio:", data_envio)
-            read_existe = message_date.get('read', False)
-            read = True if read_existe else False
-        cur.execute('INSERT INTO messages (usuario_id_messages,client_name,message,date_created,author,type,read,pack_id,is_first_message, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(user_id['usuario_id'],cliente_nome,mensagem,data_envio,autor,tipo,read,pack_id,is_first_message, status))
-        print("mensagem:", mensagem)
-        print("data de envio:", data_envio)
-        print("autor:", autor)
-        print("cliente_nome:", cliente_nome)
-        print("tipo:", tipo)
-        print("is_first_message:", is_first_message)
-        print("pack_id:", pack_id)
-        print("read:", read)
-
-        conn.commit()
-        conn.close()
-        cur.close()
-    print("📩 Mensagem recebida:", mensagem)
+            print("autor:", autor)
+            print("cliente_nome:", cliente_nome)
+            print("tipo:", tipo)
+            print("is_first_message:", is_first_message)
+            print("pack_id:", pack_id)
+            print("read:", read)
+    
+            conn.commit()
+            conn.close()
+            cur.close()
+        print("📩 Mensagem recebida:", mensagem)
+    except Exception as e:
+        print("Erro nas notificacao das mensagens pos-venda: ", str(e))
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()    
 
     # Por exemplo, salvar no banco de dados ou emitir um socket para o front-end
 def pre_venda_notifications(data, acess_token_data):
-    print("🔔 Notificação de pré-venda recebida:", data)
-    resource_id = data.get('resource')
-    access_token = acess_token_data['acess_token']  # ou busque do banco
-    url=f"https://api.mercadolibre.com{resource_id}"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200 and response.status_code != 206:
-        print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
-        return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
-    m = response.json()
-    print("Pergunta recebida:", m)
-    conn= get_db_connection()
-    cur = conn.cursor()
-    buyer_id = m.get('from',{}).get('id',None)
-
-    client_name = buscar_nome(buyer_id, access_token) if buyer_id else {'nickname': None}
-    print("Nome do cliente:", client_name['nickname'])
-    item_id = m.get('item_id')
-    status = m.get('status')
-    text = m.get('text')
-    date_created = m.get('date_created')
-    print("buyer_id:", buyer_id)
-    print("item_id:", item_id)
-    print("status:", status)
-    print("text:", text)
-    print("date_created:", date_created)
-    cur.execute("INSERT INTO messages (usuario_id_messages, client_name, message, date_created, author, type, status, item_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (acess_token_data['usuario_id'], client_name['nickname'],text, date_created, 'cliente' , 'pre_sale', status, item_id,))
-    conn.commit()
-    conn.close()
-    cur.close()
-    print("Pergunta processada com sucesso:")
-
+    try:
+        print("🔔 Notificação de pré-venda recebida:", data)
+        resource_id = data.get('resource')
+        access_token = acess_token_data['acess_token']  # ou busque do banco
+        url=f"https://api.mercadolibre.com{resource_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200 and response.status_code != 206:
+            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
+            return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
+        m = response.json()
+        print("Pergunta recebida:", m)
+        conn= get_db_connection()
+        cur = conn.cursor()
+        buyer_id = m.get('from',{}).get('id',None)
+    
+        client_name = buscar_nome(buyer_id, access_token) if buyer_id else {'nickname': None}
+        print("Nome do cliente:", client_name['nickname'])
+        item_id = m.get('item_id')
+        status = m.get('status')
+        text = m.get('text')
+        date_created = m.get('date_created')
+        print("buyer_id:", buyer_id)
+        print("item_id:", item_id)
+        print("status:", status)
+        print("text:", text)
+        print("date_created:", date_created)
+        cur.execute("INSERT INTO messages (usuario_id_messages, client_name, message, date_created, author, type, status, item_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (acess_token_data['usuario_id'], client_name['nickname'],text, date_created, 'cliente' , 'pre_sale', status, item_id,))
+        conn.commit()
+        conn.close()
+        cur.close()
+        print("Pergunta processada com sucesso:")
+    except Exception as e:
+        print("Erro nas notificacao das mensagens pre-venda: ", str(e))
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 def itens_notifications(data,acess_token_data):
     try:
@@ -1009,7 +1049,6 @@ def itens_notifications(data,acess_token_data):
         print("disponivel:", disponivel)
         print("tipo_ad:", tipo_ad)
         print("categoria:", categoria)
-
         cur.execute("SELECT * FROM itens WHERE item_id = %s", (item_id,))
         item_realdict = cur.fetchall()
         if item_realdict:
@@ -1033,7 +1072,13 @@ def itens_notifications(data,acess_token_data):
         conn.close()
         return {"ok": True, "message": "Item processado com sucesso"}
     except Exception as e:
-        print("Deu tudo errrado:", str(e))
+        print("Erro nas notificacao dos itens: ", str(e))
+    finally:
+        # Certifique-se de fechar o cursor e a conexão
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 
 
@@ -4050,6 +4095,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
