@@ -3676,7 +3676,7 @@ Responda com base apenas na descrição das tables.
 
 def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int, conversa_id: str):
 
-    model = ChatOpenAI(model='gpt-4o-mini')
+    model = ChatOpenAI(model='gpt-5-nano')
 
     descricao_table = {
     "campanhas": """Tabela: 'campanhas'
@@ -4153,6 +4153,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
