@@ -1327,6 +1327,8 @@ def handle_connect():
         return False
     try:
         user_id = int(decode_token(token)['sub'])
+        room=f'user:{user_id}'
+        join_room(room)
         print('conectado')
     except Exception:
         return False  # rejeita a conexão se não autenticar 
@@ -1609,8 +1611,7 @@ def verificar_status():
                     print('usuario com status')
                     status = status_dict['status']
                     room=f'user:{user_id}'
-                    join_room(room)
-                    socketio.emit('Aguarde mais alguns minutos,\n esse processo pode demorar um pouco...')
+                    socketio.emit('Aguarde mais alguns minutos,\n esse processo pode demorar um pouco...',room=room)
                     return {'status':status,'token':token}
                 else:
                     print('usuario sem status, Inserindo status')
@@ -1637,7 +1638,6 @@ def pegar_dados_gerais():
         except jwt.InvalidTokenError:
             return False
         room=f'user:{user_id}'
-        join_room(room)
         print('token depois:', token)
         emit('guardar_token', {'token':token}, room=room)
         socketio.sleep(3)   
@@ -4153,6 +4153,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
