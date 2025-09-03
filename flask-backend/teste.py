@@ -3469,7 +3469,7 @@ def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limi
                 SELECT author, mensagem AS conteudo
                 FROM history_messages
                 WHERE id_conversa = %s AND usuario_id_history = %s
-                ORDER BY data_envio ASC
+                ORDER BY data_envio DESC
                 LIMIT %s
             """, (conversa_id, usuario_id, limit))
             rows = cur.fetchall()
@@ -3644,7 +3644,8 @@ Responda com base apenas na descrição das tables.
     ("system", 
      "Você é um assistente de um vendedor do Mercado Livre. "
      "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
-     "Use Markdown quando ajudar (listas, tabelas)."),
+     "Use Markdown quando ajudar (listas, tabelas)."
+     "Sempre informe a data que foi pega os dados."),
     MessagesPlaceholder("history"),
     ("human", 
      "Pergunta atual:\n{mensagem}\n\n"
@@ -4152,6 +4153,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
