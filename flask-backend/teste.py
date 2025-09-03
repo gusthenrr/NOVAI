@@ -1611,7 +1611,7 @@ def verificar_status():
                     print('usuario com status')
                     status = status_dict['status']
                     room=f'user:{user_id}'
-                    socketio.emit('Aguarde mais alguns minutos,\n esse processo pode demorar um pouco...',room=room)
+                    socketio.emit('status_loading',{'message':'Aguarde mais alguns minutos,\n esse processo pode demorar um pouco...'},room=room)
                     return {'status':status,'token':token}
                 else:
                     print('usuario sem status, Inserindo status')
@@ -4154,6 +4154,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
