@@ -3348,6 +3348,7 @@ Agora analise a seguinte mensagem e retorne as perguntas ajustadas no formato de
     prompt= ChatPromptTemplate.from_template('Você é um assistente de um vendedor do mercado livre, responda a mensagem:{mensagem} dele com base nos dados fornecidos: {mensagem_final} e deixe sua resposta bem robusta dando a resposta para a pergunta, mas se possivel complementaar a respostas caso tenha dados extras para deixaar a resposta mais colorida com mais dados.')
     chain= prompt | model | StrOutputParser()
     print('informação final:', informacao_final)
+    informacao_final += f'\ndata de hoje: {datetime.now()}'
     resposta_final=chain.invoke({'mensagem_final':informacao_final, 'mensagem':mensagem})
     print("resposta final: ", resposta_final)
     return jsonify({'resposta_final':resposta_final})
@@ -4153,6 +4154,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
