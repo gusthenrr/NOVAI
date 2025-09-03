@@ -801,7 +801,7 @@ def orders_notifications(resource,acess_token, data_ant):
         category_id = items.get('category_id', None)
         unit_price = items.get('unit_price', None)
         sale_fee = items.get('sale_fee', None)
-        quantity = items.get('quantity', None)
+        quantity = order_data_orders.get('quantity', None)
 
         buyer_id = order_data.get('buyer', {}).get('id', None)
         tags = order_data.get('tags', [])
@@ -4153,6 +4153,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
