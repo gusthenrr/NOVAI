@@ -3520,7 +3520,7 @@ def chat_novai_manager_requisicao():
     descricao_db = '''
 Descrição do banco de dados PostgreSQL:
 
-Table "campanhas": armazena informações sobre campanhas publicitárias do vendedor, Utilização: acessar detalhes simples sobre estrutura da campanha - Relacionamentos : itens(N:1), campanhas_metricas_diarias(1:N), anuncios(1:N).
+Table "campanhas": armazena informações sobre campanhas publicitárias, Utilização: acessar detalhes simples sobre estrutura da campanha - Relacionamentos : itens(N:1), campanhas_metricas_diarias(1:N), anuncios(1:N).
 
 Table "campanhas_metricas_diarias": armazena métricas diárias de campanhas publicitárias, Utilização: acessar metricas da campanhas como cliques, prints, custo, - impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark- Relacionamentos : campanhas(N:1).
 
@@ -3530,9 +3530,9 @@ Table "anuncios_metricas_diarias": armazena métricas diárias de anúncios, é 
 
 Table "pedidos_resumo": todos os pedidos de clientes, Utilização: acessar pedidos de clientes, vendas, status, detalhes do pedido, itens_vendidos, categoria do item, etc. - Relacionamentos : itens(N:1), packs(N:1), reclamacoes(1:1) 
 
-Table "itens": armazena informações e mais detalhes sobre itens disponíveis pelo vendedor, Utilização: detalhes do item - Relacionamentos : pedidos_resumo(1:N), anuncios(1:N), anuncios_metricas_diarias(1:N), mensagens_clientes(1:N).
+Table "itens": armazena informações e mais detalhes sobre itens disponíveis , Utilização: detalhes do item - Relacionamentos : pedidos_resumo(1:N), anuncios(1:N), anuncios_metricas_diarias(1:N), mensagens_clientes(1:N).
 
-Table "reputacao_vendedor": armazena informações sobre a reputação, numeros de transacoes, e avaliações do vendedor, Utilização: acessar reputação do vendedor, transações totais,canceladas,completas, experiencia do vendedor,informações de creditos, nivel de conta, etc.
+Table "reputacao_vendedor": armazena informações sobre a reputação, numeros de transacoes, e avaliações , Utilização: acessar reputação, transações totais,canceladas,completas, experiencia do vendedor,informações de creditos, nivel de conta, etc.
 
 Table "dados_vendedor": armazena informações gerais e sensiveis do vendedor, Utilização: acessar dados como nome, email, telefone, endereço etc. 
 
@@ -3544,7 +3544,7 @@ Table "messages": armazena mensagens trocadas entre o vendedor e o cliente, Util
 
 Table "ponte_item_promotions": armazena informações sobre itens que estão em promoções, servindo como uma ponte entre a tabela de promoções e itens, Utilização: ligar promoções com itens específicos, acessar detalhes sobre promoções de itens, status e preços promocionais, etc. - Relacionamentos: promotion(N:1), itens(N:1).
 
-Table "promotion": armazena informações sobre promoções ativas ou pendentes ou candidatas do vendedor, Utilização: acessar promoções do vendedor, detalhes sobre promoções, status, tipo de promoção, benefícios, etc.
+Table "promotion": armazena informações sobre promoções ativas ou pendentes ou candidatas, Utilização: acessar promoções, detalhes sobre promoções, status, tipo de promoção, benefícios, etc.
 
 Table "marketplace_campaign_type_promotion": armazena informações especificas sobre promoções do tipo "Marketplace Campaign", Utilização: acessar promoções do tipo "Marketplace Campaign" - Relacionamentos: promotion(N:1).
 
@@ -3567,15 +3567,15 @@ Seja extremamente direto.
             "pensamento": "analisando a descrição das tables, é possivel agregar essa informação atraves da table pedidos_resumo que contem informações dos pedidos e/ ou atraves da table anuncios_metricas_diarias que contem informações sobre os anuncios e suas metricas e vendas diarias"
         },
         {
-            "pergunta": "qual minha senha do mercado livre",
+            "pergunta": "qual a senha do mercado livre",
             "pensamento": "analisando a descrição das tables,não é possível agregar essa informação atraves de nenhuma table"
         },
         {
-            "pergunta": "Qual meu prazo para responder uma mensagem no pós-venda?",
+            "pergunta": "Qual prazo para responder uma mensagem no pós-venda?",
             "pensamento": "analisando a descricao das tables, é possivel agregar a resposta através da table 'messages', que contem as mensagens e detalhes sobre as conversas com os clientes"
         },
         {
-            "pergunta":"me mande qual item que mais vendi e a descricao dele",
+            "pergunta":"me mande qual item que mais vendeu e a descricao dele",
             "pensamento":"analisando a descricao das tables e suas Relações, é possível agregar a resposta atraves de duas tables: 'pedidos_resumo' e 'itens'."
         }
     ]
@@ -4086,6 +4086,7 @@ para que uma segunda IA faça os cálculos.
 - Se precisar enriquecer, inclua até 2–4 queries agregadas e leves (com LIMIT quando fizer sentido).
 - Queries de enriquecimento: limite até 1000 linhas (LIMIT 1000).
 - Sempre que possível, agregue (SUM/COUNT/AVG/…).
+- Id's sao apenas para relacionar as tables, sempre pegue os nomes para identificação de algo.
 
 ⚠️ Contexto:
 - Data de hoje = {data_atual}
@@ -4151,6 +4152,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
