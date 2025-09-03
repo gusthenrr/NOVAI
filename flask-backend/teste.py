@@ -3516,7 +3516,7 @@ def chat_novai_manager_requisicao():
         return
     with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(mensagem, id_conversa, user_id, date, 'user'))    
-    model = ChatOpenAI(model='gpt-4.1-mini')
+    model = ChatOpenAI(model='gpt-4o-mini')
     descricao_db = '''
 Descrição do banco de dados PostgreSQL:
 
@@ -3652,7 +3652,7 @@ Responda com base apenas na descrição das tables.
      "Dados retornados do banco (se houver):\n{mensagem_final}\n\n"
      "Gere a melhor resposta possível para o vendedor.")
 ])
-        
+        model = ChatOpenAI(model='gpt-4.1')
         sintese_chain = sintese_prompt | model | StrOutputParser()
         
         # Reaproveita o mesmo histórico carregado acima (ou recarregue, se preferir)
@@ -3676,7 +3676,7 @@ Responda com base apenas na descrição das tables.
 
 def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int, conversa_id: str):
 
-    model = ChatOpenAI(model='gpt-4.1-mini')
+    model = ChatOpenAI(model='gpt-4.1')
 
     descricao_table = {
     "campanhas": """Tabela: 'campanhas'
@@ -4153,6 +4153,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
