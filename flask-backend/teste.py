@@ -824,7 +824,7 @@ def orders_notifications(resource,acess_token, data_ant):
             print("Dados do pedido existente:", data_pedidos_resumo)
             cur.execute("""UPDATE pedidos_resumo SET date_created = %s, date_closed = %s, date_approved = %s, last_updated = %s, 
                         total_amount = %s, paid_amount = %s, status = %s, shipping_cost = %s, payment_method = %s, payment_type = %s, installments = %s,
-                    installment_amount = %s, item_id = %s, item_title = %s, item_warranty = %s, listing_type_id = %s, category_name = %s, unit_price = %s, sale_fee = %s, quantity = %s, buyer_id = %s,
+                    installment_amount = %s, item_id = %s, nome_item = %s, item_warranty = %s, listing_type_id = %s, category_name = %s, unit_price = %s, sale_fee = %s, quantity = %s, buyer_id = %s,
                     tags = %s, fulfilled = %s, pack_id = %s WHERE id_order = %s AND usuario_id_pedidos_resumo=%s""", (date_created, date_closed, date_approved, last_updated, total_amount, paid_amount, 
                     status, shipping_cost, payment_method, payment_type, installments, installment_amount, item_id, item_title, item_warranty, listing_type_id, category_name, unit_price, sale_fee,
                     quantity, buyer_id, tags, fulfilled, pack_id, id, acess_token['usuario_id'],))
@@ -834,7 +834,7 @@ def orders_notifications(resource,acess_token, data_ant):
             cur.execute("INSERT INTO packs (pack_id, usuario_id_packs) VALUES (%s, %s) ON CONFLICT (pack_id) DO NOTHING", (pack_id, acess_token['usuario_id'],))
             conn.commit()
             cur.execute("""INSERT INTO pedidos_resumo (id_order, date_created, date_closed, date_approved, last_updated, total_amount, paid_amount, status, shipping_cost,
-                        payment_method, payment_type, installments, installment_amount, item_id, item_title, item_warranty, listing_type_id, category_id, unit_price, sale_fee, 
+                        payment_method, payment_type, installments, installment_amount, item_id, nome_item, item_warranty, listing_type_id, category_id, unit_price, sale_fee, 
                         quantity, buyer_id, tags, fulfilled, pack_id, category_name, usuario_id_pedidos_resumo) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                         (id, date_created, date_closed, date_approved, last_updated, total_amount, paid_amount, status, shipping_cost, payment_method, payment_type, installments,
                         installment_amount, item_id, item_title, item_warranty, listing_type_id, category_id, unit_price, sale_fee, quantity, buyer_id, tags, fulfilled, pack_id, category_name, acess_token['usuario_id'],))
@@ -2186,7 +2186,7 @@ def faturamento_por_pedidos(user_id, room):
                 #print(f"total_amount = {total_amount}, paid_amount = {paid_amount}")
                 try:
                     cur.execute('''INSERT INTO pedidos_resumo (id_order, date_created, date_closed, date_approved, last_updated, status, total_amount, paid_amount, shipping_cost, payment_method,
-                                 payment_type, installments, installment_amount, item_id, item_title, item_warranty, listing_type_id, category_name, unit_price, sale_fee, quantity, buyer_id, tags, 
+                                 payment_type, installments, installment_amount, item_id, nome_item, item_warranty, listing_type_id, category_name, unit_price, sale_fee, quantity, buyer_id, tags, 
                                 fulfilled, pack_id, usuario_id_pedidos_resumo) VALUES
                     (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id_order) DO NOTHING''',(id_order, date_created_order, date_closed, date_approved, date_last_updated_order, status,
                                  total_amount, paid_amount, shipping_cost, payment_method_id, payment_type, installment, installment_amount,
@@ -3806,7 +3806,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     - 'installments': INTEGER
     - 'installment_amount': NUMERIC(10,2)
     - 'item_id': TEXT, FOREIGN KEY → itens(item_id)
-    - 'item_title': TEXT
+    - 'nome_item': TEXT
     - 'item_condition': TEXT (new, used)
     - 'item_warranty': TEXT (valores possíveis: no_warranty, warranty, extended_warranty)
     - 'listing_type_id': TEXT (valores possíveis: gold_pro, gold_special, free)
@@ -4153,6 +4153,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
