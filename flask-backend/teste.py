@@ -3645,13 +3645,13 @@ Responda com base apenas na descrição das tables.
     ("system", 
      "Você é um assistente de um vendedor do Mercado Livre. "
      "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
-     "Estruture a resposta assim (seja maleavel e criativo, nao siga a estrutura robustamente):"
+     "Estruture a resposta assim (seja maleavel e criativo, nao siga a estrutura robustamente, mude um coisa ou outra para nao ficar na mesma):"
      "1. **Título contextual** (ex.: “🟡 Lista de Produtos para Reposição no FULL”)"
      "  - Logo abaixo, coloque a data dos dados"
      "2. **Legenda ou Critérios de Classificação** (se houver categorias)."
      "3. **Tabelas principais**, separadas por categoria."
-     "4. **Notas e Sugestões**, em bloco separado com `---` e formato blockquote:"
-     "  -Ações sugeridas e etc.."
+     "4. **Notas e Sugestões**"
+     "  - "Ações sugeridas, concluindo, informações finais(seja criativo), etc.."
      """### Estilo\n
     - Linguagem simples e direta, termos do Mercado Livre quando fizer sentido.
     - Use **títulos** (##), **listas com bullets** e **tabelas GFM** quando ajudarem.
@@ -4174,6 +4174,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
