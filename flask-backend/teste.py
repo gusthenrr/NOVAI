@@ -3647,7 +3647,9 @@ Responda com base apenas na descrição das tables.
      "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
      "Use Markdown quando ajudar (listas, tabelas)."
      "Sempre informe a data que foi pego os dados."
-     "Simplifique alguns nomes grandes sem tirar pontos importantes deles, para caber melhor em tabelas e listas."),
+     "Data atual:{date_atual}.\n"
+     "Simplifique nomes longos(ex: nome de itens longos) que podem ocupar muito espaço em listas e tabelas, para uma visualização melhor da resposta."
+     "Lembrete: Não traduza tudo, alguns termos em ingles sao usados frequentemente entre vendedores do mercado livre."),
     MessagesPlaceholder("history"),
     ("human", 
      "Pergunta atual:\n{mensagem}\n\n"
@@ -3656,15 +3658,15 @@ Responda com base apenas na descrição das tables.
 ])
         model = ChatOpenAI(model='gpt-4.1')
         sintese_chain = sintese_prompt | model | StrOutputParser()
-        
+        date = datetime.now()
         # Reaproveita o mesmo histórico carregado acima (ou recarregue, se preferir)
         resposta_final = sintese_chain.invoke({
             "history": history_msgs,
+            "date_atual":date,
             "mensagem": guardar_mensagem,
             # garanta que mensagem_final seja string; se vier lista/dict, serialize:
             "mensagem_final": json.dumps(return_final, ensure_ascii=False, default=str) if not isinstance(return_final, str) else return_final
         })
-        date = datetime.now()
         print('resposta final:', resposta_final)
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(resposta_final, id_conversa, user_id, date, 'ai'))  
@@ -4155,6 +4157,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
