@@ -748,7 +748,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
             <img
             src="/Novai_sem_fundo_branco.png" // Caminho da imagem na pasta "public"
             alt="Logo Novai"
-            style={{ width: "70%", height: "auto", justifyContent:"center", alignItems:"center"}}
+            style={{ width: "50%", height: "auto", justifyContent:"center", alignItems:"center"}}
           />
           )}
         </div>
@@ -1204,6 +1204,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
