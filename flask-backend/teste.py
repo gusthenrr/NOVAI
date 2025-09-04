@@ -3517,7 +3517,7 @@ def chat_novai_manager_requisicao():
         return
     with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(mensagem, id_conversa, user_id, date, 'user'))    
-    model = ChatOpenAI(model='gpt-4o-mini')
+    model = ChatOpenAI(model='gpt-5-nano')
     descricao_db = '''
 Descrição do banco de dados PostgreSQL:
 
@@ -3649,7 +3649,7 @@ Responda com base apenas na descrição das tables.
      "Sempre informe a data que foi pego os dados."
      "Data atual:{date_atual}.\n"
      "Simplifique nomes longos(ex: nome de itens longos) que podem ocupar muito espaço em listas e tabelas, para uma visualização melhor da resposta."
-     "Lembrete: Não traduza tudo, alguns termos em ingles sao usados frequentemente entre vendedores do mercado livre."),
+     "Lembrete: Entenda e explique em termos comuns do mercado livre se possível."),
     MessagesPlaceholder("history"),
     ("human", 
      "Pergunta atual:\n{mensagem}\n\n"
@@ -4084,7 +4084,6 @@ para que uma segunda IA faça os cálculos.
 - Saída = APENAS as SQLs (sem comentários/markdown/explicações).
 - Use os nomes exatos de colunas/tabelas informados.
 - TODA query deve filtrar por usuário (use o id {user_id}).
-- Se a pergunta não especificar data, restrinja aos últimos 90 dias.
 - Evite divisões por zero.
 - Prefira prefixos/aliases nas colunas para evitar ambiguidade.
 - Seja objetivo; evite retornar muitas linhas.
@@ -4093,8 +4092,9 @@ para que uma segunda IA faça os cálculos.
 - Sempre que possível, agregue (SUM/COUNT/AVG/…).
 - Id's sao apenas para relacionar as tables, sempre pegue os nomes para identificação de algo.
 
-⚠️ Contexto:
+⚠️ Contexto sobre a data:
 - Data de hoje = {data_atual}
+- Se a pergunta não especificar data, restrinja aos últimos 30 dias.
 """
 
     decisao_prompt = ChatPromptTemplate.from_messages([
@@ -4157,6 +4157,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
