@@ -3646,7 +3646,8 @@ Responda com base apenas na descrição das tables.
      "Você é um assistente de um vendedor do Mercado Livre. "
      "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
      "Use Markdown quando ajudar (listas, tabelas)."
-     "Sempre informe a data que foi pega os dados."),
+     "Sempre informe a data que foi pego os dados."
+     "Simplifique alguns nomes grandes sem tirar pontos importantes deles, para caber melhor em tabelas e listas."),
     MessagesPlaceholder("history"),
     ("human", 
      "Pergunta atual:\n{mensagem}\n\n"
@@ -4154,6 +4155,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
