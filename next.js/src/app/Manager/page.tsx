@@ -1109,7 +1109,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   messageList: {
   boxSizing: 'border-box',
-  padding:'0rem 3rem',
+  padding:'0rem 2rem',
   flex: '1 1 auto',
   minWidth: 0,
   display: 'flex',
@@ -1200,6 +1200,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
