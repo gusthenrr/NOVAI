@@ -764,12 +764,14 @@ const conversationList: ConversationListItem[] = useMemo(() => {
 
       {/* PAINEL CENTRAL - CHAT */}
       <main style={styles.chatPanel}>
-        <img
-            src="/Novai_manager.png" // Certifique-se que o caminho está correto
+        <div style={{ display: "flex", alignItems: "center", marginTop: "2rem", marginBottom: "1rem" }}>
+          <img
+            src="/Novai_manager.png"
             alt="Logo Novai"
-            style={{ width: "80%", height: "auto", marginTop: "2rem", marginBottom:"1rem" }} // Ajuste de margem e tamanho
+            style={{ width: "1.5rem", height: "1.5rem", objectFit: "contain" }}
           />
-        <h2 style={styles.chatTitle}> Manager</h2>
+          <h2 style={styles.chatTitle}>Manager</h2>
+        </div>
         <div style={styles.chatContentWrapper}>
          <div style={styles.messageList}>
   {visibleMessages.map((msg) => (
@@ -1205,6 +1207,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
