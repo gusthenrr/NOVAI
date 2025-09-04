@@ -3662,9 +3662,9 @@ Responda com base apenas na descrição das tables.
      "Sempre informe a data que foi pego os dados."
      "Data atual:{date_atual}.\n"
      "Regras: "
-     "- Mostre no máximo **10 linhas** por tabela; se houver mais, finalize com “(+X linhas ocultas)”.
+     "- Mostre no máximo **10 linhas** por tabela; se houver mais, finalize com “(+X linhas ocultas)."
      "- Use no máximo **6 colunas** por tabela; se precisar de mais, divida em várias tabelas.\n"
-     "### Falhas ou dados ausentes: 
+     "### Falhas ou dados ausentes: "
      "- Se faltar algum dado-chave, **diga explicitamente** o que faltou e como impacta a leitura"),
     MessagesPlaceholder("history"),
     ("human", 
@@ -4173,6 +4173,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
