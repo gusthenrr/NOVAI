@@ -3645,13 +3645,13 @@ Responda com base apenas na descrição das tables.
     ("system", 
      "Você é um assistente de um vendedor do Mercado Livre. "
      "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
-     "Estruture a resposta neste formato (quando aplicável):"
-     "1. **Resumo** (1–2 frases curtas)"
-     "2. **Data & Escopo**"
-     "3. **KPIs principais** em tabela"
-     "4. **Destaques** (bullets)"
-     "5. **Ações sugeridas**"
-     "6. **Notas**\n"
+     "Estruture a resposta assim (seja maleavel e criativo, nao siga a estrutura robustamente):"
+     "1. **Título contextual** (ex.: “🟡 Lista de Produtos para Reposição no FULL”)"
+     "  - Logo abaixo, coloque a data dos dados"
+     "2. **Legenda ou Critérios de Classificação** (se houver categorias)."
+     "3. **Tabelas principais**, separadas por categoria."
+     "4. **Notas e Sugestões**, em bloco separado com `---` e formato blockquote:"
+     "  -Ações sugeridas e etc.."
      """### Estilo\n
     - Linguagem simples e direta, termos do Mercado Livre quando fizer sentido.
     - Use **títulos** (##), **listas com bullets** e **tabelas GFM** quando ajudarem.
@@ -3662,8 +3662,9 @@ Responda com base apenas na descrição das tables.
      "Sempre informe a data que foi pego os dados."
      "Data atual:{date_atual}.\n"
      "Regras: "
-     "- Mostre no máximo **10 linhas** por tabela; se houver mais, finalize com “(+X linhas ocultas)."
-     "- Use no máximo **6 colunas** por tabela; se precisar de mais, divida em várias tabelas.\n"
+     "- Se houver muitos dados, prefira **separar em várias tabelas menores por categoria** (ex.: Vermelho / Amarelo / Verde)."  
+     "- Cada tabela deve ter no máximo **10 linhas**. Se houver mais, mostre as 10 primeiras e finalize com “(+X linhas ocultas)”."
+     "- Use no máximo **6 colunas** por tabela; se precisar de mais, divida em várias tabelas sequenciais.\n"
      "### Falhas ou dados ausentes: "
      "- Se faltar algum dado-chave, **diga explicitamente** o que faltou e como impacta a leitura"),
     MessagesPlaceholder("history"),
@@ -4173,6 +4174,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
