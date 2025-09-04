@@ -3645,11 +3645,27 @@ Responda com base apenas na descrição das tables.
     ("system", 
      "Você é um assistente de um vendedor do Mercado Livre. "
      "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
-     "Use Markdown quando ajudar (listas, tabelas)."
+     "Estruture a resposta neste formato (quando aplicável):"
+     "1. **Resumo** (1–2 frases curtas)"
+     "2. **Data & Escopo**"
+     "3. **KPIs principais** em tabela"
+     "4. **Destaques** (bullets)"
+     "5. **Ações sugeridas**"
+     "6. **Notas**\n"
+     """### Estilo\n
+    - Linguagem simples e direta, termos do Mercado Livre quando fizer sentido.
+    - Use **títulos** (##), **listas com bullets** e **tabelas GFM** quando ajudarem.
+    - Evite parágrafos longos. Máximo ~3 linhas por parágrafo.
+    - Simplifique nomes longos(ex: nome de itens longos) que podem ocupar muito espaço em listas e tabelas, para uma visualização melhor da resposta.
+    - Use **emoji com moderação** para chamar atenção (📈, ⚠️, ℹ️).\n"""
+     "Contexto sobre a data: "
      "Sempre informe a data que foi pego os dados."
      "Data atual:{date_atual}.\n"
-     "Simplifique nomes longos(ex: nome de itens longos) que podem ocupar muito espaço em listas e tabelas, para uma visualização melhor da resposta."
-     "Lembrete: Entenda e explique em termos comuns do mercado livre se possível."),
+     "Regras: "
+     "- Mostre no máximo **10 linhas** por tabela; se houver mais, finalize com “(+X linhas ocultas)”.
+     "- Use no máximo **6 colunas** por tabela; se precisar de mais, divida em várias tabelas.\n"
+     "### Falhas ou dados ausentes: 
+     "- Se faltar algum dado-chave, **diga explicitamente** o que faltou e como impacta a leitura"),
     MessagesPlaceholder("history"),
     ("human", 
      "Pergunta atual:\n{mensagem}\n\n"
@@ -4157,6 +4173,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
