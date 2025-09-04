@@ -768,10 +768,14 @@ const conversationList: ConversationListItem[] = useMemo(() => {
           <img
             src="/Novai_manager.png"
             alt="Logo Novai"
-            style={{ width: "1.5rem", height: "1.5rem", objectFit: "contain" }}
+            style={{
+              height: "1.5rem", // altura parecida com o texto "Manager"
+              width: "auto",    // mantém a proporção original (637x187)
+              objectFit: "contain"
+            }}
           />
           <h2 style={styles.chatTitle}>Manager</h2>
-        </div>
+      </div>
         <div style={styles.chatContentWrapper}>
          <div style={styles.messageList}>
   {visibleMessages.map((msg) => (
@@ -1103,17 +1107,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     // Removido o padding e borda para que o conteúdo ocupe o espaço
     backgroundColor: 'rgba(26, 26, 26, 0.5)',
   },
-  chatTitle: {
-    margin: 0,
-    paddingLeft:'1rem',
-    paddingTop:'0.5rem',
-    fontSize: '1rem',
-    fontWeight: '700',
-    display: 'inline-block',
-    background: 'linear-gradient(90deg, #F8DD82 0%, #FAE499 100%)',
-    WebkitBackgroundClip: 'text',
-    color: 'transparent',
-  },
+ chatTitle: {
+  margin: 0,
+  paddingLeft: "0.5rem", // espaço entre logo e texto
+  fontSize: "1rem",
+  fontWeight: "700",
+  display: "inline-block",
+  background: "linear-gradient(90deg, #F8DD82 0%, #FAE499 100%)",
+  WebkitBackgroundClip: "text",
+  color: "transparent",
+},
   messageList: {
   boxSizing: 'border-box',
   // padding aqui, mudança
@@ -1207,6 +1210,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
