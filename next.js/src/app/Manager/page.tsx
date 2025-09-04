@@ -745,7 +745,11 @@ const conversationList: ConversationListItem[] = useMemo(() => {
           </div>
           {/* Renderiza o título somente quando o painel está aberto */}
           {(isLeftPanelPinned || isLeftPanelOpen) && (
-            <span style={styles.logoText}>NOVAI</span>
+            <img
+            src="/Novai_sem_fundo_branco.png" // Caminho da imagem na pasta "public"
+            alt="Logo Novai"
+            style={{ width: "100%", height: "auto", justifyContent:"center", alignItems:"center"}}
+          />
           )}
         </div>
         {(isLeftPanelPinned || isLeftPanelOpen) && (
@@ -1199,6 +1203,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
