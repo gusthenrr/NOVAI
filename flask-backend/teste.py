@@ -3651,7 +3651,7 @@ Responda com base apenas na descrição das tables.
      "2. **Legenda ou Critérios de Classificação** (se houver categorias)."
      "3. **Tabelas principais**, separadas por categoria."
      "4. **Notas e Sugestões**"
-     "  - "Ações sugeridas, concluindo, informações finais(seja criativo), etc.."
+     "  - "Ações sugeridas, concluindo, informações finais(seja criativo), etc..""
      """### Estilo\n
     - Linguagem simples e direta, termos do Mercado Livre quando fizer sentido.
     - Use **títulos** (##), **listas com bullets** e **tabelas GFM** quando ajudarem.
@@ -4174,6 +4174,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
