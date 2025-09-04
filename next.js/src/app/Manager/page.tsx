@@ -764,18 +764,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
 
       {/* PAINEL CENTRAL - CHAT */}
       <main style={styles.chatPanel}>
-        <div style={{ display: "flex", alignItems: "center", marginTop: "2rem", marginBottom: "1rem" }}>
-          <img
-            src="/Novai_manager.png"
-            alt="Logo Novai"
-            style={{
-              height: "1.5rem", // altura parecida com o texto "Manager"
-              width: "auto",    // mantém a proporção original (637x187)
-              objectFit: "contain"
-            }}
-          />
-          <h2 style={styles.chatTitle}>Manager</h2>
-      </div>
+          <h2 style={styles.chatTitle}>Novai Manager</h2>
         <div style={styles.chatContentWrapper}>
          <div style={styles.messageList}>
   {visibleMessages.map((msg) => (
@@ -1109,7 +1098,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
  chatTitle: {
   margin: 0,
-  paddingLeft: "0.5rem", // espaço entre logo e texto
+  paddingLeft: "0.5rem", // só espaço entre logo e texto
   fontSize: "1rem",
   fontWeight: "700",
   display: "inline-block",
@@ -1210,6 +1199,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
