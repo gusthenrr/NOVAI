@@ -718,8 +718,6 @@ const conversationList: ConversationListItem[] = useMemo(() => {
   // --- Renderização da UI ---
   return (
     <div style={styles.appContainer}>
-      <div style={styles.backgroundGradient}></div>
-
       {/* PAINEL ESQUERDO - NAVEGAÇÃO/MARCA */}
       <aside
         style={{ ...styles.panel, ...styles.leftPanel, width: isLeftPanelPinned || isLeftPanelOpen ? '240px' : '60px' }}
@@ -1111,7 +1109,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   messageList: {
   boxSizing: 'border-box',
-  padding:'0rem 5rem',
+  padding:'0rem 3rem',
   flex: '1 1 auto',
   minWidth: 0,
   display: 'flex',
@@ -1202,6 +1200,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
