@@ -1101,15 +1101,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: 'rgba(26, 26, 26, 0.5)',
   },
  chatTitle: {
-  margin: 0,
-  paddingLeft: "0.5rem", // só espaço entre logo e texto
-  fontSize: "1rem",
-  fontWeight: "700",
-  display: "inline-block",
-  background: "linear-gradient(90deg, #F8DD82 0%, #FAE499 100%)",
-  WebkitBackgroundClip: "text",
-  color: "transparent",
-},
+    margin: 0,
+    paddingLeft:'1rem',
+    paddingTop:'0.5rem',
+    fontSize: '1rem',
+    fontWeight: '700',
+    display: 'inline-block',
+    background: 'linear-gradient(90deg, #F8DD82 0%, #FAE499 100%)',
+    WebkitBackgroundClip: 'text',
+    color: 'transparent',
+  },
   messageList: {
   boxSizing: 'border-box',
   // padding aqui, mudança
@@ -1203,6 +1204,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
