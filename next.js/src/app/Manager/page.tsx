@@ -548,44 +548,54 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
 
 
   // --- Lógica de Interação com a API (SIMULAÇÃO) ---
-  const callOpenaiApi = async (prompt: string, conversaId: string, date:number): Promise<string> => {
-  setIsLoading(true);
-  const token_jwt = localStorage.getItem('authToken');
-  try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat_novai_manager`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token_jwt}`
-      },
-      body: JSON.stringify({
-        message: prompt,
-        conversa_id: conversaId,   // ✅ agora o back recebe e pode persistir
-        date:date
-      }),
+  const callOpenaiApi = (prompt: string, conversaId: string, date: number): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    setIsLoading(true);
+    const token_jwt = localStorage.getItem('authToken');
+
+    // envia pro backend
+    socket.emit('chat_novai_manager', {
+      message: prompt,
+      conversa_id: conversaId,
+      date,
     });
 
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
-    }
+    // já cria bubble vazio da IA
+    setMessages(prev => [
+      ...prev,
+      { id: crypto.randomUUID(), sender: 'ai', text: '' }
+    ]);
 
-    const result = await response.json();
+    // escuta tokens (cada chamada = concatena)
+    socket.on('chat_token', ({ text }) => {
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        { ...prev.at(-1)!, text: (prev.at(-1)?.text || '') + text }
+      ]);
+    });
 
-    if (result.resposta_final) {
-      const aiResponseText = result.resposta_final;
-      chatHistoryRef.current.push({ role: 'user', parts: [{ text: prompt }] });
-      chatHistoryRef.current.push({ role: 'model', parts: [{ text: aiResponseText }] });
-      return aiResponseText;
-    } else {
-      return 'Não consegui processar essa informação. Podemos tentar de outra forma?';
-    }
-  } catch (error) {
-    console.error('API call failed:', error);
-    return 'Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.';
-  } finally {
-    setIsLoading(false);
-  }
+    // fim da resposta
+    socket.once('chat_done', ({ text }) => {
+      setIsLoading(false);
+
+      if (text) {
+        chatHistoryRef.current.push({ role: 'user', parts: [{ text: prompt }] });
+        chatHistoryRef.current.push({ role: 'model', parts: [{ text }] });
+        resolve(text);
+      } else {
+        resolve('Não consegui processar essa informação. Podemos tentar de outra forma?');
+      }
+    });
+
+    // erro genérico
+    socket.once('connect_error', (err) => {
+      setIsLoading(false);
+      console.error('API call failed:', err);
+      reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
+    });
+  });
 };
+
 
 
   // --- Manipuladores de Eventos ---
@@ -1263,3 +1273,4 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
