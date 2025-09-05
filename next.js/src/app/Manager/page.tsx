@@ -422,6 +422,7 @@ export default function App(): JSX.Element {
   const draftIdRef = useRef<string>('');
   const [isHoveringNew, setIsHoveringNew] = useState<Boolean>(false)
   const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
 // 1) Encontra o conversa_id cuja ÚLTIMA mensagem (maior id) é a mais antiga entre todas
 function removerConversa(msgs: Message[], conversaId: string): Message[] {
@@ -466,6 +467,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
         reconnectionDelay: 2000,
         timeout: 20000 // 20s
     });
+    socketRef.current = socket
     const tok = localStorage.getItem('authToken');
     if (tok) setToken(tok);
 
@@ -549,20 +551,12 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
 
   // --- Lógica de Interação com a API (SIMULAÇÃO) ---
   const callOpenaiApi = (prompt: string, conversaId: string, date: number): Promise<string> => {
-  const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
-        transports: ['websocket'],
-        withCredentials: true,
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 2000,
-        timeout: 20000 // 20s
-    });
   return new Promise((resolve, reject) => {
     setIsLoading(true);
     const token_jwt = localStorage.getItem('authToken');
 
     // envia pro backend
-    socket.emit('chat_novai_manager', {
+    socketRef.current?.emit('chat_novai_manager', {
       message: prompt,
       conversa_id: conversaId,
       date,
@@ -1275,6 +1269,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
