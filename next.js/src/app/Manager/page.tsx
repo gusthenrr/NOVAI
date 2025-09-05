@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import io from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
 
 // --- Tipos para maior segurança e clareza ---
 interface Message {
@@ -459,7 +459,8 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
   // Efeito inicial para a mensagem de boas-vindas
   useEffect(() => {
     // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
-    const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
+    if(!socketRef.current){
+    const socketRef.current = io(process.env.NEXT_PUBLIC_API_URL!, {
         transports: ['websocket'],
         withCredentials: true,
         reconnection: true,
@@ -467,7 +468,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
         reconnectionDelay: 2000,
         timeout: 20000 // 20s
     });
-    socketRef.current = socket
+    }
     const tok = localStorage.getItem('authToken');
     if (tok) setToken(tok);
 
@@ -524,6 +525,10 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     };
 
     get_conversation();
+    return () =>{
+      socketRef.current?.disconnect();
+      socketRef.current? = null
+    }
 }, []);
 
   // Scroll automático para novas mensagens
@@ -563,7 +568,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     });
 
     // escuta tokens (cada chamada = concatena)
-    socket.on('chat_token', ({ text }) => {
+    socketRef.current?.on('chat_token', ({ text }) => {
       setMessages(prev => [
         ...prev.slice(0, -1),
         { ...prev.at(-1)!, text: (prev.at(-1)?.text || '') + text }
@@ -571,7 +576,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     });
 
     // fim da resposta
-    socket.once('chat_done', ({ text }) => {
+    socketRef.current?.once('chat_done', ({ text }) => {
       setIsLoading(false);
 
       if (text) {
@@ -584,7 +589,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     });
 
     // erro genérico
-    socket.once('connect_error', (err) => {
+    socketRef.current?.once('connect_error', (err) => {
       setIsLoading(false);
       console.error('API call failed:', err);
       reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
@@ -1269,6 +1274,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
