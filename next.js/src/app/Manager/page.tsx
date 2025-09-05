@@ -706,16 +706,6 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
   setIsLoading(true);
   try {
     const aiResponseText = await callOpenaiApi(messageText, idForThisConversation, now);
- const aiMessage: Message = {
-      id: now + 1,
-      text: aiResponseText,
-      sender: 'ai',
-      conversa_id: idForThisConversation,
-    };
-
-    // adicionar resposta da IA (não muda o número de conversas, então não precisa revalidar teto)
-    setMessages(prev => [...prev, aiMessage]);
-
     chatHistoryRef.current = [
       ...(chatHistoryRef.current || []),
       { role: 'model', parts: [{ text: aiResponseText }] },
@@ -1276,6 +1266,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
