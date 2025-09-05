@@ -3487,25 +3487,26 @@ def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limi
     msgs = [_row_to_message(r["author"], r["conteudo"]) for r in rows]
     return msgs
 
-@app.route('/chat_novai_manager', methods=['POST'])
+@socketio.on('chat_novai_manager')
 def chat_novai_manager_requisicao():
     data = request.get_json()
     print('entrou aqui no chat')
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
+    token = request.cookies.get("__Host-token")
+    if not token:
+        socketio.emit('Sem_token',{"message":"Sem token"})
     # Obtém o user_id dos parâmetros da query string
-    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
     print("Token:", token)
     try:
         decoded_token=decode_token(token)
         print(decoded_token)
         user_id=decoded_token.get("sub")
         print(user_id)
+        room = f'user:{user_id}'
         exp_timestamp = decoded_token.get("exp")
         now = int(time.time())
         if exp_timestamp and exp_timestamp < now:
-            return jsonify({"error": "Token expirado"}), 333
+            socketio.emit('Sem_token',{"message":"Token expirado"})
+            return
     except:
         return
     mensagem = data.get('message')
@@ -3677,17 +3678,22 @@ Responda com base apenas na descrição das tables.
         sintese_chain = sintese_prompt | model | StrOutputParser()
         date = datetime.now()
         # Reaproveita o mesmo histórico carregado acima (ou recarregue, se preferir)
-        resposta_final = sintese_chain.invoke({
+        inputs = {
             "history": history_msgs,
             "date_atual":date,
             "mensagem": guardar_mensagem,
             # garanta que mensagem_final seja string; se vier lista/dict, serialize:
             "mensagem_final": json.dumps(return_final, ensure_ascii=False, default=str) if not isinstance(return_final, str) else return_final
-        })
-        print('resposta final:', resposta_final)
+        }
+        partial = []
+        for chunk in sintese_chain.stream(inputs)
+            text=chunk
+            partial.append(text)
+            socketio.emit("chat_token",{"token":text}, room = room)
+        full = "".join(partial)
+        socketio.emit('chat_done',{"text":full}, room=room)
         with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(resposta_final, id_conversa, user_id, date, 'ai'))  
-        return jsonify({'resposta_final':resposta_final})
+            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(full, id_conversa, user_id, date, 'ai'))  
     except Exception as e:
         print(f'Erro ao processar o modelo: {e}')
 
@@ -4174,6 +4180,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
