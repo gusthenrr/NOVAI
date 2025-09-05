@@ -3488,8 +3488,7 @@ def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limi
     return msgs
 
 @socketio.on('chat_novai_manager')
-def chat_novai_manager_requisicao():
-    data = request.get_json()
+def chat_novai_manager_requisicao(data): 
     print('entrou aqui no chat')
     token = request.cookies.get("__Host-token")
     if not token:
@@ -3686,16 +3685,17 @@ Responda com base apenas na descrição das tables.
             "mensagem_final": json.dumps(return_final, ensure_ascii=False, default=str) if not isinstance(return_final, str) else return_final
         }
         partial = []
-        for chunk in sintese_chain.stream(inputs)
+        for chunk in sintese_chain.astream(inputs)
             text=chunk
             partial.append(text)
-            socketio.emit("chat_token",{"text":text}, room = room)
+            socketio.emit("chat_token",{"text":text}, room = room)  
+    except Exception as e:
+        print(f'Erro ao processar o modelo: {e}')
+    finally:
         full = "".join(partial)
         socketio.emit('chat_done',{"text":full}, room=room)
         with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(full, id_conversa, user_id, date, 'ai'))  
-    except Exception as e:
-        print(f'Erro ao processar o modelo: {e}')
+            cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(full, id_conversa, user_id, date, 'ai'))
 
 
 
@@ -4180,6 +4180,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
