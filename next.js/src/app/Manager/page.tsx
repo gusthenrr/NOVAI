@@ -570,6 +570,7 @@ return new Promise((resolve, reject) => {
     // escuta tokens (cada chamada = concatena)
     socketRef.current?.on("chat_token", ({ text }) => {
   setMessages(prev => {
+    setIsLoading(false)
     // se ainda não existe balão da IA, cria um vazio primeiro
     if (!aiBubbleCreated) {
       aiBubbleCreated = true;
@@ -1282,6 +1283,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
