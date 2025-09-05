@@ -881,6 +881,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
             <div style={{ display: 'flex', gap: 8, padding: '0 12px 8px' }}>
               <button
                 onClick={startNewConversation}
+                disabled={isLoading}
                 style={{
                   ...styles.smallButton,
                   ...(isHoveringNew ? styles.smallButtonHover : {})
@@ -906,12 +907,15 @@ const conversationList: ConversationListItem[] = useMemo(() => {
           ? { background: '#3a3a3a' } // cinza claro quando hover
           : {}),
         cursor: 'pointer',
+        opacity: isLoading ? 0.5 : 1,
         lineHeight: 1.2,
       }}
       title={conv.title}
-      onClick={() => setActiveConversaId(conv.id)}
-      onMouseEnter={() => setHoveredConvId(conv.id)}
-      onMouseLeave={() => setHoveredConvId(null)}
+      onClick={() => {
+        if(!isLoading){setActiveConversaId(conv.id)}
+      }}
+      onMouseEnter={() => !isLoading && setHoveredConvId(conv.id)}
+      onMouseLeave={() => !isLoading && setHoveredConvId(null)}
     >
       {truncate(conv.title, 32)}
       <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
