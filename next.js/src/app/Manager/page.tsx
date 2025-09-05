@@ -554,7 +554,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     const token_jwt = localStorage.getItem('authToken');
 
     // envia pro backend
-    socket.emit('chat_novai_manager', {
+    socketio.emit('chat_novai_manager', {
       message: prompt,
       conversa_id: conversaId,
       date,
@@ -567,7 +567,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     ]);
 
     // escuta tokens (cada chamada = concatena)
-    socket.on('chat_token', ({ text }) => {
+    socketio.on('chat_token', ({ text }) => {
       setMessages(prev => [
         ...prev.slice(0, -1),
         { ...prev.at(-1)!, text: (prev.at(-1)?.text || '') + text }
@@ -575,7 +575,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     });
 
     // fim da resposta
-    socket.once('chat_done', ({ text }) => {
+    socketio.once('chat_done', ({ text }) => {
       setIsLoading(false);
 
       if (text) {
@@ -588,7 +588,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     });
 
     // erro genérico
-    socket.once('connect_error', (err) => {
+    socketio.once('connect_error', (err) => {
       setIsLoading(false);
       console.error('API call failed:', err);
       reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
@@ -1273,4 +1273,5 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
