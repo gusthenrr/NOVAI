@@ -555,71 +555,60 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
 
 
   // --- Lógica de Interação com a API (SIMULAÇÃO) ---
-  const callOpenaiApi = (
-  prompt: string,
-  conversaId: string,
-  date: number,
-  aiMessageId: number
-): Promise<string> => {
-  return new Promise((resolve, reject) => {
+ const callOpenaiApi = (prompt: string, conversaId: string, date: number): Promise<string> => {
+return new Promise((resolve, reject) => {
     setIsLoading(true);
+    const token_jwt = localStorage.getItem('authToken');
 
-    // envie um "request_id" para o backend (opcional, mas bom para múltiplas reqs simultâneas)
-    socketRef.current?.emit('chat_novai_manager', {
+    // envia pro backend
+ socketRef.current?.emit('chat_novai_manager', {
       message: prompt,
       conversa_id: conversaId,
       date,
-      stream_id: aiMessageId, // se o backend ecoar, melhor ainda
-    });
+ });
+  let aiBubbleCreated = false;
+    setMessages(prev => [
+      ...prev,
+      { id: crypto.randomUUID(), sender: 'ai', text: '' }
+    ]);
+    // escuta tokens (cada chamada = concatena)
+    socketRef.current?.on("chat_token", ({ token }) => {
+  setMessages(prev => {
+    // se ainda não existe balão da IA, cria um vazio primeiro
+    if (!aiBubbleCreated) {
+      aiBubbleCreated = true;
+      return [
+        ...prev,
+        { id: crypto.randomUUID(), sender: "ai", text: token }
+      ];
+    }
 
-    // Handlers nomeados para poder remover depois
-    const onToken = ({ text, stream_id }: { text: string; stream_id?: number }) => {
-      // Filtra se o backend enviar stream_id; senão, segue pelo fechamento lexical (aiMessageId)
-      if (stream_id && stream_id !== aiMessageId) return;
-
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === aiMessageId
-            ? { ...m, text: (m.text || '') + (text ?? '') }
-            : m
-        )
-      );
-    };
-
-    const onDone = ({ text, stream_id }: { text?: string; stream_id?: number }) => {
-      if (stream_id && stream_id !== aiMessageId) return;
-
-      // Limpa listeners do streaming atual
-      socketRef.current?.off('chat_token', onToken);
-      socketRef.current?.off('chat_done', onDone);
-      socketRef.current?.off('connect_error', onErr);
-
+    // se já existe, atualiza o último balão concatenando tokens
+    return [
+      ...prev.slice(0, -1),
+      { ...prev.at(-1)!, text: (prev.at(-1)?.text || "") + token }
+    ];
+  });
+});
+// fim da resposta
+    socketRef.current?.once('chat_done', ({ text }) => {
       setIsLoading(false);
 
-      // Se o servidor não mandou 'text' completo, podemos pegar do state:
-      if (!text) {
-        const full = messages.find(m => m.id === aiMessageId)?.text || '';
-        resolve(full || '');
-        return;
-      }
-      resolve(text);
-    };
-
-    const onErr = (err: unknown) => {
-      // Limpa listeners
-      socketRef.current?.off('chat_token', onToken);
-      socketRef.current?.off('chat_done', onDone);
-      socketRef.current?.off('connect_error', onErr);
-
+      if (text) {
+        chatHistoryRef.current.push({ role: 'user', parts: [{ text: prompt }] });
+        chatHistoryRef.current.push({ role: 'model', parts: [{ text }] });
+        resolve(text);
+      } else {
+        resolve('Não consegui processar essa informação. Podemos tentar de outra forma?');
+ }
+    });
+  // erro genérico
+    socketRef.current?.once('connect_error', (err) => {
       setIsLoading(false);
       console.error('API call failed:', err);
       reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
-    };
-
-    socketRef.current?.on('chat_token', onToken);
-    socketRef.current?.once('chat_done', onDone);
-    socketRef.current?.once('connect_error', onErr);
-  });
+    });
+ });
 };
 
 
@@ -693,16 +682,7 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
     sender: 'user',
     conversa_id: idForThisConversation,
   };
-
-   const aiId = now + 1;
-  const aiPlaceholder: Message = {
-    id: aiId,
-    text: '',
-    sender: 'ai',
-    conversa_id: idForThisConversation,
-  };
-  
-  setMessages(prev => {
+ setMessages(prev => {
     const estouEmConversaNova = isDraft(idForThisConversation);
 
     // 1) Se NÃO estou na conversa nova, limpo quaisquer drafts antes de salvar
@@ -735,9 +715,8 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
 
   setIsLoading(true);
   try {
-    const aiResponseText = await callOpenaiApi(messageText, idForThisConversation, now, aiId);
-
-    const aiMessage: Message = {
+    const aiResponseText = await callOpenaiApi(messageText, idForThisConversation, now);
+ const aiMessage: Message = {
       id: now + 1,
       text: aiResponseText,
       sender: 'ai',
@@ -1307,5 +1286,3 @@ inputField: {
     lineHeight: '1.5',
   }
 };
-
-
