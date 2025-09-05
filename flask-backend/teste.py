@@ -3414,10 +3414,12 @@ def _to_epoch_ms(dt):
 
 @app.route('/get_conversation', methods=['GET'])
 def get_conversation():
+    print('entrou no get_conversation')
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
     token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+    print("token: ",token)
     try:
         decoded_token=decode_token(token)
         print(decoded_token)
@@ -3442,7 +3444,6 @@ def get_conversation():
         "sender":r['author'],
         "conversa_id":r['id_conversa'],
         })
-    print('mensagens:', messages)
     return jsonify({
         "messages": messages
     }), 200
@@ -3493,6 +3494,7 @@ def chat_novai_manager_requisicao(data):
     token = request.cookies.get("__Host-token")
     if not token:
         socketio.emit('Sem_token',{"message":"Sem token"})
+        return
     # Obtém o user_id dos parâmetros da query string
     print("Token:", token)
     try:
@@ -4180,6 +4182,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
