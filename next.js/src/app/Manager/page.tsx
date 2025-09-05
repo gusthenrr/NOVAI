@@ -568,21 +568,21 @@ return new Promise((resolve, reject) => {
  });
   let aiBubbleCreated = false;
     // escuta tokens (cada chamada = concatena)
-    socketRef.current?.on("chat_token", ({ token }) => {
+    socketRef.current?.on("chat_token", ({ text }) => {
   setMessages(prev => {
     // se ainda não existe balão da IA, cria um vazio primeiro
     if (!aiBubbleCreated) {
       aiBubbleCreated = true;
       return [
         ...prev,
-        { id: Date.now(), sender: "ai", text: token, conversa_id:conversaId}
+        { id: Date.now(), sender: "ai", text: text, conversa_id:conversaId}
       ];
     }
 
     // se já existe, atualiza o último balão concatenando tokens
     return [
       ...prev.slice(0, -1),
-      { ...prev.at(-1)!, text: (prev.at(-1)?.text || "") + token }
+      { ...prev.at(-1)!, text: (prev.at(-1)?.text || "") + text }
     ];
   });
 });
@@ -1282,6 +1282,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
