@@ -598,8 +598,8 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
 
       // Se o servidor não mandou 'text' completo, podemos pegar do state:
       if (!text) {
-        const full = (messagesRef.current ?? []).find(m => m.id === aiMessageId)?.text || '';
-        resolve(full || ''); // mantenha consistente
+        const full = messages.find(m => m.id === aiMessageId)?.text || '';
+        resolve(full || '');
         return;
       }
       resolve(text);
@@ -1307,4 +1307,5 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
