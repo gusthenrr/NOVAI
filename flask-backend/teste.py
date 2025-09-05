@@ -1324,14 +1324,14 @@ def handle_connect():
     print('CONNECT cookies=', request.headers.get('Cookie'))
     if not token:
         print('conectado sem token')
-        return False
-    try:
-        user_id = int(decode_token(token)['sub'])
-        room=f'user:{user_id}'
-        join_room(room)
-        print('conectado')
-    except Exception:
-        return False  # rejeita a conexão se não autenticar 
+    else:
+        try:
+            user_id = int(decode_token(token)['sub'])
+            room=f'user:{user_id}'
+            join_room(room)
+            print('conectado')
+        except Exception:
+            return False  # rejeita a conexão se não autenticar 
       
 
 @socketio.on('disconnect')
@@ -4182,6 +4182,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
