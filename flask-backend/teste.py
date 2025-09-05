@@ -3519,7 +3519,7 @@ def chat_novai_manager_requisicao(data):
         return
     with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(mensagem, id_conversa, user_id, date, 'user'))    
-    model = ChatOpenAI(model='gpt-4o-mini')
+    model = ChatOpenAI(model='gpt-4o-mini', , temperature=0)
     descricao_db = '''
 Descrição do banco de dados PostgreSQL:
 
@@ -3705,7 +3705,7 @@ Responda com base apenas na descrição das tables.
 
 def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int, conversa_id: str):
 
-    model = ChatOpenAI(model='gpt-4.1')
+    model = ChatOpenAI(model='gpt-4.1', temperature=0)
 
     descricao_table = {
     "campanhas": """Tabela: 'campanhas'
@@ -4182,6 +4182,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
