@@ -549,12 +549,20 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
 
   // --- Lógica de Interação com a API (SIMULAÇÃO) ---
   const callOpenaiApi = (prompt: string, conversaId: string, date: number): Promise<string> => {
+  const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
+        transports: ['websocket'],
+        withCredentials: true,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 2000,
+        timeout: 20000 // 20s
+    });
   return new Promise((resolve, reject) => {
     setIsLoading(true);
     const token_jwt = localStorage.getItem('authToken');
 
     // envia pro backend
-    socketio.emit('chat_novai_manager', {
+    socket.emit('chat_novai_manager', {
       message: prompt,
       conversa_id: conversaId,
       date,
@@ -567,7 +575,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     ]);
 
     // escuta tokens (cada chamada = concatena)
-    socketio.on('chat_token', ({ text }) => {
+    socket.on('chat_token', ({ text }) => {
       setMessages(prev => [
         ...prev.slice(0, -1),
         { ...prev.at(-1)!, text: (prev.at(-1)?.text || '') + text }
@@ -575,7 +583,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     });
 
     // fim da resposta
-    socketio.once('chat_done', ({ text }) => {
+    socket.once('chat_done', ({ text }) => {
       setIsLoading(false);
 
       if (text) {
@@ -588,7 +596,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     });
 
     // erro genérico
-    socketio.once('connect_error', (err) => {
+    socket.once('connect_error', (err) => {
       setIsLoading(false);
       console.error('API call failed:', err);
       reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
@@ -1273,5 +1281,6 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
