@@ -460,7 +460,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
   useEffect(() => {
     // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
     if(!socketRef.current){
-    const socketRef.current = io(process.env.NEXT_PUBLIC_API_URL!, {
+      socketRef.current = io(process.env.NEXT_PUBLIC_API_URL!, {
         transports: ['websocket'],
         withCredentials: true,
         reconnection: true,
@@ -1274,6 +1274,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
