@@ -3685,7 +3685,7 @@ Responda com base apenas na descrição das tables.
             "mensagem_final": json.dumps(return_final, ensure_ascii=False, default=str) if not isinstance(return_final, str) else return_final
         }
         partial = []
-        for chunk in sintese_chain.astream(inputs)
+        for chunk in sintese_chain.astream(inputs):
             text=chunk
             partial.append(text)
             socketio.emit("chat_token",{"text":text}, room = room)  
@@ -4180,6 +4180,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
