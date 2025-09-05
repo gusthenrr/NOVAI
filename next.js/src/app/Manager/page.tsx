@@ -527,7 +527,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     get_conversation();
     return () =>{
       socketRef.current?.disconnect();
-      socketRef.current? = null
+      socketRef.current = null
     }
 }, []);
 
@@ -1274,6 +1274,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
