@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import io from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
 
 // --- Tipos para maior segurança e clareza ---
 interface Message {
@@ -41,8 +41,12 @@ interface ChatInputProps {
 
 const formatDatePtBR = (d: Date) =>
   d.toLocaleString('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
   const buildConversaIdByDate = (createdAtMs: number) => {
   return `Nova Conversa • ${formatDatePtBR(new Date(createdAtMs))}`;
@@ -57,10 +61,11 @@ const truncate = (s: string, n: number) =>
 /**
  * Gera o conversa_id: "primeira mensagem do usuário • dd/mm/aaaa hh:mm"
  */
-const buildConversaId = (firstUserText: string, when: Date) => {
-  const preview = truncate(sanitizeOneLine(firstUserText), 40);
-  return `${preview} • ${formatDatePtBR(when)}`;
-};
+function buildConversaId(firstUserText: string, date: Date) {
+  // Ex.: "Primeira pergunta… • 05/09/2025 10:22:03"
+  const clean = firstUserText.trim().replace(/\s+/g, ' ').slice(0, 60); // limita tamanho
+  return `${clean} • ${formatDatePtBR(date)}`;
+}
 
 type Props = { resposta: string };
 const sanitizeSchema = {
@@ -417,13 +422,45 @@ export default function App(): JSX.Element {
   const draftIdRef = useRef<string>('');
   const [isHoveringNew, setIsHoveringNew] = useState<Boolean>(false)
   const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
+// 1) Encontra o conversa_id cuja ÚLTIMA mensagem (maior id) é a mais antiga entre todas
+function removerConversa(msgs: Message[], conversaId: string): Message[] {
+  return msgs.filter(m => m.conversa_id !== conversaId);
+}
 
+function removerTodasDrafts(msgs: Message[]): Message[] {
+  return msgs.filter(m => !isDraft(m.conversa_id));
+}
 
+// conversa cuja ÚLTIMA atividade (maior id) é a mais antiga
+function getConversaMaisAntiga(msgs: Message[]): string | null {
+  if (!msgs.length) return null;
+
+  const lastByConversa = new Map<string, number>();
+  for (const m of msgs) {
+    const last = lastByConversa.get(m.conversa_id);
+    if (last === undefined || m.id > last) {
+      lastByConversa.set(m.conversa_id, m.id);
+    }
+  }
+
+  let alvo: string | null = null;
+  let menorUltimoId = Number.POSITIVE_INFINITY;
+
+  for (const [cid, lastId] of lastByConversa.entries()) {
+    if (lastId < menorUltimoId) {
+      menorUltimoId = lastId;
+      alvo = cid;
+    }
+  }
+  return alvo;
+}
   // Efeito inicial para a mensagem de boas-vindas
   useEffect(() => {
     // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
-    const socket = io(process.env.NEXT_PUBLIC_API_URL!, {
+    if(!socketRef.current){
+      socketRef.current = io(process.env.NEXT_PUBLIC_API_URL!, {
         transports: ['websocket'],
         withCredentials: true,
         reconnection: true,
@@ -431,6 +468,7 @@ export default function App(): JSX.Element {
         reconnectionDelay: 2000,
         timeout: 20000 // 20s
     });
+    }
     const tok = localStorage.getItem('authToken');
     if (tok) setToken(tok);
 
@@ -487,6 +525,10 @@ export default function App(): JSX.Element {
     };
 
     get_conversation();
+    return () =>{
+      socketRef.current?.disconnect();
+       socketRef.current = null
+    }
 }, []);
 
   // Scroll automático para novas mensagens
@@ -513,44 +555,48 @@ export default function App(): JSX.Element {
 
 
   // --- Lógica de Interação com a API (SIMULAÇÃO) ---
-  const callOpenaiApi = async (prompt: string, conversaId: string, date:number): Promise<string> => {
-  setIsLoading(true);
-  const token_jwt = localStorage.getItem('authToken');
-  try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat_novai_manager`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token_jwt}`
-      },
-      body: JSON.stringify({
-        message: prompt,
-        conversa_id: conversaId,   // ✅ agora o back recebe e pode persistir
-        date:date
-      }),
+  const callOpenaiApi = (prompt: string, conversaId: string, date: number): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    setIsLoading(true);
+    const token_jwt = localStorage.getItem('authToken');
+
+    // envia pro backend
+    socketRef.current?.emit('chat_novai_manager', {
+      message: prompt,
+      conversa_id: conversaId,
+      date,
     });
 
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
-    }
+    // escuta tokens (cada chamada = concatena)
+    socketRef.current?.on('chat_token', ({ text }) => {
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        { ...prev.at(-1)!, text: (prev.at(-1)?.text || '') + text }
+      ]);
+    });
 
-    const result = await response.json();
+    // fim da resposta
+    socketRef.current?.once('chat_done', ({ text }) => {
+      setIsLoading(false);
 
-    if (result.resposta_final) {
-      const aiResponseText = result.resposta_final;
-      chatHistoryRef.current.push({ role: 'user', parts: [{ text: prompt }] });
-      chatHistoryRef.current.push({ role: 'model', parts: [{ text: aiResponseText }] });
-      return aiResponseText;
-    } else {
-      return 'Não consegui processar essa informação. Podemos tentar de outra forma?';
-    }
-  } catch (error) {
-    console.error('API call failed:', error);
-    return 'Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.';
-  } finally {
-    setIsLoading(false);
-  }
+      if (text) {
+        chatHistoryRef.current.push({ role: 'user', parts: [{ text: prompt }] });
+        chatHistoryRef.current.push({ role: 'model', parts: [{ text }] });
+        resolve(text);
+      } else {
+        resolve('Não consegui processar essa informação. Podemos tentar de outra forma?');
+      }
+    });
+
+    // erro genérico
+    socketRef.current?.once('connect_error', (err) => {
+      setIsLoading(false);
+      console.error('API call failed:', err);
+      reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
+    });
+  });
 };
+
 
 
   // --- Manipuladores de Eventos ---
@@ -609,13 +655,12 @@ const startNewConversation = () => {
   // Se você mantém histórico para o modelo:
   chatHistoryRef.current = [{ role: 'model', parts: [{ text: welcome }] }];
 };
+const isDraft = (cid: string) => cid.startsWith('draft-');
 const handleSendMessage = async (messageText: string): Promise<void> => {
   if (messageText.trim() === '' || isLoading) return;
 
   const now = Date.now();
-
-  // Se for a primeira mensagem do usuário desta conversa, define o conversa_id final
-  const idForThisConversation = ensureFinalConversaId(messageText,now);
+  const idForThisConversation = ensureFinalConversaId(messageText, now);
 
   const userMessage: Message = {
     id: now,
@@ -623,9 +668,33 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
     sender: 'user',
     conversa_id: idForThisConversation,
   };
-  setMessages(prev => [...prev, userMessage]);
 
-  // (Opcional) histórico p/ modelo
+  setMessages(prev => {
+    const estouEmConversaNova = isDraft(idForThisConversation);
+
+    // 1) Se NÃO estou na conversa nova, limpo quaisquer drafts antes de salvar
+    let base = prev;
+    if (!estouEmConversaNova) {
+      base = removerTodasDrafts(base);
+    }
+
+    // 2) Adiciono a mensagem do usuário
+    let next = [...base, userMessage];
+
+    // 3) Verifico teto de conversas
+    const conversasDistintas = new Set(next.map(m => m.conversa_id)).size;
+    if (conversasDistintas > 6) {
+      // política: remover a conversa "mais parada"
+      const alvo = getConversaMaisAntiga(next);
+      if (alvo) {
+        next = removerConversa(next, alvo);
+      }
+    }
+
+    return next;
+  });
+
+  // histórico (opcional)
   chatHistoryRef.current = [
     ...(chatHistoryRef.current || []),
     { role: 'user', parts: [{ text: messageText }] },
@@ -633,7 +702,6 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
 
   setIsLoading(true);
   try {
-    // 🟡 Envie o conversa_id junto para o backend
     const aiResponseText = await callOpenaiApi(messageText, idForThisConversation, now);
 
     const aiMessage: Message = {
@@ -642,6 +710,8 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
       sender: 'ai',
       conversa_id: idForThisConversation,
     };
+
+    // adicionar resposta da IA (não muda o número de conversas, então não precisa revalidar teto)
     setMessages(prev => [...prev, aiMessage]);
 
     chatHistoryRef.current = [
@@ -659,8 +729,8 @@ const visibleMessages = useMemo(
 );
 const conversationList: ConversationListItem[] = useMemo(() => {
   const ids = Array.from(
-    messages.reduce((acc, m) => acc.add(m.conversa_id), new Set<string>())
-  );
+    messages.reduce((acc, m) => (acc.add(m.conversa_id)), new Set<string>())
+  ).filter(id => !id.startsWith('draft-')); // <-- filtra drafts
 
   return ids.map((id) => {
     const msgs = messages.filter(m => m.conversa_id === id);
@@ -744,7 +814,8 @@ const conversationList: ConversationListItem[] = useMemo(() => {
             )}
           </div>
           {/* Renderiza o título somente quando o painel está aberto */}
-          {(isLeftPanelPinned || isLeftPanelOpen) && ( <span style={styles.logoText}>NOVAI</span>
+          {(isLeftPanelPinned || isLeftPanelOpen) && (
+            <span style={styles.logoText}>NOVAI</span>
           )}
         </div>
         {(isLeftPanelPinned || isLeftPanelOpen) && (
@@ -826,6 +897,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
             <div style={{ display: 'flex', gap: 8, padding: '0 12px 8px' }}>
               <button
                 onClick={startNewConversation}
+                disabled={isLoading}
                 style={{
                   ...styles.smallButton,
                   ...(isHoveringNew ? styles.smallButtonHover : {})
@@ -851,12 +923,15 @@ const conversationList: ConversationListItem[] = useMemo(() => {
           ? { background: '#3a3a3a' } // cinza claro quando hover
           : {}),
         cursor: 'pointer',
+        opacity: isLoading ? 0.5 : 1,
         lineHeight: 1.2,
       }}
       title={conv.title}
-      onClick={() => setActiveConversaId(conv.id)}
-      onMouseEnter={() => setHoveredConvId(conv.id)}
-      onMouseLeave={() => setHoveredConvId(null)}
+      onClick={() => {
+        if(!isLoading){setActiveConversaId(conv.id)}
+      }}
+      onMouseEnter={() => !isLoading && setHoveredConvId(conv.id)}
+      onMouseLeave={() => !isLoading && setHoveredConvId(null)}
     >
       {truncate(conv.title, 32)}
       <div style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
@@ -1141,7 +1216,7 @@ aiMessageText: {
     alignSelf: 'flex-end',
     wordWrap: 'break-word',
     overflowWrap: 'anywhere',
-    maxWidth: '85%', // use maxWidth em vez de width pra não “empurrar”
+    maxWidth: '85%' // use maxWidth em vez de width pra não “empurrar”
   },
     smallButton: {
   background: 'transparent',
