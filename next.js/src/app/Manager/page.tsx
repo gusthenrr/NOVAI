@@ -568,12 +568,6 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
       date,
     });
 
-    // já cria bubble vazio da IA
-    setMessages(prev => [
-      ...prev,
-      { id: crypto.randomUUID(), sender: 'ai', text: '' }
-    ]);
-
     // escuta tokens (cada chamada = concatena)
     socket.on('chat_token', ({ text }) => {
       setMessages(prev => [
@@ -1281,6 +1275,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
