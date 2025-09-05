@@ -41,8 +41,12 @@ interface ChatInputProps {
 
 const formatDatePtBR = (d: Date) =>
   d.toLocaleString('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
   const buildConversaIdByDate = (createdAtMs: number) => {
   return `Nova Conversa • ${formatDatePtBR(new Date(createdAtMs))}`;
@@ -57,10 +61,11 @@ const truncate = (s: string, n: number) =>
 /**
  * Gera o conversa_id: "primeira mensagem do usuário • dd/mm/aaaa hh:mm"
  */
-const buildConversaId = (firstUserText: string, when: Date) => {
-  const preview = truncate(sanitizeOneLine(firstUserText), 40);
-  return `${preview} • ${formatDatePtBR(when)}`;
-};
+function buildConversaId(firstUserText: string, date: Date) {
+  // Ex.: "Primeira pergunta… • 05/09/2025 10:22:03"
+  const clean = firstUserText.trim().replace(/\s+/g, ' ').slice(0, 60); // limita tamanho
+  return `${clean} • ${formatDatePtBR(date)}`;
+}
 
 type Props = { resposta: string };
 const sanitizeSchema = {
