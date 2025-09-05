@@ -3,6 +3,7 @@ export async function handleLogin(email: string, password: string) {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user-login`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -23,4 +24,5 @@ export async function handleLogin(email: string, password: string) {
       return { success: false, message: 'Erro de rede. Tente novamente mais tarde.' };
     }
   }
+
   
