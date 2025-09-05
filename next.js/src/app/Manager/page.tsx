@@ -567,10 +567,6 @@ return new Promise((resolve, reject) => {
       date,
  });
   let aiBubbleCreated = false;
-    setMessages(prev => [
-      ...prev,
-      { id: crypto.randomUUID(), sender: 'ai', text: '' }
-    ]);
     // escuta tokens (cada chamada = concatena)
     socketRef.current?.on("chat_token", ({ token }) => {
   setMessages(prev => {
@@ -1286,3 +1282,4 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
