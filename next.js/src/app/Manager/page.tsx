@@ -589,16 +589,9 @@ return new Promise((resolve, reject) => {
 });
 // fim da resposta
     socketRef.current?.once('chat_done', ({ text }) => {
-      setIsLoading(false);
-
-      if (text) {
-        chatHistoryRef.current.push({ role: 'user', parts: [{ text: prompt }] });
-        chatHistoryRef.current.push({ role: 'model', parts: [{ text }] });
-        resolve(text);
-      } else {
-        resolve('Não consegui processar essa informação. Podemos tentar de outra forma?');
- }
-    });
+  setIsLoading(false);
+  resolve(text || 'Não consegui processar essa informação. Podemos tentar de outra forma?');
+  });
   // erro genérico
     socketRef.current?.once('connect_error', (err) => {
       setIsLoading(false);
@@ -1283,6 +1276,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
