@@ -3689,7 +3689,7 @@ Responda com base apenas na descrição das tables.
         for chunk in sintese_chain.stream(inputs)
             text=chunk
             partial.append(text)
-            socketio.emit("chat_token",{"token":text}, room = room)
+            socketio.emit("chat_token",{"text":text}, room = room)
         full = "".join(partial)
         socketio.emit('chat_done',{"text":full}, room=room)
         with get_db_connection() as conn, conn.cursor() as cur:
@@ -4180,6 +4180,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
