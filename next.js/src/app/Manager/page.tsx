@@ -418,8 +418,38 @@ export default function App(): JSX.Element {
   const [isHoveringNew, setIsHoveringNew] = useState<Boolean>(false)
   const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
 
+// 1) Encontra o conversa_id cuja ÚLTIMA mensagem (maior id) é a mais antiga entre todas
+function removerConversa(msgs: Message[], conversaId: string): Message[] {
+  return msgs.filter(m => m.conversa_id !== conversaId);
+}
 
+function removerTodasDrafts(msgs: Message[]): Message[] {
+  return msgs.filter(m => !isDraft(m.conversa_id));
+}
 
+// conversa cuja ÚLTIMA atividade (maior id) é a mais antiga
+function getConversaMaisAntiga(msgs: Message[]): string | null {
+  if (!msgs.length) return null;
+
+  const lastByConversa = new Map<string, number>();
+  for (const m of msgs) {
+    const last = lastByConversa.get(m.conversa_id);
+    if (last === undefined || m.id > last) {
+      lastByConversa.set(m.conversa_id, m.id);
+    }
+  }
+
+  let alvo: string | null = null;
+  let menorUltimoId = Number.POSITIVE_INFINITY;
+
+  for (const [cid, lastId] of lastByConversa.entries()) {
+    if (lastId < menorUltimoId) {
+      menorUltimoId = lastId;
+      alvo = cid;
+    }
+  }
+  return alvo;
+}
   // Efeito inicial para a mensagem de boas-vindas
   useEffect(() => {
     // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
@@ -609,13 +639,12 @@ const startNewConversation = () => {
   // Se você mantém histórico para o modelo:
   chatHistoryRef.current = [{ role: 'model', parts: [{ text: welcome }] }];
 };
+const isDraft = (cid: string) => cid.startsWith('draft-');
 const handleSendMessage = async (messageText: string): Promise<void> => {
   if (messageText.trim() === '' || isLoading) return;
 
   const now = Date.now();
-
-  // Se for a primeira mensagem do usuário desta conversa, define o conversa_id final
-  const idForThisConversation = ensureFinalConversaId(messageText,now);
+  const idForThisConversation = ensureFinalConversaId(messageText, now);
 
   const userMessage: Message = {
     id: now,
@@ -623,9 +652,33 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
     sender: 'user',
     conversa_id: idForThisConversation,
   };
-  setMessages(prev => [...prev, userMessage]);
 
-  // (Opcional) histórico p/ modelo
+  setMessages(prev => {
+    const estouEmConversaNova = isDraft(idForThisConversation);
+
+    // 1) Se NÃO estou na conversa nova, limpo quaisquer drafts antes de salvar
+    let base = prev;
+    if (!estouEmConversaNova) {
+      base = removerTodasDrafts(base);
+    }
+
+    // 2) Adiciono a mensagem do usuário
+    let next = [...base, userMessage];
+
+    // 3) Verifico teto de conversas
+    const conversasDistintas = new Set(next.map(m => m.conversa_id)).size;
+    if (conversasDistintas > 6) {
+      // política: remover a conversa "mais parada"
+      const alvo = getConversaMaisAntiga(next);
+      if (alvo) {
+        next = removerConversa(next, alvo);
+      }
+    }
+
+    return next;
+  });
+
+  // histórico (opcional)
   chatHistoryRef.current = [
     ...(chatHistoryRef.current || []),
     { role: 'user', parts: [{ text: messageText }] },
@@ -633,7 +686,6 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
 
   setIsLoading(true);
   try {
-    // 🟡 Envie o conversa_id junto para o backend
     const aiResponseText = await callOpenaiApi(messageText, idForThisConversation, now);
 
     const aiMessage: Message = {
@@ -642,6 +694,8 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
       sender: 'ai',
       conversa_id: idForThisConversation,
     };
+
+    // adicionar resposta da IA (não muda o número de conversas, então não precisa revalidar teto)
     setMessages(prev => [...prev, aiMessage]);
 
     chatHistoryRef.current = [
@@ -659,8 +713,8 @@ const visibleMessages = useMemo(
 );
 const conversationList: ConversationListItem[] = useMemo(() => {
   const ids = Array.from(
-    messages.reduce((acc, m) => acc.add(m.conversa_id), new Set<string>())
-  );
+    messages.reduce((acc, m) => (acc.add(m.conversa_id)), new Set<string>())
+  ).filter(id => !id.startsWith('draft-')); // <-- filtra drafts
 
   return ids.map((id) => {
     const msgs = messages.filter(m => m.conversa_id === id);
@@ -1142,7 +1196,7 @@ aiMessageText: {
     alignSelf: 'flex-end',
     wordWrap: 'break-word',
     overflowWrap: 'anywhere',
-    maxWidth: '85%', // use maxWidth em vez de width pra não “empurrar”
+    maxWidth: '85%' // use maxWidth em vez de width pra não “empurrar”
   },
     smallButton: {
   background: 'transparent',
@@ -1200,33 +1254,3 @@ inputField: {
     lineHeight: '1.5',
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
