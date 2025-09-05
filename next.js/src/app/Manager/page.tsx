@@ -575,7 +575,7 @@ return new Promise((resolve, reject) => {
       aiBubbleCreated = true;
       return [
         ...prev,
-        { id: crypto.randomUUID(), sender: "ai", text: token }
+        { id: crypto.randomUUID(), sender: "ai", text: token, convesa_id:conversaId}
       ];
     }
 
@@ -1282,4 +1282,5 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
