@@ -560,13 +560,8 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     setIsLoading(true);
 
     const reqId = `${conversaId}:${Date.now()}`; // requestId único
-    const aiMessageId = Date.now();             // id do balão da IA
-
-    // 1) cria o balão vazio antes de começar a stream
-    setMessages(prev => [
-      ...prev,
-      { id: aiMessageId, sender: 'ai', text: '', conversa_id: conversaId }
-    ]);
+    const stamp = Date.now();
+    const aiMessageId = stamp + 1;             // id do balão da IA
 
     // 2) garanta que não existam listeners antigos
     socketRef.current?.off('chat_token');
@@ -574,21 +569,32 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     socketRef.current?.off('connect_error');
 
     // 3) registra listeners *filtrando por reqId*
-    const onToken = ({ text, requestId }: { text: string; requestId: string }) => {
-      if (requestId !== reqId) return; // ignora streams antigas
-      setIsLoading(false);
-      setMessages(prev => {
-        // atualiza pelo id da msg da IA
-        const idx = prev.findIndex(m => m.id === aiMessageId);
-        if (idx === -1) return prev;
-        const current = prev[idx];
-        return [
-          ...prev.slice(0, idx),
-          { ...current, text: (current.text || '') + (text || '') },
-          ...prev.slice(idx + 1)
-        ];
-      });
-    };
+const onToken = ({ text, requestId }: { text: string; requestId: string }) => {
+  if (requestId !== reqId) return; // ignora streams de outras chamadas
+  setIsLoading(false);
+  const chunk = text ?? '';
+
+  setMessages(prev => {
+    // procura o balão da IA; se não existir, este é o 1º token
+    const idx = prev.findIndex(m => m.id === aiMessageId);
+
+    // ✅ Primeiro token → cria o balão já com o chunk
+    if (idx === -1) {
+      return [
+        ...prev,
+        { id: aiMessageId, sender: 'ai', text: chunk, conversa_id: conversaId }
+      ];
+    }
+
+    // ➕ Demais tokens → concatena no balão existente
+    const current = prev[idx];
+    return [
+      ...prev.slice(0, idx),
+      { ...current, text: (current.text || '') + chunk },
+      ...prev.slice(idx + 1)
+    ];
+  });
+};
 
     const onDone = ({ text, requestId }: { text: string; requestId: string }) => {
       if (requestId !== reqId) return;
@@ -1301,6 +1307,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
