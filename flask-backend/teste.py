@@ -3752,8 +3752,8 @@ Pensamento: {pensamento}
         "- Quando chamar_funcao, a ÚNICA função disponível é 'mais_vendas_no_mercado_livre'.\n"
         "Responda SOMENTE com JSON VÁLIDO, sem texto extra, sem comentários, sem crases.\n"
         "Exemplos válidos:\n"
-        '{"possibilidade": true, "acao": "usar_tabelas", "tables": ["pedidos_resumo","itens"], "funcao": null}\n'
-        '{"possibilidade": false, "acao": "chamar_funcao", "tables": null, "funcao": "mais_vendas_no_mercado_livre"}\n\n'
+        '{{"possibilidade": true, "acao": "usar_tabelas", "tables": ["pedidos_resumo","itens"], "funcao": null}}\n'
+        '{{"possibilidade": false, "acao": "chamar_funcao", "tables": null, "funcao": "mais_vendas_no_mercado_livre"}}\n\n'
         "Pergunta nova: {input}\n"
         "Base de Dados (descrição das tables): {detalhes}\n"
         "Responda APENAS com os campos do JSON."
@@ -4344,6 +4344,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
