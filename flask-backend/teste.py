@@ -3750,15 +3750,13 @@ Pensamento: {pensamento}
         "- Se for ambígua ou claramente sobre o meu negócio, use usar_tabelas (padrão).\n"
         "- possibilidade = true somente quando for usar_tabelas; false quando for chamar_funcao.\n"
         "- Quando chamar_funcao, a ÚNICA função disponível é 'mais_vendas_no_mercado_livre'.\n"
-        "Saída STRICT (JSON compatível com o modelo):\n"
-        "{\n"
-        '  "possibilidade": <true|false>,\n'
-        '  "acao": "usar_tabelas" | "chamar_funcao",\n'
-        '  "funcao": "mais_vendas_no_mercado_livre" | null\n'
-        "}\n\n"
+        "Responda SOMENTE com JSON VÁLIDO, sem texto extra, sem comentários, sem crases.\n"
+        "Exemplos válidos:\n"
+        '{"possibilidade": true, "acao": "usar_tabelas", "tables": ["pedidos_resumo","itens"], "funcao": null}\n'
+        '{"possibilidade": false, "acao": "chamar_funcao", "tables": null, "funcao": "mais_vendas_no_mercado_livre"}\n\n'
         "Pergunta nova: {input}\n"
         "Base de Dados (descrição das tables): {detalhes}\n"
-        "Responda APENAS com os três campos.\n"
+        "Responda APENAS com os campos do JSON."
     ),
     input_variables=["input", "detalhes"]
 )
@@ -3784,7 +3782,7 @@ Pensamento: {pensamento}
             print("Vai pegar os dados do proprio vendedor")
             tables = out.tables or ["pedidos_resumo", "anuncios_metricas_diarias", "itens"]
             return_final = chat_novai_manager_table_verification(tables, mensagem, user_id, id_conversa)
-    patial=[]
+    partial=[]
     try:
 
         final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
@@ -4346,6 +4344,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
