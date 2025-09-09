@@ -556,51 +556,86 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
 
   // --- Lógica de Interação com a API (SIMULAÇÃO) ---
  const callOpenaiApi = (prompt: string, conversaId: string, date: number): Promise<string> => {
-return new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     setIsLoading(true);
-    const token_jwt = localStorage.getItem('authToken');
 
-    // envia pro backend
- socketRef.current?.emit('chat_novai_manager', {
+    const reqId = `${conversaId}:${Date.now()}`; // requestId único
+    const aiMessageId = Date.now();             // id do balão da IA
+
+    // 1) cria o balão vazio antes de começar a stream
+    setMessages(prev => [
+      ...prev,
+      { id: aiMessageId, sender: 'ai', text: '', conversa_id: conversaId }
+    ]);
+
+    // 2) garanta que não existam listeners antigos
+    socketRef.current?.off('chat_token');
+    socketRef.current?.off('chat_done');
+    socketRef.current?.off('connect_error');
+
+    // 3) registra listeners *filtrando por reqId*
+    const onToken = ({ text, requestId }: { text: string; requestId: string }) => {
+      if (requestId !== reqId) return; // ignora streams antigas
+      setIsLoading(false);
+      setMessages(prev => {
+        // atualiza pelo id da msg da IA
+        const idx = prev.findIndex(m => m.id === aiMessageId);
+        if (idx === -1) return prev;
+        const current = prev[idx];
+        return [
+          ...prev.slice(0, idx),
+          { ...current, text: (current.text || '') + (text || '') },
+          ...prev.slice(idx + 1)
+        ];
+      });
+    };
+
+    const onDone = ({ text, requestId }: { text: string; requestId: string }) => {
+      if (requestId !== reqId) return;
+      setIsLoading(false);
+      // limpeza de listeners desta chamada
+      socketRef.current?.off('chat_token', onToken);
+      socketRef.current?.off('chat_done', onDone);
+
+      // garante texto final sincronizado
+      if (typeof text === 'string' && text.length) {
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === aiMessageId);
+          if (idx === -1) return prev;
+          const current = prev[idx];
+          // se já veio tudo via tokens, evita duplicar
+          if ((current.text || '') === text) return prev;
+          return [
+            ...prev.slice(0, idx),
+            { ...current, text },
+            ...prev.slice(idx + 1)
+          ];
+        });
+      }
+      resolve(text || 'Não consegui processar essa informação. Podemos tentar de outra forma?');
+    };
+
+    const onErr = (err: unknown) => {
+      setIsLoading(false);
+      socketRef.current?.off('chat_token', onToken);
+      socketRef.current?.off('chat_done', onDone);
+      console.error('API call failed:', err);
+      reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
+    };
+
+    socketRef.current?.on('chat_token', onToken);
+    socketRef.current?.once('chat_done', onDone);
+    socketRef.current?.once('connect_error', onErr);
+
+    // 4) dispara a requisição já enviando o requestId
+    socketRef.current?.emit('chat_novai_manager', {
       message: prompt,
       conversa_id: conversaId,
       date,
- });
-  let aiBubbleCreated = false;
-    // escuta tokens (cada chamada = concatena)
-    socketRef.current?.on("chat_token", ({ text }) => {
-  setMessages(prev => {
-    setIsLoading(false)
-    // se ainda não existe balão da IA, cria um vazio primeiro
-    if (!aiBubbleCreated) {
-      aiBubbleCreated = true;
-      return [
-        ...prev,
-        { id: Date.now(), sender: "ai", text: text, conversa_id:conversaId}
-      ];
-    }
-
-    // se já existe, atualiza o último balão concatenando tokens
-    return [
-      ...prev.slice(0, -1),
-      { ...prev.at(-1)!, text: (prev.at(-1)?.text || "") + text }
-    ];
-  });
-});
-// fim da resposta
-    socketRef.current?.once('chat_done', ({ text }) => {
-  setIsLoading(false);
-  resolve(text || 'Não consegui processar essa informação. Podemos tentar de outra forma?');
-  });
-  // erro genérico
-    socketRef.current?.once('connect_error', (err) => {
-      setIsLoading(false);
-      console.error('API call failed:', err);
-      reject('Desculpe, ocorreu um erro de conexão. Por favor, tente novamente.');
+      request_id: reqId
     });
- });
+  });
 };
-
 
 
   // --- Manipuladores de Eventos ---
@@ -1266,6 +1301,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
