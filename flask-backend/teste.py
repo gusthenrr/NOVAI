@@ -776,7 +776,6 @@ def orders_notifications(resource,acess_token, data_ant):
         existing_order = cur.fetchone()
         date_created = order_data.get('date_created', None)
         date_closed = order_data.get('date_closed', None)
-        date_approved = order_data.get('date_approved', None)
         last_updated = order_data.get('last_updated', None)
         total_amount = order_data.get('total_amount', None)
         paid_amount = order_data.get('paid_amount', None)
@@ -785,6 +784,7 @@ def orders_notifications(resource,acess_token, data_ant):
         order_data_payments = order_data.get('payments', [])
         payments = order_data_payments[0] 
         status = payments.get('status', None)
+        date_approved = payments.get('date_approved', None)
         shipping_cost = payments.get('shipping_cost', None)
         payment_method = payments.get('payment_method_id', None)
         payment_type = payments.get('payment_type', None)
@@ -4182,6 +4182,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
