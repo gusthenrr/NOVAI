@@ -33,7 +33,7 @@ from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 from langchain.prompts.few_shot import FewShotPromptTemplate
 from langchain.prompts.prompt import PromptTemplate
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Literal
 
 DB_HOST = "localhost"
 DB_PORT = "5432"
@@ -3457,6 +3457,140 @@ def _row_to_message(author: str, content: str) -> BaseMessage:
     else:
         return SystemMessage(content=content)
 
+class Simplificador(BaseModel):
+    """Cria a URL necessária para satisfazer a pergunta feita pelo vendedor."""
+    url: str = Field(
+        description="Retorne APENAS a URL completa da requisição HTTP (começando com https://api.mercadolibre.com/)."
+    )
+
+def mais_vendas_no_mercado_livre(
+    user_id: int,
+    message: str,
+    access_token,
+    site: str = "MLB",
+) -> str:
+    """
+    Dado o texto do vendedor (message), retorna APENAS a URL para consultar:
+      - /sites/{site}/search (ranking por categoria/termo)
+      - /highlights/{site}/category/{CATEGORY_ID}
+      - /trends/{site}/{CATEGORY_ID}
+
+    Sem few-shot: usa um prompt único com regras + exemplos + categorias.
+    """
+
+    # 1) Instancia o modelo se não veio de fora
+    if llm is None:
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+    # 2) Catálogo de endpoints e exemplos (usando o parâmetro `site`)
+    exemplos: List[Dict[str, Any]] = [
+        {
+            "EndPoint": f"https://api.mercadolibre.com/sites/{site}/search",
+            "Exemplo de uso": f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50",
+            "Mais exemplos": [
+                f"/sites/{site}/search?q={{QUERY}}&sort=sold_quantity_desc&limit=50",
+                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&shipping=free&limit=50",
+                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&condition=new&limit=50",
+                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&price={{MIN}}-{{MAX}}&limit=50",
+                f"/sites/{site}/search?q={{QUERY}}&category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50",
+                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50&offset={{0|50|100}}"
+            ],
+            "Pra quê serve": (
+                "Pegar ranking de itens (sold_quantity, price, seller.id, official_store_id etc.) "
+                "e montar um Top N de concorrentes por categoria/termo."
+            ),
+            "Observações": [
+                "sold_quantity é acumulado (não é janela de 30 dias).",
+                "Use paginação (limit/offset) para cobrir mais itens.",
+                "Filtre com available_filters (shipping, condition, price...).",
+                "Requer OAuth em muitos ambientes (401/403 sem token)."
+            ]
+        },
+        {
+            "EndPoint": f"https://api.mercadolibre.com/highlights/{site}/category/{{CATEGORY_ID}}",
+            "Exemplo de uso": f"/highlights/{site}/category/MLB1055",
+            "Pra quê serve": "Lista oficial de 'Mais vendidos' por categoria (ótimo para validar líderes reais e cruzar com SERP).",
+            "Observações": [
+                "Retorna uma lista curta/curada. Combine com /sites/.../search para cobertura ampla."
+            ]
+        },
+        {
+            "EndPoint": f"https://api.mercadolibre.com/trends/{site}/{{CATEGORY_ID}}",
+            "Exemplo de uso": f"/trends/{site}/MLB1055",
+            "Pra quê serve": "Termos/consultas em alta na categoria para priorizar palavras-chave, anúncios e estoque.",
+            "Observações": [
+                "Use junto com a SERP para estimar oportunidade e acompanhar sazonalidade."
+            ]
+        }
+    ]
+
+    # 3) Categorias (pode trocar por cache no seu Postgres)
+    url_info_categories = f"https://api.mercadolibre.com/sites/{site}/categories"
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    try:
+        r = requests.get(url_info_categories, headers=headers, timeout=20)
+        r.raise_for_status()
+        categorias_api = r.json()
+        # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
+        categorias_compactas = [{"id": c.get("id"), "name": c.get("name")} for c in categorias_api]
+    except Exception:
+        categorias_compactas = []
+
+    # 4) Regras e prompt único (sem few-shot)
+    regras = (
+        "Você é um gerador de URL para a API do Mercado Livre.\n"
+        f"- Site: {site}\n"
+        "- Escolha SOMENTE UM endpoint entre:\n"
+        "  (a) /sites/{SITE}/search\n"
+        "  (b) /highlights/{SITE}/category/{CATEGORY_ID}\n"
+        "  (c) /trends/{SITE}/{CATEGORY_ID}\n"
+        "- Se o pedido for por CATEGORIA, use o CATEGORY_ID correto (veja lista de categorias abaixo).\n"
+        "- Se for por TERMO (palavra-chave), use q={QUERY}.\n"
+        "- Para ranking: inclua sort=sold_quantity_desc e limit=50.\n"
+        "- Se citar frete grátis, inclua shipping=free.\n"
+        "- Se citar condição (novo/usado), use condition=new ou condition=used.\n"
+        "- Se citar faixa de preço, use price=MIN-MAX (ex.: price=100-500).\n"
+        "- Se citar paginação, inclua offset (múltiplos de 50).\n"
+        "- Responda APENAS com JSON válido no formato: {\"url\": \"<URL_COMPLETA>\"}.\n"
+    ).replace("{SITE}", site)
+
+    prompt_tmpl = PromptTemplate(
+        input_variables=["input", "exemplos", "categorias", "regras"],
+        template=(
+            "REGRAS:\n{regras}\n\n"
+            "ENDPOINTS DISPONÍVEIS (exemplos e observações):\n{exemplos}\n\n"
+            "CATEGORIAS CONHECIDAS (id↔nome, raízes):\n{categorias}\n\n"
+            "PERGUNTA:\n{input}\n\n"
+            "SAÍDA ESPERADA (APENAS JSON): {\"url\": \"...\"}\n"
+        ),
+    )
+
+    # 5) Executa o chain com structured output
+    chain = prompt_tmpl | llm.with_structured_output(Simplificador)
+    out: Simplificador = chain.invoke({
+        "input": message,
+        "exemplos": json.dumps(exemplos, ensure_ascii=False),
+        "categorias": json.dumps(categorias_compactas, ensure_ascii=False),
+        "regras": regras
+    })
+
+    url = (out.url or "").strip() if out else ""
+
+    # 6) Fallback: se vier vazio, tenta construir por termo (q=)
+    if not url:
+        query = quote(message.strip()) if message.strip() else "mais%20vendidos"
+        url = f"https://api.mercadolibre.com/sites/{site}/search?q={query}&sort=sold_quantity_desc&limit=50"
+
+    return url
+
+    
+        
+    
+
+
+
+
+
 
 def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limit: int = 6) -> list[BaseMessage]:
     """
@@ -3571,6 +3705,13 @@ Seja extremamente direto.
             "pensamento": "analisando a descrição das tables, é possivel agregar essa informação atraves da table pedidos_resumo que contem informações dos pedidos e/ ou atraves da table anuncios_metricas_diarias que contem informações sobre os anuncios e suas metricas e vendas diarias"
         },
         {
+            "pergunta": "Quais os itens que mais estão vendendo no Mercado Livre?",
+            "pensamento": (
+                "Explícito sobre o marketplace geral (concorrentes). "
+                "Chamar função externa 'mais_vendas_no_mercado_livre' para gerar URL de SERP."
+            )
+        },
+        {
             "pergunta": "qual a senha do mercado livre",
             "pensamento": "analisando a descrição das tables,não é possível agregar essa informação atraves de nenhuma table"
         },
@@ -3581,7 +3722,14 @@ Seja extremamente direto.
         {
             "pergunta":"me mande qual item que mais vendeu e a descricao dele",
             "pensamento":"analisando a descricao das tables e suas Relações, é possível agregar a resposta atraves de duas tables: 'pedidos_resumo' e 'itens'."
-        }
+        },
+             {
+            "pergunta": "Quais os itens que mais estão vendendo?",
+            "pensamento": (
+                "Pergunta ambígua (não citou Mercado Livre geral nem concorrentes). "
+                "Padrão = meu negócio → usar banco: pedidos_resumo, anuncios_metricas_diarias, itens."
+            )
+    },
     ]
 
     example_prompt = PromptTemplate(
@@ -3591,36 +3739,81 @@ Pensamento: {pensamento}
 """
     )
 
+    
     prompt = FewShotPromptTemplate(
-        examples=exemplos,
-        example_prompt=example_prompt,
-        suffix="""
-Pergunta nova: {input}
-Base de Dados: {detalhes}
-Responda com base apenas na descrição das tables.
-""",
-        input_variables=["input", "detalhes"]
-    )
+    examples=exemplos,
+    example_prompt=example_prompt,
+    suffix=(
+        "Decida entre usar tabelas internas (meu negócio) OU chamar uma função externa (concorrentes/ML geral).\n"
+        "REGRAS:\n"
+        "- Se mencionar explicitamente 'no Mercado Livre', 'concorrentes', 'outros vendedores', 'ranking geral', use chamar_funcao.\n"
+        "- Se for ambígua ou claramente sobre o meu negócio, use usar_tabelas (padrão).\n"
+        "- possibilidade = true somente quando for usar_tabelas; false quando for chamar_funcao.\n"
+        "- Quando chamar_funcao, a ÚNICA função disponível é 'mais_vendas_no_mercado_livre'.\n"
+        "Saída STRICT (JSON compatível com o modelo):\n"
+        "{\n"
+        '  "possibilidade": <true|false>,\n'
+        '  "acao": "usar_tabelas" | "chamar_funcao",\n'
+        '  "funcao": "mais_vendas_no_mercado_livre" | null\n'
+        "}\n\n"
+        "Pergunta nova: {input}\n"
+        "Base de Dados (descrição das tables): {detalhes}\n"
+        "Responda APENAS com os três campos.\n"
+    ),
+    input_variables=["input", "detalhes"]
+)
 
 
-    class Simplificador(BaseModel):
-        '''Decide se é possível agregar dados com as tabelas disponíveis.'''
-        possibilidade: bool = Field(description="True se dá para buscar nas tabelas; False se não.")
-        tables: Optional[List[str]] = Field(description='Lista com nomes exatos das tabelas, ex: ["pedidos_resumo","itens"]. Deixe como None se a possibilidade for false')
+    class RoteadorSlim(BaseModel):
+        """Decide ação mínima para responder: interno vs concorrentes."""
+        possibilidade: bool = Field(description="True se dá para agregar com tables internas; False se não.")
+        acao: Literal["usar_tabelas", "chamar_funcao"] = Field(description="usar_tabelas ou chamar_funcao")
+        tables: Optional[List[str]] = Field(
+            default=None,
+            description="Nomes das tables se acao='usar_tabelas'; senão None"
+        )
+        funcao: Optional[Literal["mais_vendas_no_mercado_livre"]] = Field(
+            default=None,
+            description="Nome da função quando acao='chamar_funcao'; senão None."
+        )
     return_final = None
-    def route(out: Simplificador):
+    def route(out: RoteadorSlim):
+        """
+        Decide executar busca interna (tabelas) OU função externa (concorrentes).
+        - usar_tabelas  -> consulta interna (retorna resultado do seu verificador)
+        - chamar_funcao -> chama mais_vendas_no_mercado_livre e retorna a URL
+        """
         nonlocal return_final
-        print(f'output : {out}')
-        if not out.possibilidade:
-            print('\n--- Resposta direta do LLM (sem banco) ---\n')
-            resp = model.invoke('Voce nao tem acesso a esse dados, informe o vendedor que nao possui esses dados, mas tente ajudar da melhor forma que der'+guardar_mensagem)
-            print('resp:',resp.content)
-            return_final =  resp
-        elif out.tables:
-            print('\n--- Próxima etapa: consultar essas tables ---\n')
-            print(f"Tabelas a consultar: {out.tables}")
-            # Exemplo: chamar a próxima etapa de busca real
-            return_final =  chat_novai_manager_table_verification(out.tables, guardar_mensagem, user_id,id_conversa)
+        print("output (roteador slim):", out)
+    
+        if out.acao == "chamar_funcao":
+            # Concorrentes / ML geral -> gera URL (externo)
+            try:
+                url = mais_vendas_no_mercado_livre(
+                    user_id=user_id,
+                    message=mensagem,          # use a mesma variável que você passou ao LLM
+                    access_token=access_token, # seu OAuth access_token
+                    site=site                  # "MLB" ou variável externa
+                )
+                print("URL gerada (concorrentes):", url)
+                return_final = url
+            except Exception as e:
+                print("Erro ao montar URL de concorrentes:", e)
+                return_final = None
+            return
+    
+        # usar_tabelas (padrão interno)
+        try:
+            tables_escolhidas = out.tables or ["pedidos_resumo", "anuncios_metricas_diarias", "itens"]
+            print("Consultando tabelas internas:", tables_escolhidas)
+            res = chat_novai_manager_table_verification(
+                tables_escolhidas, mensagem, user_id, id_conversa
+            )
+            return_final = res
+        except Exception as e:
+            print("Erro ao consultar tabelas internas:", e)
+            return_final = None
+    
     try:
 
         final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
@@ -4183,6 +4376,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
