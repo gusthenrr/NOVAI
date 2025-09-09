@@ -3529,10 +3529,8 @@ def mais_vendas_no_mercado_livre(
     headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
         r = requests.get(url_info_categories, headers=headers, timeout=20)
-        r.raise_for_status()
-        categorias_api = r.json()
         # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
-        categorias_compactas = [{"id": c.get("id"), "name": c.get("name")} for c in categorias_api]
+        categorias_compactas = r.json()
     except Exception:
         categorias_compactas = []
 
@@ -4344,6 +4342,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
