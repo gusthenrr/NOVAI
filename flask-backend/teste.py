@@ -3784,7 +3784,7 @@ Pensamento: {pensamento}
             print("Vai pegar os dados do proprio vendedor")
             tables = out.tables or ["pedidos_resumo", "anuncios_metricas_diarias", "itens"]
             return_final = chat_novai_manager_table_verification(tables, mensagem, user_id, id_conversa)
-    
+    patial=[]
     try:
 
         final_prompt_text = prompt.format(input=mensagem, detalhes=descricao_db)
@@ -3799,7 +3799,7 @@ Pensamento: {pensamento}
             ("human", "{final_prompt}")
         ])
         
-        decisao_chain = decisao_prompt | model.with_structured_output(Simplificador) | route
+        decisao_chain = decisao_prompt | model.with_structured_output(RoteadorSlim) | route
         
         decisao_chain.invoke({
             "history": history_msgs,
@@ -3851,7 +3851,6 @@ Pensamento: {pensamento}
             # garanta que mensagem_final seja string; se vier lista/dict, serialize:
             "mensagem_final": json.dumps(return_final, ensure_ascii=False, default=str) if not isinstance(return_final, str) else return_final
         }
-        partial = []
         for chunk in sintese_chain.stream(inputs):
             text=chunk
             partial.append(text)
@@ -4347,6 +4346,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
