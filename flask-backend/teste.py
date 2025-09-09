@@ -3510,6 +3510,7 @@ def chat_novai_manager_requisicao(data):
             return
     except:
         return
+    request_id = data.get("request_id")
     mensagem = data.get('message')
     id_conversa = data.get('conversa_id', '')
     date_unix = data.get('date')
@@ -3690,12 +3691,12 @@ Responda com base apenas na descrição das tables.
         for chunk in sintese_chain.stream(inputs):
             text=chunk
             partial.append(text)
-            socketio.emit("chat_token",{"text":text}, room = room)  
+            socketio.emit("chat_token", {"text": text, "requestId": request_id}, room=room)  
     except Exception as e:
         print(f'Erro ao processar o modelo: {e}')
     finally:
         full = "".join(partial)
-        socketio.emit('chat_done',{"text":full}, room=room)
+        socketio.emit("chat_done", {"text": full, "requestId": request_id}, room=room)
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(full, id_conversa, user_id, date, 'ai'))
 
@@ -4182,6 +4183,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
