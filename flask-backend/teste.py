@@ -3825,6 +3825,7 @@ def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: i
     - 'id_order': TEXT, PRIMARY KEY
     - 'date_created': TIMESTAMP
     - 'date_closed': TIMESTAMP
+    - 'date_approved': TIMESTAMP
     - 'last_updated': TIMESTAMP
     - 'status': TEXT (valores possíveis: approved, in_mediation, rejected, charged_back, refunded, cancelled)
     - 'total_amount': NUMERIC(10,2)
@@ -4182,6 +4183,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
