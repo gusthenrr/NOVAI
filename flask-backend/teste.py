@@ -3765,54 +3765,25 @@ Pensamento: {pensamento}
 
 
     class RoteadorSlim(BaseModel):
-        """Decide ação mínima para responder: interno vs concorrentes."""
         possibilidade: bool = Field(description="True se dá para agregar com tables internas; False se não.")
         acao: Literal["usar_tabelas", "chamar_funcao"] = Field(description="usar_tabelas ou chamar_funcao")
-        tables: Optional[List[str]] = Field(
-            default=None,
-            description="Nomes das tables se acao='usar_tabelas'; senão None"
-        )
-        funcao: Optional[Literal["mais_vendas_no_mercado_livre"]] = Field(
-            default=None,
-            description="Nome da função quando acao='chamar_funcao'; senão None."
-        )
+        tables: Optional[List[str]] = Field(default=None, description="Tabelas quando acao='usar_tabelas'")
+        funcao: Optional[Literal["mais_vendas_no_mercado_livre"]] = Field(default=None)
     return_final = None
     def route(out: RoteadorSlim):
-        """
-        Decide executar busca interna (tabelas) OU função externa (concorrentes).
-        - usar_tabelas  -> consulta interna (retorna resultado do seu verificador)
-        - chamar_funcao -> chama mais_vendas_no_mercado_livre e retorna a URL
-        """
         nonlocal return_final
-        print("output (roteador slim):", out)
-    
-        if out.acao == "chamar_funcao":
-            # Concorrentes / ML geral -> gera URL (externo)
-            try:
-                url = mais_vendas_no_mercado_livre(
-                    user_id=user_id,
-                    message=mensagem,          # use a mesma variável que você passou ao LLM
-                    access_token=access_token, # seu OAuth access_token
-                    site=site                  # "MLB" ou variável externa
-                )
-                print("URL gerada (concorrentes):", url)
-                return_final = url
-            except Exception as e:
-                print("Erro ao montar URL de concorrentes:", e)
-                return_final = None
-            return
-    
-        # usar_tabelas (padrão interno)
-        try:
-            tables_escolhidas = out.tables or ["pedidos_resumo", "anuncios_metricas_diarias", "itens"]
-            print("Consultando tabelas internas:", tables_escolhidas)
-            res = chat_novai_manager_table_verification(
-                tables_escolhidas, mensagem, user_id, id_conversa
+        if out.acao == "chamar_funcao" and out.funcao == "mais_vendas_no_mercado_livre":
+            print("Entrou na parte de concorrentes")
+            return_final = mais_vendas_no_mercado_livre(
+                user_id=user_id,
+                message=mensagem,
+                access_token=access_token,
+                site=site
             )
-            return_final = res
-        except Exception as e:
-            print("Erro ao consultar tabelas internas:", e)
-            return_final = None
+        elif out.acao == "usar_tabelas":
+            print("Vai pegar os dados do proprio vendedor")
+            tables = out.tables or ["pedidos_resumo", "anuncios_metricas_diarias", "itens"]
+            return_final = chat_novai_manager_table_verification(tables, mensagem, user_id, id_conversa)
     
     try:
 
@@ -4376,6 +4347,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
