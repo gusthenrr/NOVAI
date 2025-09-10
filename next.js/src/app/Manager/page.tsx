@@ -510,10 +510,11 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
 
         // Cria a mensagem inicial do AI
         const initialAiMessage = {
-            id: Date.now(), 
+            id: nextId(), 
             text: initialMessage, 
             sender: 'ai', 
-            conversa_id: draftId
+            conversa_id: draftId,
+            createdAt: Date.now(), 
         };
 
         // Combina a nova mensagem inicial com as mensagens do histórico.
@@ -1320,6 +1321,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
