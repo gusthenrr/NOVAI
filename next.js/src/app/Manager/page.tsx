@@ -8,10 +8,11 @@ import { io, Socket } from 'socket.io-client';
 
 // --- Tipos para maior segurança e clareza ---
 interface Message {
-  id: number;
+  id: string;
   text: string;
   sender: 'ai' | 'user';
   conversa_id: string;
+  createdAt: number;
 }
 
 type ConversationListItem = {
@@ -423,6 +424,8 @@ export default function App(): JSX.Element {
   const [isHoveringNew, setIsHoveringNew] = useState<Boolean>(false)
   const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const msgSeqRef = useRef(0);
+  const nextId = () => `${Date.now()}-${++msgSeqRef.current}`;
 
 // 1) Encontra o conversa_id cuja ÚLTIMA mensagem (maior id) é a mais antiga entre todas
 function removerConversa(msgs: Message[], conversaId: string): Message[] {
@@ -560,8 +563,8 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
     setIsLoading(true);
 
     const reqId = `${conversaId}:${Date.now()}`; // requestId único
-    const stamp = Date.now();
-    const aiMessageId = stamp + 1;             // id do balão da IA
+    const aiMsgId = nextId();
+    const aiCreatedAt = Date.now();            // id do balão da IA
 
     // 2) garanta que não existam listeners antigos
     socketRef.current?.off('chat_token');
@@ -576,13 +579,13 @@ const onToken = ({ text, requestId }: { text: string; requestId: string }) => {
 
   setMessages(prev => {
     // procura o balão da IA; se não existir, este é o 1º token
-    const idx = prev.findIndex(m => m.id === aiMessageId);
-
+    const idx = prev.findIndex(m => m.id === aiMsgId);
+    
     // ✅ Primeiro token → cria o balão já com o chunk
     if (idx === -1) {
       return [
         ...prev,
-        { id: aiMessageId, sender: 'ai', text: chunk, conversa_id: conversaId }
+        { id: aiMsgId, sender: 'ai', text: chunk, conversa_id: conversaId, createdAt: aiCreatedAt }
       ];
     }
 
@@ -606,7 +609,7 @@ const onToken = ({ text, requestId }: { text: string; requestId: string }) => {
       // garante texto final sincronizado
       if (typeof text === 'string' && text.length) {
         setMessages(prev => {
-          const idx = prev.findIndex(m => m.id === aiMessageId);
+          const idx = prev.findIndex(m => m.id === aiMsgId);
           if (idx === -1) return prev;
           const current = prev[idx];
           // se já veio tudo via tokens, evita duplicar
@@ -708,10 +711,11 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
   const idForThisConversation = ensureFinalConversaId(messageText, now);
 
   const userMessage: Message = {
-    id: now,
+    id: nextId(),
     text: messageText,
     sender: 'user',
     conversa_id: idForThisConversation,
+    createdAt: now,
   };
  setMessages(prev => {
     const estouEmConversaNova = isDraft(idForThisConversation);
@@ -756,10 +760,19 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
   }
 };
 
-const visibleMessages = useMemo(
-  () => messages.filter(m => m.conversa_id === activeConversaId),
-  [messages, activeConversaId]
-);
+const visibleMessages = useMemo(() => {
+  return messages
+    .filter(m => m.conversa_id === activeConversaId)
+    .slice()
+    .sort((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      // desempate estável: usuário antes da IA no mesmo timestamp
+      if (a.sender !== b.sender) return a.sender === 'user' ? -1 : 1;
+      // último desempate por id (string) para estabilidade
+      return a.id.localeCompare(b.id);
+    });
+}, [messages, activeConversaId]);
+  
 const conversationList: ConversationListItem[] = useMemo(() => {
   const ids = Array.from(
     messages.reduce((acc, m) => (acc.add(m.conversa_id)), new Set<string>())
@@ -1307,6 +1320,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
