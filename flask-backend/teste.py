@@ -3555,7 +3555,7 @@ def mais_vendas_no_mercado_livre(
             r = requests.get(url_info_categories, headers=headers, timeout=20)
             # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
             categorias_compactas = r.json()
-            print("categorias:" categorias_compactas)
+            print("categorias:", categorias_compactas)
         except Exception:
             categorias_compactas = []
     
@@ -4369,6 +4369,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
