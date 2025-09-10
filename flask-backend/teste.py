@@ -3503,8 +3503,7 @@ def mais_vendas_no_mercado_livre(
                         conn.commit()
         
         # 1) Instancia o modelo se não veio de fora
-        if llm is None:
-            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     
         # 2) Catálogo de endpoints e exemplos (usando o parâmetro `site`)
         exemplos: List[Dict[str, Any]] = [
@@ -4369,6 +4368,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
