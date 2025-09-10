@@ -3465,7 +3465,7 @@ class Simplificador(BaseModel):
         description="Retorne APENAS a URL completa da requisição HTTP (começando com https://api.mercadolibre.com/)."
     )
 
-def mais_vendas_no_mercado_livre(
+def categorias_mais_vendidas_concorrentes(
     user_id: int,
     message: str,
     site: str = "MLB",
@@ -3778,7 +3778,7 @@ Pensamento: {pensamento}
         "Responda SOMENTE com JSON VÁLIDO, sem texto extra, sem comentários, sem crases.\n"
         "Exemplos válidos:\n"
         '{{"possibilidade": true, "acao": "usar_tabelas", "tables": ["pedidos_resumo","itens"], "funcao": null}}\n'
-        '{{"possibilidade": false, "acao": "chamar_funcao", "tables": null, "funcao": "mais_vendas_no_mercado_livre"}}\n\n'
+        '{{"possibilidade": false, "acao": "chamar_funcao", "tables": null, "funcao": "categorias_mais_vendidas_concorrentes"}}\n\n'
         "Pergunta nova: {input}\n"
         "Base de Dados (descrição das tables): {detalhes}\n"
         "Responda APENAS com os campos do JSON."
@@ -4368,6 +4368,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
