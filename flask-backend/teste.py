@@ -3801,7 +3801,7 @@ Pensamento: {pensamento}
             return_final = mais_vendas_no_mercado_livre(
                 user_id=user_id,
                 message=mensagem,
-                site=site
+                site='MLB'
             )
         elif out.acao == "usar_tabelas":
             print("Vai pegar os dados do proprio vendedor")
@@ -4369,6 +4369,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
