@@ -3466,7 +3466,6 @@ class Simplificador(BaseModel):
 def mais_vendas_no_mercado_livre(
     user_id: int,
     message: str,
-    access_token,
     site: str = "MLB",
 ) -> str:
     """
@@ -3477,109 +3476,135 @@ def mais_vendas_no_mercado_livre(
 
     Sem few-shot: usa um prompt único com regras + exemplos + categorias.
     """
-
-    # 1) Instancia o modelo se não veio de fora
-    if llm is None:
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-    # 2) Catálogo de endpoints e exemplos (usando o parâmetro `site`)
-    exemplos: List[Dict[str, Any]] = [
-        {
-            "EndPoint": f"https://api.mercadolibre.com/sites/{site}/search",
-            "Exemplo de uso": f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50",
-            "Mais exemplos": [
-                f"/sites/{site}/search?q={{QUERY}}&sort=sold_quantity_desc&limit=50",
-                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&shipping=free&limit=50",
-                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&condition=new&limit=50",
-                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&price={{MIN}}-{{MAX}}&limit=50",
-                f"/sites/{site}/search?q={{QUERY}}&category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50",
-                f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50&offset={{0|50|100}}"
-            ],
-            "Pra quê serve": (
-                "Pegar ranking de itens (sold_quantity, price, seller.id, official_store_id etc.) "
-                "e montar um Top N de concorrentes por categoria/termo."
-            ),
-            "Observações": [
-                "sold_quantity é acumulado (não é janela de 30 dias).",
-                "Use paginação (limit/offset) para cobrir mais itens.",
-                "Filtre com available_filters (shipping, condition, price...).",
-                "Requer OAuth em muitos ambientes (401/403 sem token)."
-            ]
-        },
-        {
-            "EndPoint": f"https://api.mercadolibre.com/highlights/{site}/category/{{CATEGORY_ID}}",
-            "Exemplo de uso": f"/highlights/{site}/category/MLB1055",
-            "Pra quê serve": "Lista oficial de 'Mais vendidos' por categoria (ótimo para validar líderes reais e cruzar com SERP).",
-            "Observações": [
-                "Retorna uma lista curta/curada. Combine com /sites/.../search para cobertura ampla."
-            ]
-        },
-        {
-            "EndPoint": f"https://api.mercadolibre.com/trends/{site}/{{CATEGORY_ID}}",
-            "Exemplo de uso": f"/trends/{site}/MLB1055",
-            "Pra quê serve": "Termos/consultas em alta na categoria para priorizar palavras-chave, anúncios e estoque.",
-            "Observações": [
-                "Use junto com a SERP para estimar oportunidade e acompanhar sazonalidade."
-            ]
-        }
-    ]
-
-    # 3) Categorias (pode trocar por cache no seu Postgres)
-    url_info_categories = f"https://api.mercadolibre.com/sites/{site}/categories"
-    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
-        r = requests.get(url_info_categories, headers=headers, timeout=20)
-        # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
-        categorias_compactas = r.json()
-    except Exception:
-        categorias_compactas = []
-
-    # 4) Regras e prompt único (sem few-shot)
-    regras = (
-        "Você é um gerador de URL para a API do Mercado Livre.\n"
-        f"- Site: {site}\n"
-        "- Escolha SOMENTE UM endpoint entre:\n"
-        "  (a) /sites/{SITE}/search\n"
-        "  (b) /highlights/{SITE}/category/{CATEGORY_ID}\n"
-        "  (c) /trends/{SITE}/{CATEGORY_ID}\n"
-        "- Se o pedido for por CATEGORIA, use o CATEGORY_ID correto (veja lista de categorias abaixo).\n"
-        "- Se for por TERMO (palavra-chave), use q={QUERY}.\n"
-        "- Para ranking: inclua sort=sold_quantity_desc e limit=50.\n"
-        "- Se citar frete grátis, inclua shipping=free.\n"
-        "- Se citar condição (novo/usado), use condition=new ou condition=used.\n"
-        "- Se citar faixa de preço, use price=MIN-MAX (ex.: price=100-500).\n"
-        "- Se citar paginação, inclua offset (múltiplos de 50).\n"
-        "- Responda APENAS com JSON válido no formato: {\"url\": \"<URL_COMPLETA>\"}.\n"
-    ).replace("{SITE}", site)
-
-    prompt_tmpl = PromptTemplate(
-        input_variables=["input", "exemplos", "categorias", "regras"],
-        template=(
-            "REGRAS:\n{regras}\n\n"
-            "ENDPOINTS DISPONÍVEIS (exemplos e observações):\n{exemplos}\n\n"
-            "CATEGORIAS CONHECIDAS (id↔nome, raízes):\n{categorias}\n\n"
-            "PERGUNTA:\n{input}\n\n"
-            "SAÍDA ESPERADA (APENAS JSON): {\"url\": \"...\"}\n"
-        ),
-    )
-
-    # 5) Executa o chain com structured output
-    chain = prompt_tmpl | llm.with_structured_output(Simplificador)
-    out: Simplificador = chain.invoke({
-        "input": message,
-        "exemplos": json.dumps(exemplos, ensure_ascii=False),
-        "categorias": json.dumps(categorias_compactas, ensure_ascii=False),
-        "regras": regras
-    })
-
-    url = (out.url or "").strip() if out else ""
-
-    # 6) Fallback: se vier vazio, tenta construir por termo (q=)
-    if not url:
-        query = quote(message.strip()) if message.strip() else "mais%20vendidos"
-        url = f"https://api.mercadolibre.com/sites/{site}/search?q={query}&sort=sold_quantity_desc&limit=50"
-
-    return url
+        now = datetime.utcnow()
+        with get_db_connection() as conn, conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT expiracao_token, refresh_token
+                        FROM contas_mercado_livre
+                        WHERE id_ml = %s
+                    """, (id_ml,))
+                    row = cur.fetchone()
+    
+                    if row and row.get("expiracao_token") and now > row["expiracao_token"]:
+                        app.logger.info("Token expirado, renovando...")
+                        dados = renovar_access_token(row["refresh_token"])
+                        access_token = dados["access_token"]
+                        cur.execute("""
+                            UPDATE contas_mercado_livre
+                            SET acess_token=%s,
+                                refresh_token=%s,
+                                expiracao_token=%s
+                            WHERE id_ml=%s
+                        """, (dados["access_token"], dados["novo_refresh_token"],
+                            dados["nova_expiracao"], id_ml))
+                        conn.commit()
+        
+        # 1) Instancia o modelo se não veio de fora
+        if llm is None:
+            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    
+        # 2) Catálogo de endpoints e exemplos (usando o parâmetro `site`)
+        exemplos: List[Dict[str, Any]] = [
+            {
+                "EndPoint": f"https://api.mercadolibre.com/sites/{site}/search",
+                "Exemplo de uso": f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50",
+                "Mais exemplos": [
+                    f"/sites/{site}/search?q={{QUERY}}&sort=sold_quantity_desc&limit=50",
+                    f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&shipping=free&limit=50",
+                    f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&condition=new&limit=50",
+                    f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&price={{MIN}}-{{MAX}}&limit=50",
+                    f"/sites/{site}/search?q={{QUERY}}&category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50",
+                    f"/sites/{site}/search?category={{CATEGORY_ID}}&sort=sold_quantity_desc&limit=50&offset={{0|50|100}}"
+                ],
+                "Pra quê serve": (
+                    "Pegar ranking de itens (sold_quantity, price, seller.id, official_store_id etc.) "
+                    "e montar um Top N de concorrentes por categoria/termo."
+                ),
+                "Observações": [
+                    "sold_quantity é acumulado (não é janela de 30 dias).",
+                    "Use paginação (limit/offset) para cobrir mais itens.",
+                    "Filtre com available_filters (shipping, condition, price...).",
+                    "Requer OAuth em muitos ambientes (401/403 sem token)."
+                ]
+            },
+            {
+                "EndPoint": f"https://api.mercadolibre.com/highlights/{site}/category/{{CATEGORY_ID}}",
+                "Exemplo de uso": f"/highlights/{site}/category/MLB1055",
+                "Pra quê serve": "Lista oficial de 'Mais vendidos' por categoria (ótimo para validar líderes reais e cruzar com SERP).",
+                "Observações": [
+                    "Retorna uma lista curta/curada. Combine com /sites/.../search para cobertura ampla."
+                ]
+            },
+            {
+                "EndPoint": f"https://api.mercadolibre.com/trends/{site}/{{CATEGORY_ID}}",
+                "Exemplo de uso": f"/trends/{site}/MLB1055",
+                "Pra quê serve": "Termos/consultas em alta na categoria para priorizar palavras-chave, anúncios e estoque.",
+                "Observações": [
+                    "Use junto com a SERP para estimar oportunidade e acompanhar sazonalidade."
+                ]
+            }
+        ]
+    
+        # 3) Categorias (pode trocar por cache no seu Postgres)
+        url_info_categories = f"https://api.mercadolibre.com/sites/{site}/categories"
+        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+        try:
+            r = requests.get(url_info_categories, headers=headers, timeout=20)
+            # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
+            categorias_compactas = r.json()
+            print("categorias:" categorias_compactas)
+        except Exception:
+            categorias_compactas = []
+    
+        # 4) Regras e prompt único (sem few-shot)
+        regras = (
+            "Você é um gerador de URL para a API do Mercado Livre.\n"
+            f"- Site: {site}\n"
+            "- Escolha SOMENTE UM endpoint entre:\n"
+            "  (a) /sites/{SITE}/search\n"
+            "  (b) /highlights/{SITE}/category/{CATEGORY_ID}\n"
+            "  (c) /trends/{SITE}/{CATEGORY_ID}\n"
+            "- Se o pedido for por CATEGORIA, use o CATEGORY_ID correto (veja lista de categorias abaixo).\n"
+            "- Se for por TERMO (palavra-chave), use q={QUERY}.\n"
+            "- Para ranking: inclua sort=sold_quantity_desc e limit=50.\n"
+            "- Se citar frete grátis, inclua shipping=free.\n"
+            "- Se citar condição (novo/usado), use condition=new ou condition=used.\n"
+            "- Se citar faixa de preço, use price=MIN-MAX (ex.: price=100-500).\n"
+            "- Se citar paginação, inclua offset (múltiplos de 50).\n"
+            "- Responda APENAS com JSON válido no formato: {\"url\": \"<URL_COMPLETA>\"}.\n"
+        ).replace("{SITE}", site)
+    
+        prompt_tmpl = PromptTemplate(
+            input_variables=["input", "exemplos", "categorias", "regras"],
+            template=(
+                "REGRAS:\n{regras}\n\n"
+                "ENDPOINTS DISPONÍVEIS (exemplos e observações):\n{exemplos}\n\n"
+                "CATEGORIAS CONHECIDAS (id↔nome, raízes):\n{categorias}\n\n"
+                "PERGUNTA:\n{input}\n\n"
+                "SAÍDA ESPERADA (APENAS JSON): {\"url\": \"...\"}\n"
+            ),
+        )
+    
+        # 5) Executa o chain com structured output
+        chain = prompt_tmpl | llm.with_structured_output(Simplificador)
+        out: Simplificador = chain.invoke({
+            "input": message,
+            "exemplos": json.dumps(exemplos, ensure_ascii=False),
+            "categorias": json.dumps(categorias_compactas, ensure_ascii=False),
+            "regras": regras
+        })
+    
+        url = (out.url or "").strip() if out else ""
+        resposta_final=requests.get(url, headers=headers)
+        # 6) Fallback: se vier vazio, tenta construir por termo (q=)
+        if not url:
+            query = quote(message.strip()) if message.strip() else "mais%20vendidos"
+            url = f"https://api.mercadolibre.com/sites/{site}/search?q={query}&sort=sold_quantity_desc&limit=50"
+    
+        return resposta_final
+    except Exception as e:
+        print(f"Erro ao pegar informações extras sobre o concorrente\nErro:{str(e)}")
 
     
         
@@ -3652,6 +3677,7 @@ def chat_novai_manager_requisicao(data):
         return
     with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(mensagem, id_conversa, user_id, date, 'user'))    
+            conn.commit()
     model = ChatOpenAI(model='gpt-4o-mini',temperature=0)
     descricao_db = '''
 Descrição do banco de dados PostgreSQL:
@@ -3773,7 +3799,6 @@ Pensamento: {pensamento}
             return_final = mais_vendas_no_mercado_livre(
                 user_id=user_id,
                 message=mensagem,
-                access_token=access_token,
                 site=site
             )
         elif out.acao == "usar_tabelas":
@@ -3858,7 +3883,7 @@ Pensamento: {pensamento}
         socketio.emit("chat_done", {"text": full, "requestId": request_id}, room=room)
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO history_messages (mensagem, id_conversa, usuario_id_history, data_envio, author) VALUES (%s, %s, %s, %s, %s)",(full, id_conversa, user_id, date, 'ai'))
-
+            conn.commit()
 
 
 
@@ -4342,6 +4367,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
