@@ -3602,8 +3602,9 @@ def categorias_mais_vendidas_concorrentes(
         
         if not url:
             raise ValueError("Modelo não retornou uma URL válida.")
+        resposta_json= requests.get(url, headers=headers, timeout=20)
         
-        resposta_final = requests.get(url, headers=headers, timeout=20)
+        resposta_final = resposta_json.json()
 
         # 6) Fallback: se vier vazio, tenta construir por termo (q=)
         if not url:
@@ -4375,6 +4376,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
