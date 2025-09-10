@@ -3482,12 +3482,12 @@ def mais_vendas_no_mercado_livre(
         now = datetime.utcnow()
         with get_db_connection() as conn, conn.cursor() as cur:
                     cur.execute("""
-                        SELECT expiracao_token, refresh_token
+                        SELECT acess_token,expiracao_token, refresh_token
                         FROM contas_mercado_livre
                         WHERE usuario_id = %s
                     """, (user_id,))
                     row = cur.fetchone()
-    
+                    access_token = row.get("acess_token")
                     if row and row.get("expiracao_token") and now > row["expiracao_token"]:
                         app.logger.info("Token expirado, renovando...")
                         dados = renovar_access_token(row["refresh_token"])
@@ -4368,6 +4368,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
