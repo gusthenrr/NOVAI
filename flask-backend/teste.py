@@ -3733,7 +3733,7 @@ Seja extremamente direto.
             "pergunta": "Quais os itens que mais estão vendendo no Mercado Livre?",
             "pensamento": (
                 "Explícito sobre o marketplace geral (concorrentes). "
-                "Chamar função externa 'mais_vendas_no_mercado_livre' para gerar URL de SERP."
+                "Chamar função externa 'categorias_mais_vendidas_concorrentes' para gerar URL de SERP."
             )
         },
         {
@@ -3774,7 +3774,7 @@ Pensamento: {pensamento}
         "- Se mencionar explicitamente 'no Mercado Livre', 'concorrentes', 'outros vendedores', 'ranking geral', use chamar_funcao.\n"
         "- Se for ambígua ou claramente sobre o meu negócio, use usar_tabelas (padrão).\n"
         "- possibilidade = true somente quando for usar_tabelas; false quando for chamar_funcao.\n"
-        "- Quando chamar_funcao, a ÚNICA função disponível é 'mais_vendas_no_mercado_livre'.\n"
+        "- Quando chamar_funcao, a ÚNICA função disponível é 'categorias_mais_vendidas_concorrentes'.\n"
         "Responda SOMENTE com JSON VÁLIDO, sem texto extra, sem comentários, sem crases.\n"
         "Exemplos válidos:\n"
         '{{"possibilidade": true, "acao": "usar_tabelas", "tables": ["pedidos_resumo","itens"], "funcao": null}}\n'
@@ -3791,13 +3791,13 @@ Pensamento: {pensamento}
         possibilidade: bool = Field(description="True se dá para agregar com tables internas; False se não.")
         acao: Literal["usar_tabelas", "chamar_funcao"] = Field(description="usar_tabelas ou chamar_funcao")
         tables: Optional[List[str]] = Field(default=None, description="Tabelas quando acao='usar_tabelas'")
-        funcao: Optional[Literal["mais_vendas_no_mercado_livre"]] = Field(default=None)
+        funcao: Optional[Literal["categorias_mais_vendidas_concorrentes"]] = Field(default=None)
     return_final = None
     def route(out: RoteadorSlim):
         nonlocal return_final
-        if out.acao == "chamar_funcao" and out.funcao == "mais_vendas_no_mercado_livre":
+        if out.acao == "chamar_funcao" and out.funcao == "categorias_mais_vendidas_concorrentes":
             print("Entrou na parte de concorrentes")
-            return_final = mais_vendas_no_mercado_livre(
+            return_final = categorias_mais_vendidas_concorrentes(
                 user_id=user_id,
                 message=mensagem,
                 site='MLB'
@@ -4368,6 +4368,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
