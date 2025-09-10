@@ -444,7 +444,7 @@ function getConversaMaisAntiga(msgs: Message[]): string | null {
   for (const m of msgs) {
     const last = lastByConversa.get(m.conversa_id);
     if (last === undefined || m.createdAt > last) {
-      lastByConversa.set(m.conversa_id, m.id);
+      lastByConversa.set(m.conversa_id, m.createdAt);
     }
   }
 
@@ -1320,6 +1320,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
