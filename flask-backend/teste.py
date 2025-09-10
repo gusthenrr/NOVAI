@@ -3596,7 +3596,8 @@ def categorias_mais_vendidas_concorrentes(
             "regras": regras,
             "site": site,  # <<< agora o template usa {site}
         })
-        
+        if out:
+            print("url retornada:",out.url)
         url = (out.url or "").strip() if out else ""
         headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
         
@@ -4376,6 +4377,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
