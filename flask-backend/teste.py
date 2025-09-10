@@ -3558,46 +3558,53 @@ def categorias_mais_vendidas_concorrentes(
         except Exception:
             categorias_compactas = []
     
-        # 4) Regras e prompt único (sem few-shot)
+      # 4) Regras e prompt único (sem few-shot)
         regras = (
             "Você é um gerador de URL para a API do Mercado Livre.\n"
-            f"- Site: {site}\n"
+            "- Site: {site}\n"
             "- Escolha SOMENTE UM endpoint entre:\n"
-            "  (a) /sites/{SITE}/search\n"
-            "  (b) /highlights/{SITE}/category/{CATEGORY_ID}\n"
-            "  (c) /trends/{SITE}/{CATEGORY_ID}\n"
+            "  (a) /sites/{site}/search\n"
+            "  (b) /highlights/{site}/category/{{CATEGORY_ID}}\n"
+            "  (c) /trends/{site}/{{CATEGORY_ID}}\n"
             "- Se o pedido for por CATEGORIA, use o CATEGORY_ID correto (veja lista de categorias abaixo).\n"
-            "- Se for por TERMO (palavra-chave), use q={QUERY}.\n"
+            "- Se for por TERMO (palavra-chave), use q={{QUERY}}.\n"
             "- Para ranking: inclua sort=sold_quantity_desc e limit=50.\n"
             "- Se citar frete grátis, inclua shipping=free.\n"
             "- Se citar condição (novo/usado), use condition=new ou condition=used.\n"
             "- Se citar faixa de preço, use price=MIN-MAX (ex.: price=100-500).\n"
             "- Se citar paginação, inclua offset (múltiplos de 50).\n"
-            "- Responda APENAS com JSON válido no formato: {\"url\": \"<URL_COMPLETA>\"}.\n"
-        ).replace("{SITE}", site)
-    
+            "- Responda APENAS com JSON válido no formato: {{\"url\": \"<URL_COMPLETA>\"}}.\n"
+        )
+        
         prompt_tmpl = PromptTemplate(
-            input_variables=["input", "exemplos", "categorias", "regras"],
+            input_variables=["input", "exemplos", "categorias", "regras", "site"],
             template=(
                 "REGRAS:\n{regras}\n\n"
                 "ENDPOINTS DISPONÍVEIS (exemplos e observações):\n{exemplos}\n\n"
                 "CATEGORIAS CONHECIDAS (id↔nome, raízes):\n{categorias}\n\n"
                 "PERGUNTA:\n{input}\n\n"
-                "SAÍDA ESPERADA (APENAS JSON): {\"url\": \"...\"}\n"
+                "SAÍDA ESPERADA (APENAS JSON): {{\"url\": \"...\"}}\n"
             ),
         )
-    
+        
         # 5) Executa o chain com structured output
         chain = prompt_tmpl | llm.with_structured_output(Simplificador)
         out: Simplificador = chain.invoke({
             "input": message,
             "exemplos": json.dumps(exemplos, ensure_ascii=False),
             "categorias": json.dumps(categorias_compactas, ensure_ascii=False),
-            "regras": regras
+            "regras": regras,
+            "site": site,  # <<< agora o template usa {site}
         })
-    
+        
         url = (out.url or "").strip() if out else ""
-        resposta_final=requests.get(url, headers=headers)
+        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+        
+        if not url:
+            raise ValueError("Modelo não retornou uma URL válida.")
+        
+        resposta_final = requests.get(url, headers=headers, timeout=20)
+
         # 6) Fallback: se vier vazio, tenta construir por termo (q=)
         if not url:
             query = quote(message.strip()) if message.strip() else "mais%20vendidos"
@@ -4368,6 +4375,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
