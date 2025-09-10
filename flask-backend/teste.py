@@ -3484,8 +3484,8 @@ def mais_vendas_no_mercado_livre(
                     cur.execute("""
                         SELECT expiracao_token, refresh_token
                         FROM contas_mercado_livre
-                        WHERE id_ml = %s
-                    """, (id_ml,))
+                        WHERE usuario_id = %s
+                    """, (user_id,))
                     row = cur.fetchone()
     
                     if row and row.get("expiracao_token") and now > row["expiracao_token"]:
@@ -3497,9 +3497,9 @@ def mais_vendas_no_mercado_livre(
                             SET acess_token=%s,
                                 refresh_token=%s,
                                 expiracao_token=%s
-                            WHERE id_ml=%s
+                            WHERE usuario_id=%s
                         """, (dados["access_token"], dados["novo_refresh_token"],
-                            dados["nova_expiracao"], id_ml))
+                            dados["nova_expiracao"], user_id))
                         conn.commit()
         
         # 1) Instancia o modelo se não veio de fora
@@ -4369,6 +4369,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
