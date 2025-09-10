@@ -807,6 +807,8 @@ def orders_notifications(resource,acess_token, data_ant):
         tags = order_data.get('tags', [])
         fulfilled = order_data.get('fulfilled', False)
         pack_id = order_data.get('pack_id', None)
+        if not pack_id:
+            pack_id = id
         if category_id:
             url_categoria=f"https://api.mercadolibre.com/categories/{category_id}"
             response= requests.get(url_categoria, headers=headers)
@@ -4367,6 +4369,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
