@@ -698,7 +698,7 @@ const startNewConversation = () => {
   const welcome = 'Olá. Eu sou a Novai Manager. Seus dados estão conectados. Como posso ajudar hoje?';
   setMessages(prev => [
     ...prev,
-    { id: Date.now(), text: welcome, sender: 'ai', conversa_id: draftId }
+    { id: nextId(), text: welcome, sender: 'ai', conversa_id: draftId, createdAt: Date.now(),}
   ]);
 
   // Se você mantém histórico para o modelo:
@@ -1321,6 +1321,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
