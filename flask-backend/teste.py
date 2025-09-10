@@ -3605,8 +3605,8 @@ def categorias_mais_vendidas_concorrentes(
             raise ValueError("Modelo não retornou uma URL válida.")
         resposta_json= requests.get(url, headers=headers, timeout=20)
         
-        resposta_final = resposta_json.json()
-
+        resposta_final = 
+        resposta_final = {"url":url,"dados_retornado_url":resposta_json.json(),"Categoria_id_e_nomes":categorias_compactas}
         # 6) Fallback: se vier vazio, tenta construir por termo (q=)
         if not url:
             query = quote(message.strip()) if message.strip() else "mais%20vendidos"
@@ -3615,14 +3615,6 @@ def categorias_mais_vendidas_concorrentes(
         return resposta_final
     except Exception as e:
         print(f"Erro ao pegar informações extras sobre o concorrente\nErro:{str(e)}")
-
-    
-        
-    
-
-
-
-
 
 
 def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limit: int = 6) -> list[BaseMessage]:
@@ -3842,7 +3834,7 @@ Pensamento: {pensamento}
         sintese_prompt = ChatPromptTemplate.from_messages([
     ("system", 
      "Você é um assistente de um vendedor do Mercado Livre. "
-     "Uma outra IA buscou informações no banco. Responda de forma simples, clara e completa. "
+     "Uma outra IA buscou informações no banco de dados referentes ao vendedor ou faz um requisição com uma url referentes aos concorrentes. Responda de forma simples, clara e completa. "
      "Estruture a resposta assim (seja maleavel e criativo, nao siga a estrutura robustamente, mude um coisa ou outra para nao ficar na mesma):"
      "1. **Título contextual** (ex.: “🟡 Lista de Produtos para Reposição no FULL”)"
      "  - Logo abaixo, coloque a data dos dados"
@@ -3860,6 +3852,7 @@ Pensamento: {pensamento}
      "Sempre informe a data que foi pego os dados."
      "Data atual:{date_atual}.\n"
      "Regras: "
+     "- Evite ao maximo usar ids invés de nomes para a identificação na resposta final."
      "- Se houver muitos dados, prefira **separar em várias tabelas menores por categoria** (ex.: Vermelho / Amarelo / Verde)."  
      "- Cada tabela deve ter no máximo **10 linhas**. Se houver mais, mostre as 10 primeiras e finalize com “(+X linhas ocultas)”."
      "- Use no máximo **6 colunas** por tabela; se precisar de mais, divida em várias tabelas sequenciais.\n"
@@ -3868,7 +3861,7 @@ Pensamento: {pensamento}
     MessagesPlaceholder("history"),
     ("human", 
      "Pergunta atual:\n{mensagem}\n\n"
-     "Dados retornados do banco (se houver):\n{mensagem_final}\n\n"
+     "Dados retornados do banco ou da requisição da url (se houver):\n{mensagem_final}\n\n"
      "Gere a melhor resposta possível para o vendedor.")
 ])
         model = ChatOpenAI(model='gpt-4.1')
@@ -4377,6 +4370,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
