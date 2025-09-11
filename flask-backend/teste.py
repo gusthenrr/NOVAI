@@ -3614,6 +3614,60 @@ def categorias_mais_vendidas_concorrentes(
     except Exception as e:
         print(f"Erro ao pegar informações extras sobre o concorrente\nErro:{str(e)}")
 
+def itens_detalhados(itens_id_json, access_token, tipo):
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    list_items=[]
+    imagens=[]
+    if tipo =='categoria':
+        for n, i in enumarete(itens_id_json):
+            itens_id_json=i.get(n)
+            content = itens_id_json.get("content")
+            for j in content:
+                id_item = j.get("id")
+                url = f"https://api.mercadolibre.com/items/{id_item}"
+                response=requests.get(url, headers=headers)
+                result=response.json()
+                pictures=result.get("pictures")
+                for m in pictures:
+                    imagens.append(m.get("url"))
+                list_items.append({"name_category":list(i.keys())[0],"title":result.get("title"),"seller_id":result.get("seller_id"),"price":result.get("price"),"base_price":result.get("base_price"),"original_price":result.get("original_price"), "list_type_id":result.get("listing_type_id"), "images":imagens})
+
+                
+
+def itens_mais_vendidos(termo, access_token):
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    url=f"https://api.mercadolibre.com/sites/MLB/search?q={termo}&sort=sold_quantity_desc"
+    response= requests.get(url, headers=headers)
+    return response.json()
+
+def mais_vendidos_por_categoria(categorias_compactas, access_token):
+    reposta_final=[]
+    for n, i in enumarete(categorias_compactas):
+        category_id = i.get("id")
+        category_name = i.get("name")
+        url_por_categoria=f"https://api.mercadolibre.com/highlights/MLB/category/{category_id}"
+        resposta = requests.get(url_por_categoria, headers=headers)
+        resposta_final=.append({f"name":category_name,n:resposta.json()})
+    return resposta_final
+
+def get_info():
+    #Pega os itens mais vendidos divididos por categoria, atualiza periodicamente#
+    url_info_categories = f"https://api.mercadolibre.com/sites/{site}/categories"
+        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+        try:
+            r = requests.get(url_info_categories, headers=headers, timeout=20)
+            # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
+            categorias_compactas = r.json()
+            print("categorias:", categorias_compactas)
+        except Exception:
+            categorias_compactas = []
+    resultado_mais_vendidos=mais_vendidos_por_categoria(categorias_compactas, access_token)
+    itens_detalhes=itens_detalhados(resultado_mais_vendidos, access_token, 'categoria')
+    resultado_mais_vendidos_por_termo = itens_mais_vendidos(termo, access_token)
+    
+    
+    
+
 
 def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limit: int = 6) -> list[BaseMessage]:
     """
@@ -4368,6 +4422,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
