@@ -774,9 +774,12 @@ def orders_notifications(resource,acess_token, data_ant):
         id = order_data.get('id')
         cur.execute("SELECT id_order FROM pedidos_resumo WHERE id_order = %s", (id,))
         existing_order = cur.fetchone()
-        date_created = order_data.get('date_created', None)
-        date_closed = order_data.get('date_closed', None)
-        last_updated = order_data.get('last_updated', None)
+        date_created_z = order_data.get('date_created', None)
+        date_created=converter_zona_pro_brasil(date_created_z)
+        date_closed_z = order_data.get('date_closed', None)
+        date_closed=converter_zona_pro_brasil(date_closed_z)
+        last_updated_z = order_data.get('last_updated', None)
+        last_updated=converter_zona_pro_brasil(last_updated_z)
         total_amount = order_data.get('total_amount', None)
         paid_amount = order_data.get('paid_amount', None)
 
@@ -784,7 +787,8 @@ def orders_notifications(resource,acess_token, data_ant):
         order_data_payments = order_data.get('payments', [])
         payments = order_data_payments[0] 
         status = payments.get('status', None)
-        date_approved = payments.get('date_approved', None)
+        date_approved_z = payments.get('date_approved', None)
+        date_approved=converter_zona_pro_brasil(date_approved_z)
         shipping_cost = payments.get('shipping_cost', None)
         payment_method = payments.get('payment_method_id', None)
         payment_type = payments.get('payment_type', None)
@@ -2119,7 +2123,8 @@ def faturamento_por_pedidos(user_id, room):
                 paid_amount = row_payments.get('total_paid_amount', 0)
                 installment = row_payments.get('installments', 0)
                 installment_amount = row_payments.get('installment_amount', 0)        
-                date_approved = row_payments.get('date_approved', 'Sem data')
+                date_approved_z = row_payments.get('date_approved', 'Sem data')
+                date_approved = converter_zona_pro_brasil(date_approved_z)
                 payment_type = row_payments.get('payment_type', 'Sem tipo de pagamento')
                 available_actions = row_payments.get('available_actions', [])
                 coupon_id = row_payments.get('coupon_id', 'Sem cupom')
@@ -2157,15 +2162,17 @@ def faturamento_por_pedidos(user_id, room):
 
                 fulfilled = result.get('fulfilled', False)
 
-                date_created_order = result.get('date_created', 'Sem data de criação')
+                date_created_order_z = result.get('date_created', 'Sem data de criação')
+                date_created_order=converter_zona_pro_brasil(date_created_order_z)
                 date_created_order_dt=datetime.fromisoformat(date_created_order).astimezone(timezone.utc)
                 days_90=datetime.now(timezone.utc) - timedelta(days=90)
                 if date_created_order_dt < days_90:
                     print('Passou dos 3 meses')
                     return
-                date_closed = result.get('date_closed', 'Sem data de fechamento')
-
-                date_last_updated_order = result.get('date_last_updated', 'Sem data de atualização')
+                date_closed_z = result.get('date_closed', 'Sem data de fechamento')
+                date_closed=converter_zona_pro_brasil(date_closed_z)
+                date_last_updated_order_z = result.get('date_last_updated', 'Sem data de atualização')
+                date_last_updated_order=converter_zona_pro_brasil(date_last_updated_z)
                 total_amount = result.get('total_amount', 0)
                 paid_amount = result.get('paid_amount', 0)
                 pack_id = result.get('pack_id', None)
@@ -2217,6 +2224,7 @@ def faturamento_por_pedidos(user_id, room):
     except Exception as e:
         print("Erro no faturamento_ por pedidos:", str(e))
     print('Terminou de pegar os pedidos')
+    
 def faturamento(user_id):
     try:
         print('🔍 Entrou na função faturamento para o usuário:', user_id)
@@ -2623,7 +2631,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
             if count_20>20:
                 if change==1:
                     change=0
-                    message='Buscando reclamacoes'
+                    message='Buscando campanhas'
                 else:
                     change = 1
                     message = 'Isso pode demorar alguns minutos'
@@ -3628,17 +3636,14 @@ def itens_detalhados(itens_id_json, access_token, tipo):
                 response=requests.get(url, headers=headers)
                 result=response.json()
                 pictures=result.get("pictures")
+                url_descricao = f"https://api.mercadolibre.com/items/{id_item}/description"
+                response_descricao = requests.get(url_descricao, headers=headers)
+                descricao=response_descricao.get('plain_text')
                 for m in pictures:
                     imagens.append(m.get("url"))
-                list_items.append({"name_category":list(i.keys())[0],"title":result.get("title"),"seller_id":result.get("seller_id"),"price":result.get("price"),"base_price":result.get("base_price"),"original_price":result.get("original_price"), "list_type_id":result.get("listing_type_id"), "images":imagens})
-
-                
-
-def itens_mais_vendidos(termo, access_token):
-    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
-    url=f"https://api.mercadolibre.com/sites/MLB/search?q={termo}&sort=sold_quantity_desc"
-    response= requests.get(url, headers=headers)
-    return response.json()
+                list_items.append({"name_category":list(i.keys())[0],"title":result.get("title"),"seller_id":result.get("seller_id"),"price":result.get("price"),"base_price":result.get("base_price"),"original_price":result.get("original_price"), "list_type_id":result.get("listing_type_id"), "images":imagens,"descricao":descricao})
+        return list_items
+        
 
 def mais_vendidos_por_categoria(categorias_compactas, access_token):
     reposta_final=[]
@@ -3662,8 +3667,9 @@ def get_info():
         except Exception:
             categorias_compactas = []
     resultado_mais_vendidos=mais_vendidos_por_categoria(categorias_compactas, access_token)
-    itens_detalhes=itens_detalhados(resultado_mais_vendidos, access_token, 'categoria')
+    itens_detalhes_categoria=itens_detalhados(resultado_mais_vendidos, access_token, 'categoria')
     resultado_mais_vendidos_por_termo = itens_mais_vendidos(termo, access_token)
+    itens_detalhes_termo=itens_detalhados(resultado_mais_vendido_por_termos, access_token,'termo')
     
     
     
@@ -4422,6 +4428,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
