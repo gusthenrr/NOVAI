@@ -3643,7 +3643,19 @@ def itens_detalhados(itens_id_json, access_token, tipo):
                     imagens.append(m.get("url"))
                 list_items.append({"name_category":list(i.keys())[0],"title":result.get("title"),"seller_id":result.get("seller_id"),"price":result.get("price"),"base_price":result.get("base_price"),"original_price":result.get("original_price"), "list_type_id":result.get("listing_type_id"), "images":imagens,"descricao":descricao})
         return list_items
-        
+
+def ranking_item_id(item_id, access_token):
+    #ver a posicao de um item no ranking de mais vendidos, atualiza periodicamente#
+    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    url=f"https://api.mercadolibre.com/highlights/MLB/product/{item_id}"
+    resposta=response.get(url, headers=headers)
+    resposta_final=resposta.json()
+    
+def itens_mais_vendidos(termo, access_token):
+    
+def trands_brasil(access_token):
+    url="https://api.mercadolibre.com/trends/MLB"
+    
 
 def mais_vendidos_por_categoria(categorias_compactas, access_token):
     reposta_final=[]
@@ -3668,7 +3680,7 @@ def get_info():
             categorias_compactas = []
     resultado_mais_vendidos=mais_vendidos_por_categoria(categorias_compactas, access_token)
     itens_detalhes_categoria=itens_detalhados(resultado_mais_vendidos, access_token, 'categoria')
-    resultado_mais_vendidos_por_termo = itens_mais_vendidos(termo, access_token)
+    resultado_mais_vendidos_por_termo_detalhado = itens_mais_vendidos(termo, access_token)
     itens_detalhes_termo=itens_detalhados(resultado_mais_vendido_por_termos, access_token,'termo')
     
     
@@ -4428,6 +4440,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
