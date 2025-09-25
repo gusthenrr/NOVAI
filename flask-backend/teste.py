@@ -23,6 +23,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import json
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from jwt import ExpiredSignatureError, InvalidTokenError
 import time
 from langchain.callbacks.tracers import LangChainTracer 
@@ -847,6 +848,9 @@ def orders_notifications(resource,acess_token, data_ant):
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(order_data), 'dados_novos',data_ant,))
         conn.commit()
         print("Dados do pedido inseridos ou atualizados com sucesso.")
+        now_=datetime.now().date()
+        if date_created.date()>=now_:
+            get_dados_gerais()
     except Exception as e:
         print("Erro ao processar pedido:", str(e))
         return jsonify({"error": str(e)}), 500
@@ -3015,7 +3019,14 @@ def listar_novas_conversas_pos_venda():
 def home():
     return 'Flask rodando! (Função periódica em background)'
 
-# Garante que o scheduler será desligado ao fechar a aplicação 
+# Scheduler que roda todos os dias meia noite
+scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
+scheduler.add_job(minha_tarefa, CronTrigger(hour=0, minute=0, second=0))
+scheduler.start()
+
+def minha_tarefa():
+    print("Rodando tarefa de atualização diária às 00:00")
+    socketio.emit('limpar_dados_atais', status:True)
 
 def listar_todos_itens(user_id,id,access_token):
     try:
@@ -3439,7 +3450,24 @@ def get_dados_gerais():
             return jsonify({"error": "Token expirado"}), 333
         now=datetime.now()
         with get_db_connection() as conn, conn.close as cur:
-            cur.execute("SELECT SUM(total_amount) FROM pedidos_resumo WHERE date_created >= ::date")
+            cur.execute("SELECT acess_token FROM contas_mercado_livre WHERE usuario_id=%s", (user_id))
+            access_token_dict=cur.fetchone()
+            access_token=access_token_dict['acess_token']
+            cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE date_created >= CURRENT_DATE AND date_created < CURRENT_DATE + INTERVAL '1 day' AND usuario_id_pedidos_resumo=%s", (user_id))
+            total_amount_today_dict=cur.fecthone()
+            total_amount_today=total_amount_today_dict['total']
+            
+
+        today = datetime.now().date()
+        date_from = f"{today}T00:00:00.000-00:00"
+        date_to = f"{today + timedelta(days=1)}T00:00:00.000-00:00"
+        
+        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+        url=f'https://api.mercadolibre.com/users/{user_id}/items_visits?date_from={date_from}&date_to={date_to}'
+        response = requests.get(url, headers=headers)
+        visualisacoes_hoje=response.json()
+        return jsonify({'total_amount':total_amount_today,'visualisacoes_hoje':visualisacoes})
+        
 
 
 @app.route('/get_conversation', methods=['GET'])
@@ -4458,6 +4486,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
