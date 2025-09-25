@@ -3026,7 +3026,7 @@ scheduler.start()
 
 def minha_tarefa():
     print("Rodando tarefa de atualização diária às 00:00")
-    socketio.emit('limpar_dados_atais', status:True)
+    socketio.emit('limpar_dados_atais', {'status': True})
 
 def listar_todos_itens(user_id,id,access_token):
     try:
@@ -3437,36 +3437,115 @@ def get_dados_gerais():
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
-    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
-    print("token: ",token)
-    try:
-        decoded_token=decode_token(token)
-        print(decoded_token)
-        user_id=decoded_token.get("sub")
-        print(user_id)
-        exp_timestamp = decoded_token.get("exp")
-        now = int(time.time())
-        if exp_timestamp and exp_timestamp < now:
-            return jsonify({"error": "Token expirado"}), 333
-        now=datetime.now()
-        with get_db_connection() as conn, conn.close as cur:
-            cur.execute("SELECT acess_token FROM contas_mercado_livre WHERE usuario_id=%s", (user_id))
-            access_token_dict=cur.fetchone()
-            access_token=access_token_dict['acess_token']
-            cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE date_created >= CURRENT_DATE AND date_created < CURRENT_DATE + INTERVAL '1 day' AND usuario_id_pedidos_resumo=%s", (user_id))
-            total_amount_today_dict=cur.fecthone()
-            total_amount_today=total_amount_today_dict['total']
-            
 
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+
+    try:
+        decoded_token = decode_token(token)
+    except ExpiredSignatureError:
+        return jsonify({"error": "Token expirado"}), 401
+    except InvalidTokenError:
+        return jsonify({"error": "Token inválido"}), 401
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao decodificar token: {exc}"}), 400
+
+    user_id = decoded_token.get("sub") if decoded_token else None
+    if not user_id:
+        return jsonify({"error": "Usuário não encontrado no token"}), 400
+
+    total_amount_today = 0.0
+    access_token = None
+    id_mercado_livre = None
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT acess_token, id_ml
+                    FROM contas_mercado_livre
+                    WHERE usuario_id = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (user_id,),
+                )
+                access_data = cur.fetchone()
+                if access_data:
+                    access_token = access_data.get('acess_token')
+                    id_mercado_livre = access_data.get('id_ml')
+
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(total_amount), 0) AS total
+                    FROM pedidos_resumo
+                    WHERE date_created >= CURRENT_DATE
+                      AND date_created < CURRENT_DATE + INTERVAL '1 day'
+                      AND usuario_id_pedidos_resumo = %s
+                    """,
+                    (user_id,),
+                )
+                total_row = cur.fetchone()
+                if total_row and total_row.get('total') is not None:
+                    total_amount_today = float(total_row['total'])
+    except Exception as exc:
+        return jsonify({"error": f"Erro ao consultar banco de dados: {exc}"}), 500
+
+    visualizacoes_hoje = 0
+    if access_token and id_mercado_livre:
         today = datetime.now().date()
         date_from = f"{today}T00:00:00.000-00:00"
         date_to = f"{today + timedelta(days=1)}T00:00:00.000-00:00"
-        
-        headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
-        url=f'https://api.mercadolibre.com/users/{user_id}/items_visits?date_from={date_from}&date_to={date_to}'
-        response = requests.get(url, headers=headers)
-        visualisacoes_hoje=response.json()
-        socketio.emit('atualizar_dados',{'total_amount':total_amount_today,'visualisacoes_hoje':visualisacoes})
+        headers = {"Authorization": f"Bearer {access_token}"}
+        url = (
+            f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
+            f"?date_from={date_from}&date_to={date_to}"
+        )
+
+        try:
+            response = requests.get(url, headers=headers, timeout=20)
+            if response.ok:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    raw_value = (
+                        payload.get('total_visits')
+                        or payload.get('visits')
+                        or payload.get('visualizacoes')
+                    )
+
+                    if isinstance(raw_value, dict):
+                        raw_value = raw_value.get('value') or raw_value.get('total')
+
+                    if isinstance(raw_value, list):
+                        raw_value = sum(
+                            visit.get('value', 0)
+                            for visit in raw_value
+                            if isinstance(visit, dict)
+                        )
+
+                    numeric_value = (
+                        raw_value
+                        if isinstance(raw_value, (int, float))
+                        else None
+                    )
+                    if numeric_value is not None:
+                        visualizacoes_hoje = int(numeric_value)
+            else:
+                app.logger.warning(
+                    'Falha ao buscar visitas no Mercado Livre: %s %s',
+                    response.status_code,
+                    response.text,
+                )
+        except requests.exceptions.RequestException as exc:
+            app.logger.exception('Erro na requisição de visitas do Mercado Livre: %s', exc)
+
+    payload = {
+        'total_amount': total_amount_today,
+        'visualizacoes_hoje': visualizacoes_hoje,
+    }
+
+    socketio.emit('atualizar_dados', payload)
+    return jsonify(payload)
         
 
 
