@@ -88,7 +88,7 @@ const App: React.FC = () => {
             <button className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
               <BarChart2 />
             </button>
-            <button className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
+            <button href="/Manager" className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
               <MessageSquare />
             </button>
             <button className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
@@ -185,3 +185,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
