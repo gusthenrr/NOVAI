@@ -3790,7 +3790,7 @@ def mais_vendidos_por_categoria(categorias_compactas, access_token):
         category_name = i.get("name")
         url_por_categoria=f"https://api.mercadolibre.com/highlights/MLB/category/{category_id}"
         resposta = requests.get(url_por_categoria, headers=headers)
-        resposta_final=.append({f"name":category_name,n:resposta.json()})
+        resposta_final.append({f"name":category_name,n:resposta.json()})
     return resposta_final
 
 def get_info():
@@ -4564,6 +4564,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
