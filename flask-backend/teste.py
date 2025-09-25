@@ -3508,30 +3508,9 @@ def get_dados_gerais():
             response = requests.get(url, headers=headers, timeout=20)
             if response.ok:
                 payload = response.json()
+                print(payload)
                 if isinstance(payload, dict):
-                    raw_value = (
-                        payload.get('total_visits')
-                        or payload.get('visits')
-                        or payload.get('visualizacoes')
-                    )
-
-                    if isinstance(raw_value, dict):
-                        raw_value = raw_value.get('value') or raw_value.get('total')
-
-                    if isinstance(raw_value, list):
-                        raw_value = sum(
-                            visit.get('value', 0)
-                            for visit in raw_value
-                            if isinstance(visit, dict)
-                        )
-
-                    numeric_value = (
-                        raw_value
-                        if isinstance(raw_value, (int, float))
-                        else None
-                    )
-                    if numeric_value is not None:
-                        visualizacoes_hoje = int(numeric_value)
+                    visualizacoes_hoje=payload.get('total_visits')
             else:
                 app.logger.warning(
                     'Falha ao buscar visitas no Mercado Livre: %s %s',
@@ -4566,6 +4545,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
