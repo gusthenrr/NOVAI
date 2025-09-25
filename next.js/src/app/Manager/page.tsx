@@ -725,7 +725,7 @@ const handleSendMessage = async (messageText: string): Promise<void> => {
 
     // 3) Verifico teto de conversas
     const conversasDistintas = new Set(next.map(m => m.conversa_id)).size;
-    if (conversasDistintas > 6) {
+    if (conversasDistintas > 5) {
       // política: remover a conversa "mais parada"
       const alvo = getConversaMaisAntiga(next);
       if (alvo) {
@@ -1308,3 +1308,4 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
