@@ -3434,10 +3434,6 @@ def _to_epoch_ms(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
-def iso_utc(dt: datetime) -> str:
-    # ISO 8601 com milissegundos e sufixo Z
-    return dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-
 @app.route('/get_dados_gerais', methods=['GET'])
 def get_dados_gerais():
     auth_header = request.headers.get("Authorization")
@@ -3500,11 +3496,8 @@ def get_dados_gerais():
     visualizacoes_hoje = 0
     if access_token and id_mercado_livre:
         today = date.today()
-        from_zone = timezone(timedelta(hours=-3))  # America/Sao_Paulo (fixo; sem DST)
-        start_br = datetime.combine(today, datetime.min.time(), tzinfo=from_zone)
-        end_br   = start_br + timedelta(days=1)
-        date_from = start_br.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + '-03:00'
-        date_to   = end_br.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + '-03:00'
+        date_from = today.strftime("%Y-%m-%d")
+        date_to   = (today + timedelta(days=1)).strftime("%Y-%m-%d")
         headers = {"Authorization": f"Bearer {access_token}"}
         url = (
             f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
@@ -4552,6 +4545,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
