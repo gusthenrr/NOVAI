@@ -3463,9 +3463,12 @@ def get_dados_gerais():
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT nickname,email FROM dados_vendedor WHERE usuario_id_dados_vendedor=%s", (user_id,))
-                dados_vendedor=cur.fetchall()
-                nickname=dados_vendedor['nickname']
-                email=dados_vendedor['email']
+                dados_vendedor=cur.fetchone()
+                if not dados_vendedor:
+                    nickname,email=None,None
+                else:
+                    nickname=dados_vendedor['nickname']
+                    email=dados_vendedor['email']
                 cur.execute(
                     """
                     SELECT acess_token, id_ml
@@ -4551,6 +4554,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
