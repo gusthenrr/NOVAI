@@ -3501,7 +3501,7 @@ def get_dados_gerais():
     if access_token and id_mercado_livre:
         today = date.today()
         from_zone = timezone(timedelta(hours=-3))  # America/Sao_Paulo (fixo; sem DST)
-        start_br = datetime.combine(today, time(0,0,0), tzinfo=from_zone)
+        start_br = datetime.combine(today, datetime.min.time(), tzinfo=from_zone)
         end_br   = start_br + timedelta(days=1)
         date_from = start_br.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + '-03:00'
         date_to   = end_br.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + '-03:00'
@@ -4552,6 +4552,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
