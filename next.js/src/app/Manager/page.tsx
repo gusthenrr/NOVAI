@@ -856,7 +856,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
           <>
             <nav style={styles.nav}>
               <a href="#" style={{ ...styles.navItem, ...styles.navItemActive }}>Manager</a>
-              <a href="#" style={styles.navItem}>Dashboard</a>
+              <a href="/dashboard" style={styles.navItem}>Dashboard</a>
               <a href="#" style={styles.navItem}>Relatórios</a>
             </nav>
             <div style={styles.footer}>
@@ -1308,4 +1308,5 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
