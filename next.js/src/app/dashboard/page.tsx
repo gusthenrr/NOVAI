@@ -1,5 +1,5 @@
 import React from 'react';
-
+import { io, Socket } from 'socket.io-client';
 // Icons from Lucide React
 import {
   User,
@@ -231,6 +231,7 @@ const get_dados = async () => {
 };
 
 export default App;
+
 
 
 
