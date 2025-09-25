@@ -3797,13 +3797,13 @@ def get_info():
     #Pega os itens mais vendidos divididos por categoria, atualiza periodicamente#
     url_info_categories = f"https://api.mercadolibre.com/sites/{site}/categories"
     headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
-        try:
-            r = requests.get(url_info_categories, headers=headers, timeout=20)
-            # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
-            categorias_compactas = r.json()
-            print("categorias:", categorias_compactas)
-        except Exception:
-            categorias_compactas = []
+    try:
+        r = requests.get(url_info_categories, headers=headers, timeout=20)
+        # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
+        categorias_compactas = r.json()
+        print("categorias:", categorias_compactas)
+    except Exception:
+        categorias_compactas = []
     resultado_mais_vendidos=mais_vendidos_por_categoria(categorias_compactas, access_token)
     itens_detalhes_categoria=itens_detalhados(resultado_mais_vendidos, access_token, 'categoria')
     resultado_mais_vendidos_por_termo_detalhado = itens_mais_vendidos(termo, access_token)
@@ -4564,6 +4564,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
