@@ -3434,6 +3434,98 @@ def _to_epoch_ms(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
+@socketio.on('mudar_data')
+def atualizar_dados(data):
+    try:
+        token = request.cookies.get("__Host-token")
+        if not token:
+            socketio.emit('Sem_token',{"message":"Sem token"})
+            return
+        # Obtém o user_id dos parâmetros da query string
+        print("Token:", token)
+        try:
+            decoded_token=decode_token(token)
+            print(decoded_token)
+            user_id=decoded_token.get("sub")
+            print(user_id)
+            room = f'user:{user_id}'
+            exp_timestamp = decoded_token.get("exp")
+            now = int(time.time())
+            if exp_timestamp and exp_timestamp < now:
+                socketio.emit('Sem_token',{"message":"Token expirado"})
+                return
+        except:
+            return
+        id=data.get('cardId')
+        start=data.get('start')
+        end=data.get('end')
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""SELECT acess_token FROM contas_mercado_livre WHERE usuario_id = %s ORDER BY id DESC LIMIT 1 """,(user_id,),)
+                    access_data = cur.fetchone()
+                    access_token= access_token['acess_token']
+                    if end:
+                        if id=='earnings':
+                            cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE usuario_id_pedidos_resumo=%s AND date_created>=%s::date AND date_created<=%s::date", (user_id,start, end))
+                            total_amount_dict=cur.fetchone()
+                            total_amount=total_amount_dict['total']
+                            emit('atualizar_dados',{'total_amount':total_amount})
+                        elif id=='shares':
+                            headers = {"Authorization": f"Bearer {access_token}"}
+                            url = (
+                                f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
+                                f"?date_from={date_from}&date_to={date_to}"
+                            )
+                            try:
+                                response = requests.get(url, headers=headers, timeout=20)
+                                if response.ok:
+                                    payload = response.json()
+                                    print(payload)
+                                    if isinstance(payload, dict):
+                                        visualizacoes_hoje=payload.get('total_visits')
+                                else:
+                                    app.logger.warning(
+                                        'Falha ao buscar visitas no Mercado Livre: %s %s',
+                                        response.status_code,
+                                        response.text,
+                                    )
+                                emit('autalizar_dados', {'visualizacoes_hoje':visualizacoes_hoje})
+                            except requests.exceptions.RequestException as exc:
+                                app.logger.exception('Data invalida: %s', exc)
+                    elif start:
+                        if id=='earnings':
+                            cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE usuario_id_pedidos_resumo=%s AND date_created=%s::date", (user_id,start))
+                            total_amount_dict=cur.fetchone()
+                            total_amount=total_amount_dict['total']
+                            emit('atualizar_dados',{'total_amount':total_amount})
+                        elif id=='shares':
+                            headers = {"Authorization": f"Bearer {access_token}"}
+                            date_to = (start + timedelta(days=1)).strftime("%Y-%m-%d")
+                            url = (
+                                f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
+                                f"?date_from={start}&date_to={date_to}"
+                            )
+                            try:
+                                response = requests.get(url, headers=headers, timeout=20)
+                                if response.ok:
+                                    payload = response.json()
+                                    print(payload)
+                                    if isinstance(payload, dict):
+                                        visualizacoes_hoje=payload.get('total_visits')
+                                else:
+                                    app.logger.warning(
+                                        'Falha ao buscar visitas no Mercado Livre: %s %s',
+                                        response.status_code,
+                                        response.text,
+                                    )
+                                emit('autalizar_dados', {'visualizacoes_hoje':visualizacoes_hoje})
+                            except requests.exceptions.RequestException as exc:
+                                app.logger.exception('Data invalida: %s', exc)
+    except Exception as e:
+        print('erro: ',str(e))
+
+
 @app.route('/get_dados_gerais', methods=['GET'])
 def get_dados_gerais():
     auth_header = request.headers.get("Authorization")
@@ -4554,6 +4646,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
