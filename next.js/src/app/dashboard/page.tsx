@@ -98,7 +98,7 @@ const DashboardPage: React.FC = () => {
     rating: 'Hoje',
   });
 
-  // Componente de calendário com seleção de intervalo
+  // Componente de calendário com seleção de intervalo (tematizado em amarelo)
   const SimpleCalendar: React.FC<{
     onClose: () => void;
     onConfirm: (label: string) => void;
@@ -134,12 +134,10 @@ const DashboardPage: React.FC = () => {
         setRangeStart(picked);
         setRangeEnd(null);
       } else {
-        // temos start mas não end
         if (picked.getTime() < rangeStart.getTime()) {
           setRangeStart(picked);
           setRangeEnd(null);
         } else if (sameDay(picked, rangeStart)) {
-          // período de 1 dia
           setRangeEnd(picked);
         } else {
           setRangeEnd(picked);
@@ -170,21 +168,18 @@ const DashboardPage: React.FC = () => {
     const inRange = (d: Date) =>
       rangeStart && rangeEnd ? isBetween(d, rangeStart, rangeEnd) : false;
 
-    // células vazias antes do dia 1
     const leading = Array.from({ length: firstWeekday }, (_, i) => <span key={`l-${i}`} />);
+
     const dayCells = Array.from({ length: daysInMonth }, (_, i) => {
       const day = i + 1;
       const dateObj = startOfDay(new Date(view.year, view.month, day));
       const selected = isSelected(dateObj);
       const between = inRange(dateObj);
-      const base =
-        'cursor-pointer rounded-full p-1 text-sm transition-colors select-none';
-      const styleSelected =
-        'bg-zinc-200 text-zinc-900 font-semibold';
-      const styleBetween =
-        'bg-zinc-600 text-white';
-      const styleNormal =
-        'text-zinc-300 hover:bg-zinc-400 hover:text-zinc-900';
+
+      const base = 'cursor-pointer rounded-full p-1 text-sm transition-colors select-none';
+      const styleSelected = 'bg-yellow-300 text-zinc-800 font-semibold';
+      const styleBetween  = 'bg-yellow-300/60 text-zinc-900';
+      const styleNormal   = 'text-zinc-300 hover:bg-yellow-300 hover:text-zinc-900';
 
       return (
         <span
@@ -230,7 +225,7 @@ const DashboardPage: React.FC = () => {
             </button>
             <button
               onClick={confirm}
-              className="rounded-lg bg-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-900 hover:bg-white"
+              className="rounded-lg bg-yellow-300 px-2 py-1 text-xs font-semibold text-zinc-900 hover:bg-yellow-400"
             >
               OK
             </button>
@@ -255,8 +250,7 @@ const DashboardPage: React.FC = () => {
     setMetrics(prev => {
       const totalAmount = parseNumericValue(payload.total_amount) ?? prev.totalAmount;
       const visualizationsToday =
-        parseNumericValue(payload.visualizacoes_hoje ?? payload.visualizacoes) ??
-        prev.visualizationsToday;
+        parseNumericValue(payload.visualizacoes_hoje ?? payload.visualizacoes) ?? prev.visualizationsToday;
       return { totalAmount, visualizationsToday };
     });
   }, []);
@@ -324,7 +318,7 @@ const DashboardPage: React.FC = () => {
     void fetchMetrics(token);
   }, [token, fetchMetrics]);
 
-  // ---- cards (sem amarelo) ----
+  // ---- cards (com amarelo) ----
   const cards = useMemo<
     Array<{ id: CardKey; title: string; value: string; icon: LucideIcon; badgeIcon: LucideIcon }>
   >(
@@ -362,7 +356,7 @@ const DashboardPage: React.FC = () => {
             ].map(item => (
               <li key={item.label} className="mb-2">
                 <a href="#" className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
-                  <item.icon className="mr-3 text-zinc-400" />
+                  <item.icon className={`mr-3 ${item.label === 'Início' ? 'text-yellow-300' : 'text-zinc-400'}`} />
                   {item.label}
                 </a>
               </li>
@@ -397,7 +391,7 @@ const DashboardPage: React.FC = () => {
         )}
 
         <div className="-m-6 flex-1 space-y-6 overflow-y-auto p-6">
-          {/* Cards com calendário (ícones neutros) */}
+          {/* Cards com calendário (amarelo aplicado) */}
           <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {cards.map(card => (
               <div key={card.id} className="relative flex items-center justify-between rounded-lg bg-zinc-800 p-6 shadow-md">
@@ -408,15 +402,15 @@ const DashboardPage: React.FC = () => {
                     className="rounded-full p-2 transition-colors hover:bg-zinc-700"
                     aria-label={`Selecionar período em ${card.title}`}
                   >
-                    <CalendarDays size={20} className="text-zinc-400" />
+                    <CalendarDays size={20} className="text-yellow-300" />
                   </button>
-                  <card.badgeIcon size={16} className="text-zinc-500" />
+                  <card.badgeIcon size={16} className="text-zinc-500 hover:text-yellow-300 cursor-pointer" />
                 </div>
 
                 {/* Conteúdo */}
                 <div>
                   <p className="mb-1 text-sm text-zinc-400">{card.title}</p>
-                  <h2 className="text-2xl font-bold text-zinc-100">{card.value}</h2>
+                  <h2 className="text-2xl font-bold text-yellow-300">{card.value}</h2>
                   <p className="mt-1 whitespace-pre-line text-xs text-zinc-500">
                     {selectedDates[card.id]}
                   </p>
@@ -430,7 +424,6 @@ const DashboardPage: React.FC = () => {
                     onClose={() => setSelectedCard(null)}
                     onConfirm={(label) => setSelectedDates(prev => ({ ...prev, [card.id]: label }))}
                     defaultMonth={(() => {
-                      // abre no mês atual
                       const now = new Date();
                       return { year: now.getFullYear(), month: now.getMonth() };
                     })()}
