@@ -3499,6 +3499,7 @@ def get_dados_gerais():
 
     visualizacoes_hoje = 0
     if access_token and id_mercado_livre:
+        today = date.today()
         from_zone = timezone(timedelta(hours=-3))  # America/Sao_Paulo (fixo; sem DST)
         start_br = datetime.combine(today, time(0,0,0), tzinfo=from_zone)
         end_br   = start_br + timedelta(days=1)
@@ -4551,6 +4552,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
