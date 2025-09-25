@@ -3466,7 +3466,7 @@ def get_dados_gerais():
         url=f'https://api.mercadolibre.com/users/{user_id}/items_visits?date_from={date_from}&date_to={date_to}'
         response = requests.get(url, headers=headers)
         visualisacoes_hoje=response.json()
-        return jsonify({'total_amount':total_amount_today,'visualisacoes_hoje':visualisacoes})
+        socketio.emit('atualizar_dados',{'total_amount':total_amount_today,'visualisacoes_hoje':visualisacoes})
         
 
 
@@ -4486,6 +4486,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
