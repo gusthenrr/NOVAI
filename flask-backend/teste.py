@@ -2862,7 +2862,6 @@ def campanhas_e_anuncios_periodico():
                     conn.commit()
 
 
-
 def promocoes(user_id, access_token,id_ml):
     try:
         print(f"Consultando promoções do usuário")
@@ -3422,6 +3421,27 @@ def _to_epoch_ms(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
+@app.route('/get_dados_gerais', methods=['GET'])
+def get_dados_gerais():
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+    print("token: ",token)
+    try:
+        decoded_token=decode_token(token)
+        print(decoded_token)
+        user_id=decoded_token.get("sub")
+        print(user_id)
+        exp_timestamp = decoded_token.get("exp")
+        now = int(time.time())
+        if exp_timestamp and exp_timestamp < now:
+            return jsonify({"error": "Token expirado"}), 333
+        now=datetime.now()
+        with get_db_connection() as conn, conn.close as cur:
+            cur.execute("SELECT SUM(total_amount) FROM pedidos_resumo WHERE date_created >= ::date")
+
+
 @app.route('/get_conversation', methods=['GET'])
 def get_conversation():
     print('entrou no get_conversation')
@@ -3959,8 +3979,6 @@ Pensamento: {pensamento}
             conn.commit()
 
 
-
-
 def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int, conversa_id: str):
 
     model = ChatOpenAI(model='gpt-4.1', temperature=0)
@@ -4440,6 +4458,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
