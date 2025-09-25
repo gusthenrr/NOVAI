@@ -17,6 +17,50 @@ import {
 
 // Main App component
 const App: React.FC = () => {
+const [dadosGerais, setDadosGerais] = useState({})
+  
+  useEffect(() => {
+    // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
+    if(!socketRef.current){
+      socketRef.current = io(process.env.NEXT_PUBLIC_API_URL!, {
+        transports: ['websocket'],
+        withCredentials: true,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 2000,
+        timeout: 20000 // 20s
+    });
+    }
+const tok = localStorage.getItem('authToken');
+    if (tok) setToken(tok);
+const get_dados = async () => {
+        try {
+            console.log('entrou no get_dados');
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_dados_gerais`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${tok}`,
+                },
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API Error: ${response.status} ${response.statusText}: ${errorText}`);
+            }
+
+            const result = await response.json();
+            if (result) {
+                setDadosGerais(result)
+            }
+        } catch (error) {
+            console.error("Erro ao obter conversa:", error);
+            // Continua a execução mesmo com erro, para criar a nova conversa.
+        }
+}
+  get_dados()
+  },[])
+  
   return (
     // The main container for the dashboard, using a dark background color.
     <div className="flex min-h-screen bg-zinc-900 text-zinc-300 antialiased">
@@ -185,5 +229,6 @@ const App: React.FC = () => {
 };
 
 export default App;
+
 
 
