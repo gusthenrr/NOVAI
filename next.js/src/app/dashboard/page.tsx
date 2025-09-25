@@ -14,10 +14,13 @@ import {
   Star,
   ArrowLeft
 } from 'lucide-react';
-
+type DadosGerais = {
+  total_amount?: string;
+  visualisacoes_hoje?: string;
+};
 // Main App component
 const App: React.FC = () => {
-const [dadosGerais, setDadosGerais] = useState({})
+const [dadosGerais, setDadosGerais] = useState<DadosGerais>({})
 const [vendidosHoje, setVendidosHoje] = useState()
 const [visuHoje, setVisuHoje] = useState()
   
@@ -61,6 +64,20 @@ const get_dados = async () => {
         }
 }
   get_dados()
+  socketRef.current?.on('atualizar_dados', atualizar_dados);
+  const atualizar_dados = ({
+    total_amount,
+    visualisacoes_hoje,
+  }: {
+    total_amount: string;
+    visualisacoes_hoje: string;
+  }) => {
+    setDadosGerais(prev => ({
+      ...prev,
+      total_amount,
+      visualisacoes_hoje,
+    }));
+  };
   },[])
   
   return (
@@ -231,6 +248,7 @@ const get_dados = async () => {
 };
 
 export default App;
+
 
 
 
