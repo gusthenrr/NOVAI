@@ -20,7 +20,13 @@ import {
   Share2,
   Star,
   User,
+  CalendarDays,
+  TrendingUp,
+  Download,
+  ThumbsUp,
+  Award,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 import { useUser } from '../../../userContext';
 
@@ -43,19 +49,15 @@ const currencyFormatter = new Intl.NumberFormat('pt-BR', {
 const numberFormatter = new Intl.NumberFormat('pt-BR');
 
 const parseNumericValue = (value: unknown): number | undefined => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
     const normalized = Number(value);
-    if (!Number.isNaN(normalized)) {
-      return normalized;
-    }
+    if (!Number.isNaN(normalized)) return normalized;
   }
-
   return undefined;
 };
+
+type CardKey = 'earnings' | 'shares' | 'likes' | 'rating';
 
 const DashboardPage: React.FC = () => {
   const { token, setToken } = useUser();
@@ -69,16 +71,63 @@ const DashboardPage: React.FC = () => {
 
   const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL ?? '', []);
 
-  useEffect(() => {
-    if (token) {
-      return;
-    }
+  // --- Calendário (estado e componente) ---
+  const [selectedCard, setSelectedCard] = useState<CardKey | null>(null);
+  const [selectedDates, setSelectedDates] = useState<Record<CardKey, string>>({
+    earnings: 'Hoje',
+    shares: 'Hoje',
+    likes: 'Hoje',
+    rating: 'Hoje',
+  });
 
+  const SimpleCalendar: React.FC<{
+    onClose: () => void;
+    onSelectDate: (date: string) => void;
+  }> = ({ onClose, onSelectDate }) => (
+    <div className="absolute top-full right-0 z-10 mt-2 w-64 rounded-lg bg-zinc-700 p-4 shadow-xl">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-sm font-semibold">Setembro 2025</span>
+        <div className="flex space-x-2">
+          <button className="text-zinc-400 hover:text-white">&lt;</button>
+          <button className="text-zinc-400 hover:text-white">&gt;</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-sm">
+        {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(day => (
+          <span key={day} className="font-bold text-zinc-500">
+            {day}
+          </span>
+        ))}
+        {Array.from({ length: 30 }, (_, i) => i + 1).map(day => (
+          <span
+            key={day}
+            className={`cursor-pointer rounded-full p-1 transition-colors hover:bg-yellow-300 hover:text-zinc-800
+              ${day >= 5 && day <= 15 ? 'bg-yellow-300 text-zinc-800' : 'text-zinc-300'}`}
+          >
+            {day}
+          </span>
+        ))}
+      </div>
+      <div className="mt-4 flex justify-end">
+        <button
+          onClick={() => {
+            onSelectDate('De: 5 de Setembro de 2025\nAté: 15 de Setembro de 2025');
+            onClose();
+          }}
+          className="rounded-lg bg-yellow-300 px-2 py-1 text-xs font-semibold text-zinc-900 transition-colors hover:bg-yellow-400"
+        >
+          OK
+        </button>
+      </div>
+    </div>
+  );
+  // --- fim calendário ---
+
+  useEffect(() => {
+    if (token) return;
     try {
       const storedToken = localStorage.getItem('authToken');
-      if (storedToken) {
-        setToken(storedToken);
-      }
+      if (storedToken) setToken(storedToken);
     } catch (storageError) {
       console.error('Falha ao recuperar token do armazenamento local.', storageError);
     }
@@ -86,15 +135,12 @@ const DashboardPage: React.FC = () => {
 
   const updateMetrics = useCallback((payload: MetricsPayload) => {
     setMetrics(prev => {
-      const totalAmount = parseNumericValue(payload.total_amount) ?? prev.totalAmount;
+      const totalAmount =
+        parseNumericValue(payload.total_amount) ?? prev.totalAmount;
       const visualizationsToday =
         parseNumericValue(payload.visualizacoes_hoje ?? payload.visualizacoes) ??
         prev.visualizationsToday;
-
-      return {
-        totalAmount,
-        visualizationsToday,
-      };
+      return { totalAmount, visualizationsToday };
     });
   }, []);
 
@@ -103,10 +149,7 @@ const DashboardPage: React.FC = () => {
       setError('URL da API não configurada.');
       return;
     }
-
-    if (socketRef.current) {
-      return;
-    }
+    if (socketRef.current) return;
 
     const socket = io(apiUrl, {
       transports: ['websocket'],
@@ -129,9 +172,7 @@ const DashboardPage: React.FC = () => {
 
   const fetchMetrics = useCallback(
     async (authToken: string) => {
-      if (!apiUrl) {
-        return;
-      }
+      if (!apiUrl) return;
 
       setLoading(true);
       setError(null);
@@ -149,14 +190,21 @@ const DashboardPage: React.FC = () => {
         const data = await response.json();
 
         if (!response.ok) {
-          const message = typeof data?.error === 'string' ? data.error : 'Erro ao carregar dados do painel.';
+          const message =
+            typeof data?.error === 'string'
+              ? data.error
+              : 'Erro ao carregar dados do painel.';
           throw new Error(message);
         }
 
         updateMetrics(data as MetricsPayload);
       } catch (requestError) {
         console.error('Erro ao buscar dados do dashboard:', requestError);
-        setError(requestError instanceof Error ? requestError.message : 'Erro inesperado ao carregar o painel.');
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'Erro inesperado ao carregar o painel.',
+        );
       } finally {
         setLoading(false);
       }
@@ -165,37 +213,51 @@ const DashboardPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
-
+    if (!token) return;
     void fetchMetrics(token);
   }, [token, fetchMetrics]);
 
-  const cards = useMemo(
+  const cards = useMemo<
+    Array<{
+      id: CardKey;
+      title: string;
+      value: string;
+      icon: LucideIcon;
+      badgeIcon: LucideIcon;
+      accent: string;
+    }>
+  >(
     () => [
       {
-        title: 'Ganhos Hoje',
+        id: 'earnings',
+        title: 'Ganhos',
         value: loading ? '—' : currencyFormatter.format(metrics.totalAmount),
         icon: BarChart2,
+        badgeIcon: TrendingUp,
         accent: 'text-yellow-300',
       },
       {
-        title: 'Visualizações Hoje',
+        id: 'shares',
+        title: 'Visualizações',
         value: loading ? '—' : numberFormatter.format(metrics.visualizationsToday),
         icon: Share2,
+        badgeIcon: Download,
         accent: 'text-yellow-300',
       },
       {
+        id: 'likes',
         title: 'Curtidas',
         value: '1.259',
         icon: Heart,
+        badgeIcon: ThumbsUp,
         accent: 'text-yellow-300',
       },
       {
+        id: 'rating',
         title: 'Classificação',
         value: '8.5',
         icon: Star,
+        badgeIcon: Award,
         accent: 'text-yellow-300',
       },
     ],
@@ -217,7 +279,14 @@ const DashboardPage: React.FC = () => {
 
         <nav>
           <ul>
-            {[{ icon: Home, label: 'Início' }, { icon: FileText, label: 'Arquivos' }, { icon: MessageSquare, label: 'Mensagens' }, { icon: Bell, label: 'Notificações' }, { icon: MapPin, label: 'Localização' }, { icon: BarChart2, label: 'Gráficos' }].map(item => (
+            {[
+              { icon: Home, label: 'Início' },
+              { icon: FileText, label: 'Arquivos' },
+              { icon: MessageSquare, label: 'Mensagens' },
+              { icon: Bell, label: 'Notificações' },
+              { icon: MapPin, label: 'Localização' },
+              { icon: BarChart2, label: 'Gráficos' },
+            ].map(item => (
               <li key={item.label} className="mb-2">
                 <a
                   href="#"
@@ -258,17 +327,48 @@ const DashboardPage: React.FC = () => {
         )}
 
         <div className="-m-6 flex-1 space-y-6 overflow-y-auto p-6">
+          {/* CARDS com calendário embutido */}
           <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {cards.map(card => (
               <div
-                key={card.title}
-                className="flex items-center justify-between rounded-lg bg-zinc-800 p-6 shadow-md"
+                key={card.id}
+                className="relative flex items-center justify-between rounded-lg bg-zinc-800 p-6 shadow-md"
               >
+                {/* Ações no topo-direito (Calendário + ícone pequeno) */}
+                <div className="absolute right-4 top-4 flex flex-col items-center space-y-2">
+                  <button
+                    onClick={() =>
+                      setSelectedCard(selectedCard === card.id ? null : card.id)
+                    }
+                    className="rounded-full p-2 transition-colors hover:bg-zinc-700"
+                    aria-label={`Selecionar período em ${card.title}`}
+                  >
+                    <CalendarDays size={20} className="text-yellow-300" />
+                  </button>
+                  <card.badgeIcon size={16} className="cursor-pointer text-zinc-500 hover:text-yellow-300" />
+                </div>
+
+                {/* Conteúdo do card */}
                 <div>
                   <p className="mb-1 text-sm text-zinc-400">{card.title}</p>
                   <h2 className={`text-2xl font-bold ${card.accent}`}>{card.value}</h2>
+                  {/* Data selecionada */}
+                  <p className="mt-1 whitespace-pre-line text-xs text-zinc-500">
+                    {selectedDates[card.id]}
+                  </p>
                 </div>
+
                 <card.icon size={36} className={card.accent} />
+
+                {/* Calendário (pop-over) */}
+                {selectedCard === card.id && (
+                  <SimpleCalendar
+                    onClose={() => setSelectedCard(null)}
+                    onSelectDate={(date) =>
+                      setSelectedDates(prev => ({ ...prev, [card.id]: date }))
+                    }
+                  />
+                )}
               </div>
             ))}
           </section>
