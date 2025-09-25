@@ -32,12 +32,16 @@ import { useUser } from '../../../userContext';
 type DashboardMetrics = {
   totalAmount: number;
   visualizationsToday: number;
+  nickname: string | null;
+  email: string | null;
 };
 
 type MetricsPayload = {
   total_amount?: number | string | null;
   visualizacoes?: number | string | null;
   visualizacoes_hoje?: number | string | null;
+  nickname?: string | null;
+  email?: string | null;
 };
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -83,7 +87,7 @@ function formatPt(d: Date) {
 
 const DashboardPage: React.FC = () => {
   const { token, setToken } = useUser();
-  const [metrics, setMetrics] = useState<DashboardMetrics>({ totalAmount: 0, visualizationsToday: 0 });
+  const [metrics, setMetrics] = useState<DashboardMetrics>({ totalAmount: 0, visualizationsToday: 0, nickname: null, email: null });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -248,10 +252,24 @@ const DashboardPage: React.FC = () => {
 
   const updateMetrics = useCallback((payload: MetricsPayload) => {
     setMetrics(prev => {
-      const totalAmount = parseNumericValue(payload.total_amount) ?? prev.totalAmount;
+      const totalAmount =
+        parseNumericValue(payload.total_amount) ?? prev.totalAmount;
+
       const visualizationsToday =
-        parseNumericValue(payload.visualizacoes_hoje ?? payload.visualizacoes) ?? prev.visualizationsToday;
-      return { totalAmount, visualizationsToday };
+        parseNumericValue(payload.visualizacoes_hoje ?? payload.visualizacoes) ??
+        prev.visualizationsToday;
+
+      const nickname =
+        typeof payload.nickname === 'string' && payload.nickname.trim()
+          ? payload.nickname.trim()
+          : prev.nickname ?? null;
+
+      const email =
+        typeof payload.email === 'string' && payload.email.trim()
+          ? payload.email.trim()
+          : prev.email ?? null;
+
+      return { ...prev, totalAmount, visualizationsToday, nickname, email };
     });
   }, []);
 
@@ -339,8 +357,8 @@ const DashboardPage: React.FC = () => {
             <User size={36} />
           </div>
           <div className="text-center">
-            <h1 className="text-xl font-bold">JOHN DON</h1>
-            <p className="text-sm text-zinc-400">johndon@company.com</p>
+            <h1 className="text-xl font-bold">{metrics.nickname ?? '—'}</h1>
+            <p className="text-sm text-zinc-400">{metrics.email ?? '—'}</p>
           </div>
         </div>
 
@@ -404,7 +422,8 @@ const DashboardPage: React.FC = () => {
                   >
                     <CalendarDays size={20} className="text-yellow-300" />
                   </button>
-                  <card.badgeIcon size={16} className="text-zinc-500 hover:text-yellow-300 cursor-pointer" />
+                  {/* ÍCONE REMOVIDO: mantemos apenas o calendário, como solicitado */}
+                  {/* <card.badgeIcon size={16} className="text-zinc-500 hover:text-yellow-300 cursor-pointer" /> */}
                 </div>
 
                 {/* Conteúdo */}
