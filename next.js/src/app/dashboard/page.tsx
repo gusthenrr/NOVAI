@@ -1,79 +1,212 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+'use client';
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { io, Socket } from 'socket.io-client';
-// Icons from Lucide React
 import {
-  User,
-  Home,
-  FileText,
-  MessageSquare,
-  Bell,
-  MapPin,
+  ArrowLeft,
   BarChart2,
-  Share2,
+  Bell,
+  FileText,
   Heart,
+  Home,
+  MapPin,
+  MessageSquare,
+  Share2,
   Star,
-  ArrowLeft
+  User,
 } from 'lucide-react';
-type DadosGerais = {
-  total_amount?: string;
-  visualisacoes_hoje?: string;
+
+import { useUser } from '../../../userContext';
+
+type DashboardMetrics = {
+  totalAmount: number;
+  visualizationsToday: number;
 };
-// Main App component
-const App: React.FC = () => {
-const [dadosGerais, setDadosGerais] = useState<DadosGerais>({})
-const [vendidosHoje, setVendidosHoje] = useState()
-const [visuHoje, setVisuHoje] = useState()
-  
-  useEffect(() => {
-    // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
-    if(!socketRef.current){
-      socketRef.current = io(process.env.NEXT_PUBLIC_API_URL!, {
-        transports: ['websocket'],
-        withCredentials: true,
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 2000,
-        timeout: 20000 // 20s
-    });
+
+type MetricsPayload = {
+  total_amount?: number | string | null;
+  visualizacoes?: number | string | null;
+  visualizacoes_hoje?: number | string | null;
+};
+
+const currencyFormatter = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+});
+
+const numberFormatter = new Intl.NumberFormat('pt-BR');
+
+const parseNumericValue = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = Number(value);
+    if (!Number.isNaN(normalized)) {
+      return normalized;
     }
-const tok = localStorage.getItem('authToken');
-    if (tok) setToken(tok);
-const get_dados = async () => {
-        try {
-            console.log('entrou no get_dados');
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_dados_gerais`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${tok}`,
-                },
-            });
-  const atualizar_dados = ({
-    total_amount,
-    visualisacoes_hoje,
-  }: {
-    total_amount: string;
-    visualisacoes_hoje: string;
-  }) => {
-    setDadosGerais(prev => ({
-      ...prev,
-      total_amount,
-      visualisacoes_hoje,
-    }));
-  };
-  socketRef.current?.on('atualizar_dados', atualizar_dados);
-}
-  get_dados()
-  },[])
-  
+  }
+
+  return undefined;
+};
+
+const DashboardPage: React.FC = () => {
+  const { token, setToken } = useUser();
+  const [metrics, setMetrics] = useState<DashboardMetrics>({
+    totalAmount: 0,
+    visualizationsToday: 0,
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL ?? '', []);
+
+  useEffect(() => {
+    if (token) {
+      return;
+    }
+
+    try {
+      const storedToken = localStorage.getItem('authToken');
+      if (storedToken) {
+        setToken(storedToken);
+      }
+    } catch (storageError) {
+      console.error('Falha ao recuperar token do armazenamento local.', storageError);
+    }
+  }, [token, setToken]);
+
+  const updateMetrics = useCallback((payload: MetricsPayload) => {
+    setMetrics(prev => {
+      const totalAmount = parseNumericValue(payload.total_amount) ?? prev.totalAmount;
+      const visualizationsToday =
+        parseNumericValue(payload.visualizacoes_hoje ?? payload.visualizacoes) ??
+        prev.visualizationsToday;
+
+      return {
+        totalAmount,
+        visualizationsToday,
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!apiUrl) {
+      setError('URL da API não configurada.');
+      return;
+    }
+
+    if (socketRef.current) {
+      return;
+    }
+
+    const socket = io(apiUrl, {
+      transports: ['websocket'],
+      withCredentials: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 2000,
+      timeout: 20000,
+    });
+
+    socketRef.current = socket;
+    socket.on('atualizar_dados', updateMetrics);
+
+    return () => {
+      socket.off('atualizar_dados', updateMetrics);
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [apiUrl, updateMetrics]);
+
+  const fetchMetrics = useCallback(
+    async (authToken: string) => {
+      if (!apiUrl) {
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch(`${apiUrl}/get_dados_gerais`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+          credentials: 'include',
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          const message = typeof data?.error === 'string' ? data.error : 'Erro ao carregar dados do painel.';
+          throw new Error(message);
+        }
+
+        updateMetrics(data as MetricsPayload);
+      } catch (requestError) {
+        console.error('Erro ao buscar dados do dashboard:', requestError);
+        setError(requestError instanceof Error ? requestError.message : 'Erro inesperado ao carregar o painel.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apiUrl, updateMetrics],
+  );
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    void fetchMetrics(token);
+  }, [token, fetchMetrics]);
+
+  const cards = useMemo(
+    () => [
+      {
+        title: 'Ganhos Hoje',
+        value: loading ? '—' : currencyFormatter.format(metrics.totalAmount),
+        icon: BarChart2,
+        accent: 'text-yellow-300',
+      },
+      {
+        title: 'Visualizações Hoje',
+        value: loading ? '—' : numberFormatter.format(metrics.visualizationsToday),
+        icon: Share2,
+        accent: 'text-yellow-300',
+      },
+      {
+        title: 'Curtidas',
+        value: '1.259',
+        icon: Heart,
+        accent: 'text-yellow-300',
+      },
+      {
+        title: 'Classificação',
+        value: '8.5',
+        icon: Star,
+        accent: 'text-yellow-300',
+      },
+    ],
+    [loading, metrics.totalAmount, metrics.visualizationsToday],
+  );
+
   return (
-    // The main container for the dashboard, using a dark background color.
     <div className="flex min-h-screen bg-zinc-900 text-zinc-300 antialiased">
-      {/* Sidebar section - fixed */}
-      <aside className="hidden md:flex flex-col w-64 bg-zinc-800 p-6 rounded-r-lg shadow-lg">
-        {/* User profile section */}
+      <aside className="hidden w-64 flex-col rounded-r-lg bg-zinc-800 p-6 shadow-lg md:flex">
         <div className="mb-8">
-          <div className="flex items-center justify-center p-2 rounded-full bg-zinc-700 text-zinc-500 mb-4 w-16 h-16 mx-auto">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-zinc-700 text-zinc-500">
             <User size={36} />
           </div>
           <div className="text-center">
@@ -82,127 +215,85 @@ const get_dados = async () => {
           </div>
         </div>
 
-        {/* Navigation menu */}
         <nav>
           <ul>
-            <li className="mb-2">
-              <a href="#" className="flex items-center p-3 rounded-lg hover:bg-zinc-700 transition-colors">
-                <Home className="mr-3 text-yellow-300" />
-                Início
-              </a>
-            </li>
-            <li className="mb-2">
-              <a href="#" className="flex items-center p-3 rounded-lg hover:bg-zinc-700 transition-colors">
-                <FileText className="mr-3 text-zinc-400" />
-                Arquivos
-              </a>
-            </li>
-            <li className="mb-2">
-              <a href="#" className="flex items-center p-3 rounded-lg hover:bg-zinc-700 transition-colors">
-                <MessageSquare className="mr-3 text-zinc-400" />
-                Mensagens
-              </a>
-            </li>
-            <li className="mb-2">
-              <a href="#" className="flex items-center p-3 rounded-lg hover:bg-zinc-700 transition-colors">
-                <Bell className="mr-3 text-zinc-400" />
-                Notificações
-              </a>
-            </li>
-            <li className="mb-2">
-              <a href="#" className="flex items-center p-3 rounded-lg hover:bg-zinc-700 transition-colors">
-                <MapPin className="mr-3 text-zinc-400" />
-                Localização
-              </a>
-            </li>
-            <li className="mb-2">
-              <a href="#" className="flex items-center p-3 rounded-lg hover:bg-zinc-700 transition-colors">
-                <BarChart2 className="mr-3 text-zinc-400" />
-                Gráficos
-              </a>
-            </li>
+            {[{ icon: Home, label: 'Início' }, { icon: FileText, label: 'Arquivos' }, { icon: MessageSquare, label: 'Mensagens' }, { icon: Bell, label: 'Notificações' }, { icon: MapPin, label: 'Localização' }, { icon: BarChart2, label: 'Gráficos' }].map(item => (
+              <li key={item.label} className="mb-2">
+                <a
+                  href="#"
+                  className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700"
+                >
+                  <item.icon className="mr-3 text-yellow-300" />
+                  {item.label}
+                </a>
+              </li>
+            ))}
           </ul>
         </nav>
       </aside>
 
-      {/* Main content area, structured as a flex column */}
-      <main className="flex-1 flex flex-col p-6">
-        {/* Top header - remains fixed at the top of the main area */}
-        <div className="flex justify-between items-center mb-6">
-          <button className="md:hidden p-2 rounded-full hover:bg-zinc-800 transition-colors">
+      <main className="flex flex-1 flex-col p-6">
+        <div className="mb-6 flex items-center justify-between">
+          <button className="rounded-full p-2 transition-colors hover:bg-zinc-800 md:hidden">
             <ArrowLeft />
           </button>
           <h1 className="text-2xl font-bold">Painel de Controle</h1>
           <div className="flex items-center space-x-4">
-            <button className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
+            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
               <BarChart2 />
             </button>
-            <a href="/Manager" className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
+            <a href="/Manager" className="rounded-full p-2 transition-colors hover:bg-zinc-800">
               <MessageSquare />
             </a>
-            <button className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
+            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
               <Bell />
             </button>
           </div>
         </div>
-        
-        {/* Scrollable content area below the header */}
-        <div className="flex-1 overflow-y-auto space-y-6 -m-6 p-6">
-          {/* Top cards grid */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-zinc-800 p-6 rounded-lg shadow-md flex items-center justify-between">
-              <div>
-                <p className="text-sm text-zinc-400 mb-1">Ganhos Hoje</p>
-                <h2 className="text-2xl font-bold text-yellow-300">${dadosGerais.total_amount}</h2>
+
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-500 bg-red-500/10 p-4 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
+        <div className="-m-6 flex-1 space-y-6 overflow-y-auto p-6">
+          <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {cards.map(card => (
+              <div
+                key={card.title}
+                className="flex items-center justify-between rounded-lg bg-zinc-800 p-6 shadow-md"
+              >
+                <div>
+                  <p className="mb-1 text-sm text-zinc-400">{card.title}</p>
+                  <h2 className={`text-2xl font-bold ${card.accent}`}>{card.value}</h2>
+                </div>
+                <card.icon size={36} className={card.accent} />
               </div>
-              <BarChart2 size={36} className="text-yellow-300" />
-            </div>
-            <div className="bg-zinc-800 p-6 rounded-lg shadow-md flex items-center justify-between">
-              <div>
-                <p className="text-sm text-zinc-400 mb-1">Visualisações Hoje</p>
-                <h2 className="text-2xl font-bold text-yellow-300">${dadosGerais.visualisacoes_hoje}</h2>
-              </div>
-              <Share2 size={36} className="text-yellow-300" />
-            </div>
-            <div className="bg-zinc-800 p-6 rounded-lg shadow-md flex items-center justify-between">
-              <div>
-                <p className="text-sm text-zinc-400 mb-1">Curtidas</p>
-                <h2 className="text-2xl font-bold text-yellow-300">1259</h2>
-              </div>
-              <Heart size={36} className="text-yellow-300" />
-            </div>
-            <div className="bg-zinc-800 p-6 rounded-lg shadow-md flex items-center justify-between">
-              <div>
-                <p className="text-sm text-zinc-400 mb-1">Classificação</p>
-                <h2 className="text-2xl font-bold text-yellow-300">8.5</h2>
-              </div>
-              <Star size={36} className="text-yellow-300" />
-            </div>
+            ))}
           </section>
 
-          {/* Results section with empty graph block */}
-          <section className="bg-zinc-800 p-6 rounded-lg shadow-md">
-            <div className="flex justify-between items-center mb-4">
+          <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-bold">Resultado</h2>
-              <button className="bg-zinc-700 text-zinc-400 px-4 py-2 rounded-lg hover:bg-zinc-600 transition-colors">Ver Agora</button>
+              <button className="rounded-lg bg-zinc-700 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-600">
+                Ver Agora
+              </button>
             </div>
-            {/* Placeholder for the bar chart */}
-            <div className="w-full h-64 bg-zinc-700 rounded-lg flex items-center justify-center text-zinc-500">
+            <div className="flex h-64 w-full items-center justify-center rounded-lg bg-zinc-700 text-zinc-500">
               Espaço para o gráfico de barras
             </div>
           </section>
 
-          {/* Bottom section with empty graph and info card */}
-          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-zinc-800 p-6 rounded-lg shadow-md">
-              {/* Placeholder for the line chart */}
-              <div className="w-full h-64 bg-zinc-700 rounded-lg flex items-center justify-center text-zinc-500">
+          <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="rounded-lg bg-zinc-800 p-6 shadow-md lg:col-span-2">
+              <div className="flex h-64 w-full items-center justify-center rounded-lg bg-zinc-700 text-zinc-500">
                 Espaço para o gráfico de linha
               </div>
             </div>
-            <div className="bg-zinc-800 p-6 rounded-lg shadow-md space-y-4">
+            <div className="space-y-4 rounded-lg bg-zinc-800 p-6 shadow-md">
               <h2 className="text-xl font-bold">Informações</h2>
-              <div className="w-full h-32 bg-zinc-700 rounded-lg flex items-center justify-center text-zinc-500">
+              <div className="flex h-32 w-full items-center justify-center rounded-lg bg-zinc-700 text-zinc-500">
                 Espaço para o gráfico de rosca
               </div>
               <ul className="space-y-2 text-zinc-400">
@@ -211,19 +302,19 @@ const get_dados = async () => {
                 <li>Lorem ipsum dolor sit amet.</li>
                 <li>Lorem ipsum dolor sit amet.</li>
               </ul>
-              <button className="w-full bg-zinc-700 text-zinc-400 px-4 py-2 rounded-lg hover:bg-zinc-600 transition-colors">
+              <button className="w-full rounded-lg bg-zinc-700 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-600">
                 Ver Agora
               </button>
             </div>
           </section>
 
-          {/* Adding more content to make the page scrollable */}
-          <section className="bg-zinc-800 p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-bold mb-4">Mais Conteúdo</h2>
+          <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <h2 className="mb-4 text-xl font-bold">Mais Conteúdo</h2>
             <p className="text-zinc-400">
-              Adicionei este bloco de texto para garantir que a página tenha conteúdo suficiente para a barra de rolagem aparecer, permitindo que você veja o resultado do seu pedido.
+              Adicionei este bloco de texto para garantir que a página tenha conteúdo suficiente para a barra de rolagem aparecer,
+              permitindo que você veja o resultado do seu pedido.
             </p>
-            <div className="w-full h-48 mt-4 bg-zinc-700 rounded-lg flex items-center justify-center text-zinc-500">
+            <div className="mt-4 flex h-48 w-full items-center justify-center rounded-lg bg-zinc-700 text-zinc-500">
               Espaço para mais um gráfico ou elemento
             </div>
           </section>
@@ -233,12 +324,5 @@ const get_dados = async () => {
   );
 };
 
-export default App;
-
-
-
-
-
-
-
+export default DashboardPage;
 
