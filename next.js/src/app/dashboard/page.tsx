@@ -59,7 +59,25 @@ const parseNumericValue = (value: unknown): number | undefined => {
   return undefined;
 };
 
+type DateRange = { start: Date | null; end: Date | null };
+const [ranges, setRanges] = useState<Record<CardKey, DateRange>>({
+  earnings: { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+  shares:   { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+  likes:    { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+  rating:   { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+});
 type CardKey = 'earnings' | 'shares' | 'likes' | 'rating';
+const [labels, setLabels] = useState<Record<CardKey, string>>({
+  earnings: 'Hoje',
+  shares:   'Hoje',
+  likes:    'Hoje',
+  rating:   'Hoje',
+});
+const buildLabel = (start: Date | null, end: Date | null) => {
+  if (start && end) return `De: ${formatPt(start)}\nAté: ${formatPt(end)}`;
+  if (start)       return `${formatPt(start)}`;
+  return '—';
+};
 
 const ptMonths = [
   'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
@@ -95,26 +113,26 @@ const DashboardPage: React.FC = () => {
 
   // ---- Calendário (estado global por card) ----
   const [selectedCard, setSelectedCard] = useState<CardKey | null>(null);
-  const [selectedDates, setSelectedDates] = useState<Record<CardKey, string>>({
-    earnings: 'Hoje',
-    shares: 'Hoje',
-    likes: 'Hoje',
-    rating: 'Hoje',
-  });
 
   // Componente de calendário com seleção de intervalo (tematizado em amarelo)
   const SimpleCalendar: React.FC<{
     onClose: () => void;
-    onConfirm: (label: string) => void;
-    defaultMonth?: { year: number; month: number };
-  }> = ({ onClose, onConfirm, defaultMonth }) => {
-    const today = startOfDay(new Date());
-    const [view, setView] = useState<{year:number; month:number}>(() => {
-      if (defaultMonth) return defaultMonth;
-      return { year: today.getFullYear(), month: today.getMonth() };
-    });
-    const [rangeStart, setRangeStart] = useState<Date | null>(today);
-    const [rangeEnd, setRangeEnd] = useState<Date | null>(today);
+    onConfirm: (next: { start: Date | null; end: Date | null; label: string }) => void;
+  defaultMonth?: { year: number; month: number };
+  initialStart?: Date | null;
+  initialEnd?: Date | null;
+}> = ({ onClose, onConfirm, defaultMonth, initialStart, initialEnd }) => {
+  const today = startOfDay(new Date());
+  const [view, setView] = useState<{year:number; month:number}>(() => {
+    if (defaultMonth) return defaultMonth;
+    // se veio um initialStart, abrir nesse mês
+    const base = initialStart ?? today;
+    return { year: base.getFullYear(), month: base.getMonth() };
+  });
+
+  // use o intervalo inicial do card ao abrir
+  const [rangeStart, setRangeStart] = useState<Date | null>(initialStart ?? today);
+  const [rangeEnd, setRangeEnd]     = useState<Date | null>(initialEnd   ?? initialStart ?? today);
 
     const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
     const firstWeekday = new Date(view.year, view.month, 1).getDay(); // 0=Domingo
@@ -150,17 +168,10 @@ const DashboardPage: React.FC = () => {
     };
 
     const confirm = () => {
-      if (rangeStart && rangeEnd) {
-        const label = `De: ${formatPt(rangeStart)}\nAté: ${formatPt(rangeEnd)}`;
-        onConfirm(label);
-      } else if (rangeStart) {
-        const label = `${formatPt(rangeStart)}`;
-        onConfirm(label);
-      } else {
-        onConfirm('—');
-      }
-      onClose();
-    };
+    const label = buildLabel(rangeStart, rangeEnd);
+    onConfirm({ start: rangeStart, end: rangeEnd, label });
+    onClose();
+  };
 
     const clear = () => {
       setRangeStart(null);
@@ -431,7 +442,7 @@ const DashboardPage: React.FC = () => {
                   <p className="mb-1 text-sm text-zinc-400">{card.title}</p>
                   <h2 className="text-2xl font-bold text-yellow-300">{card.value}</h2>
                   <p className="mt-1 whitespace-pre-line text-xs text-zinc-500">
-                    {selectedDates[card.id]}
+                    {labels[card.id]}
                   </p>
                 </div>
 
@@ -439,15 +450,29 @@ const DashboardPage: React.FC = () => {
 
                 {/* Popover do calendário */}
                 {selectedCard === card.id && (
-                  <SimpleCalendar
-                    onClose={() => setSelectedCard(null)}
-                    onConfirm={(label) => setSelectedDates(prev => ({ ...prev, [card.id]: label }))}
-                    defaultMonth={(() => {
-                      const now = new Date();
-                      return { year: now.getFullYear(), month: now.getMonth() };
-                    })()}
-                  />
-                )}
+                <SimpleCalendar
+                  onClose={() => setSelectedCard(null)}
+                  onConfirm={({ start, end, label }) => {
+                    // 1) Atualiza estados locais
+                    setRanges(prev => ({ ...prev, [card.id]: { start, end } }));
+                    setLabels(prev => ({ ...prev, [card.id]: label }));
+              
+                    // 2) Emite no socket com cardId + datas em ISO
+                    socketRef.current?.emit('mudar_data', {
+                      cardId: card.id,                            // <= aqui vai o cardId
+                      start: start ? start.toISOString() : null,  // serialize
+                      end:   end   ? end.toISOString()   : null,
+                      // tipo: 'seu_tipo_aqui' // (opcional, se você quiser)
+                    });
+                  }}
+                  defaultMonth={(() => {
+                    const base = ranges[card.id]?.start ?? new Date();
+                    return { year: base.getFullYear(), month: base.getMonth() };
+                  })()}
+                  initialStart={ranges[card.id]?.start}
+                  initialEnd={ranges[card.id]?.end}
+                />
+              )}
               </div>
             ))}
           </section>
@@ -505,3 +530,4 @@ const DashboardPage: React.FC = () => {
 };
 
 export default DashboardPage;
+
