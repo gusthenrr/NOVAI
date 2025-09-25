@@ -18,6 +18,8 @@ import {
 // Main App component
 const App: React.FC = () => {
 const [dadosGerais, setDadosGerais] = useState({})
+const [vendidosHoje, setVendidosHoje] = useState()
+const [visuHoje, setVisuHoje] = useState()
   
   useEffect(() => {
     // A inicialização do socket pode ficar fora da função get_conversation, pois ela só precisa ser feita uma vez.
@@ -127,7 +129,7 @@ const get_dados = async () => {
           <button className="md:hidden p-2 rounded-full hover:bg-zinc-800 transition-colors">
             <ArrowLeft />
           </button>
-          <h1 className="text-2xl font-bold">Painel de Controle de Vendas</h1>
+          <h1 className="text-2xl font-bold">Painel de Controle</h1>
           <div className="flex items-center space-x-4">
             <button className="p-2 rounded-full hover:bg-zinc-800 transition-colors">
               <BarChart2 />
@@ -147,15 +149,15 @@ const get_dados = async () => {
           <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-zinc-800 p-6 rounded-lg shadow-md flex items-center justify-between">
               <div>
-                <p className="text-sm text-zinc-400 mb-1">Ganhos</p>
-                <h2 className="text-2xl font-bold text-yellow-300">$ 628</h2>
+                <p className="text-sm text-zinc-400 mb-1">Ganhos Hoje</p>
+                <h2 className="text-2xl font-bold text-yellow-300">${dadosGerais.total_amount}</h2>
               </div>
               <BarChart2 size={36} className="text-yellow-300" />
             </div>
             <div className="bg-zinc-800 p-6 rounded-lg shadow-md flex items-center justify-between">
               <div>
-                <p className="text-sm text-zinc-400 mb-1">Compartilhamentos</p>
-                <h2 className="text-2xl font-bold text-yellow-300">2434</h2>
+                <p className="text-sm text-zinc-400 mb-1">Visualisações Hoje</p>
+                <h2 className="text-2xl font-bold text-yellow-300">${dadosGerais.visualisacoes_hoje}</h2>
               </div>
               <Share2 size={36} className="text-yellow-300" />
             </div>
@@ -229,6 +231,7 @@ const get_dados = async () => {
 };
 
 export default App;
+
 
 
 
