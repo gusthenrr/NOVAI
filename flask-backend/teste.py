@@ -3462,9 +3462,10 @@ def atualizar_dados(data):
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("""SELECT acess_token FROM contas_mercado_livre WHERE usuario_id = %s ORDER BY id DESC LIMIT 1 """,(user_id,),)
+                    cur.execute("""SELECT acess_token,id_ml FROM contas_mercado_livre WHERE usuario_id = %s ORDER BY id DESC LIMIT 1 """,(user_id,),)
                     access_data = cur.fetchone()
-                    access_token= access_token['acess_token']
+                    access_token= access_data['acess_token']
+                    id_ml=access_data['id_ml']
                     if end:
                         if id=='earnings':
                             cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE usuario_id_pedidos_resumo=%s AND date_created>=%s::date AND date_created<=%s::date", (user_id,start, end))
@@ -4646,6 +4647,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
