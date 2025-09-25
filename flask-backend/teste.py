@@ -3026,7 +3026,7 @@ scheduler.start()
 
 def minha_tarefa():
     print("Rodando tarefa de atualização diária às 00:00")
-    socketio.emit('limpar_dados_atais', 'status':True)
+    socketio.emit('limpar_dados_atais', {'status':True})
 
 def listar_todos_itens(user_id,id,access_token):
     try:
@@ -4565,6 +4565,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
