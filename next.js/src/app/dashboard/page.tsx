@@ -48,23 +48,6 @@ const get_dados = async () => {
                     Authorization: `Bearer ${tok}`,
                 },
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API Error: ${response.status} ${response.statusText}: ${errorText}`);
-            }
-
-            const result = await response.json();
-            if (result) {
-                setDadosGerais(result)
-            }
-        } catch (error) {
-            console.error("Erro ao obter conversa:", error);
-            // Continua a execução mesmo com erro, para criar a nova conversa.
-        }
-}
-  get_dados()
-  socketRef.current?.on('atualizar_dados', atualizar_dados);
   const atualizar_dados = ({
     total_amount,
     visualisacoes_hoje,
@@ -78,6 +61,9 @@ const get_dados = async () => {
       visualisacoes_hoje,
     }));
   };
+  socketRef.current?.on('atualizar_dados', atualizar_dados);
+}
+  get_dados()
   },[])
   
   return (
@@ -248,6 +234,7 @@ const get_dados = async () => {
 };
 
 export default App;
+
 
 
 
