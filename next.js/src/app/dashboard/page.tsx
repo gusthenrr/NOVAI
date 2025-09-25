@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 // Icons from Lucide React
 import {
@@ -231,6 +231,7 @@ const get_dados = async () => {
 };
 
 export default App;
+
 
 
 
