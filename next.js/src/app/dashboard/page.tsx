@@ -27,7 +27,6 @@ import {
   Award,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-
 import { useUser } from '../../../userContext';
 
 type DashboardMetrics = {
@@ -45,7 +44,6 @@ const currencyFormatter = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
   currency: 'BRL',
 });
-
 const numberFormatter = new Intl.NumberFormat('pt-BR');
 
 const parseNumericValue = (value: unknown): number | undefined => {
@@ -59,19 +57,39 @@ const parseNumericValue = (value: unknown): number | undefined => {
 
 type CardKey = 'earnings' | 'shares' | 'likes' | 'rating';
 
+const ptMonths = [
+  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'
+];
+const weekLabels = ['D','S','T','Q','Q','S','S'];
+
+function startOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(0,0,0,0);
+  return x;
+}
+function sameDay(a: Date, b: Date) {
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+}
+function isBetween(d: Date, a: Date, b: Date) {
+  const da = startOfDay(d).getTime();
+  const aT = startOfDay(a).getTime();
+  const bT = startOfDay(b).getTime();
+  return da > Math.min(aT,bT) && da < Math.max(aT,bT);
+}
+function formatPt(d: Date) {
+  return `${d.getDate()} de ${ptMonths[d.getMonth()]} de ${d.getFullYear()}`;
+}
+
 const DashboardPage: React.FC = () => {
   const { token, setToken } = useUser();
-  const [metrics, setMetrics] = useState<DashboardMetrics>({
-    totalAmount: 0,
-    visualizationsToday: 0,
-  });
+  const [metrics, setMetrics] = useState<DashboardMetrics>({ totalAmount: 0, visualizationsToday: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
-
   const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL ?? '', []);
 
-  // --- Calendário (estado e componente) ---
+  // ---- Calendário (estado global por card) ----
   const [selectedCard, setSelectedCard] = useState<CardKey | null>(null);
   const [selectedDates, setSelectedDates] = useState<Record<CardKey, string>>({
     earnings: 'Hoje',
@@ -80,63 +98,162 @@ const DashboardPage: React.FC = () => {
     rating: 'Hoje',
   });
 
+  // Componente de calendário com seleção de intervalo
   const SimpleCalendar: React.FC<{
     onClose: () => void;
-    onSelectDate: (date: string) => void;
-  }> = ({ onClose, onSelectDate }) => (
-    <div className="absolute top-full right-0 z-10 mt-2 w-64 rounded-lg bg-zinc-700 p-4 shadow-xl">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-semibold">Setembro 2025</span>
-        <div className="flex space-x-2">
-          <button className="text-zinc-400 hover:text-white">&lt;</button>
-          <button className="text-zinc-400 hover:text-white">&gt;</button>
+    onConfirm: (label: string) => void;
+    defaultMonth?: { year: number; month: number };
+  }> = ({ onClose, onConfirm, defaultMonth }) => {
+    const today = startOfDay(new Date());
+    const [view, setView] = useState<{year:number; month:number}>(() => {
+      if (defaultMonth) return defaultMonth;
+      return { year: today.getFullYear(), month: today.getMonth() };
+    });
+    const [rangeStart, setRangeStart] = useState<Date | null>(today);
+    const [rangeEnd, setRangeEnd] = useState<Date | null>(today);
+
+    const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
+    const firstWeekday = new Date(view.year, view.month, 1).getDay(); // 0=Domingo
+
+    const goPrev = () => {
+      setView(v => {
+        const m = v.month - 1;
+        return m < 0 ? { year: v.year - 1, month: 11 } : { year: v.year, month: m };
+      });
+    };
+    const goNext = () => {
+      setView(v => {
+        const m = v.month + 1;
+        return m > 11 ? { year: v.year + 1, month: 0 } : { year: v.year, month: m };
+      });
+    };
+
+    const handlePick = (day: number) => {
+      const picked = startOfDay(new Date(view.year, view.month, day));
+      if (!rangeStart || (rangeStart && rangeEnd)) {
+        setRangeStart(picked);
+        setRangeEnd(null);
+      } else {
+        // temos start mas não end
+        if (picked.getTime() < rangeStart.getTime()) {
+          setRangeStart(picked);
+          setRangeEnd(null);
+        } else if (sameDay(picked, rangeStart)) {
+          // período de 1 dia
+          setRangeEnd(picked);
+        } else {
+          setRangeEnd(picked);
+        }
+      }
+    };
+
+    const confirm = () => {
+      if (rangeStart && rangeEnd) {
+        const label = `De: ${formatPt(rangeStart)}\nAté: ${formatPt(rangeEnd)}`;
+        onConfirm(label);
+      } else if (rangeStart) {
+        const label = `${formatPt(rangeStart)}`;
+        onConfirm(label);
+      } else {
+        onConfirm('—');
+      }
+      onClose();
+    };
+
+    const clear = () => {
+      setRangeStart(null);
+      setRangeEnd(null);
+    };
+
+    const isSelected = (d: Date) =>
+      (rangeStart && sameDay(d, rangeStart)) || (rangeEnd && sameDay(d, rangeEnd));
+    const inRange = (d: Date) =>
+      rangeStart && rangeEnd ? isBetween(d, rangeStart, rangeEnd) : false;
+
+    // células vazias antes do dia 1
+    const leading = Array.from({ length: firstWeekday }, (_, i) => <span key={`l-${i}`} />);
+    const dayCells = Array.from({ length: daysInMonth }, (_, i) => {
+      const day = i + 1;
+      const dateObj = startOfDay(new Date(view.year, view.month, day));
+      const selected = isSelected(dateObj);
+      const between = inRange(dateObj);
+      const base =
+        'cursor-pointer rounded-full p-1 text-sm transition-colors select-none';
+      const styleSelected =
+        'bg-zinc-200 text-zinc-900 font-semibold';
+      const styleBetween =
+        'bg-zinc-600 text-white';
+      const styleNormal =
+        'text-zinc-300 hover:bg-zinc-400 hover:text-zinc-900';
+
+      return (
+        <span
+          key={day}
+          className={`${base} ${selected ? styleSelected : between ? styleBetween : styleNormal}`}
+          onClick={() => handlePick(day)}
+        >
+          {day}
+        </span>
+      );
+    });
+
+    return (
+      <div className="absolute top-full right-0 z-10 mt-2 w-72 rounded-lg bg-zinc-800 p-4 shadow-xl border border-zinc-700">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-sm font-semibold text-zinc-200">
+            {ptMonths[view.month]} {view.year}
+          </span>
+          <div className="flex gap-2">
+            <button onClick={goPrev} className="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-700">◀</button>
+            <button onClick={goNext} className="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-700">▶</button>
+          </div>
+        </div>
+
+        <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs">
+          {weekLabels.map(lbl => (
+            <span key={lbl} className="font-bold text-zinc-500">{lbl}</span>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1 text-center">
+          {leading}
+          {dayCells}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between">
+          <button onClick={clear} className="text-xs text-zinc-400 hover:text-white">
+            Limpar
+          </button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-lg px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700">
+              Cancelar
+            </button>
+            <button
+              onClick={confirm}
+              className="rounded-lg bg-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-900 hover:bg-white"
+            >
+              OK
+            </button>
+          </div>
         </div>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-sm">
-        {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(day => (
-          <span key={day} className="font-bold text-zinc-500">
-            {day}
-          </span>
-        ))}
-        {Array.from({ length: 30 }, (_, i) => i + 1).map(day => (
-          <span
-            key={day}
-            className={`cursor-pointer rounded-full p-1 transition-colors hover:bg-yellow-300 hover:text-zinc-800
-              ${day >= 5 && day <= 15 ? 'bg-yellow-300 text-zinc-800' : 'text-zinc-300'}`}
-          >
-            {day}
-          </span>
-        ))}
-      </div>
-      <div className="mt-4 flex justify-end">
-        <button
-          onClick={() => {
-            onSelectDate('De: 5 de Setembro de 2025\nAté: 15 de Setembro de 2025');
-            onClose();
-          }}
-          className="rounded-lg bg-yellow-300 px-2 py-1 text-xs font-semibold text-zinc-900 transition-colors hover:bg-yellow-400"
-        >
-          OK
-        </button>
-      </div>
-    </div>
-  );
-  // --- fim calendário ---
+    );
+  };
 
+  // ---- token localStorage ----
   useEffect(() => {
     if (token) return;
     try {
       const storedToken = localStorage.getItem('authToken');
       if (storedToken) setToken(storedToken);
-    } catch (storageError) {
-      console.error('Falha ao recuperar token do armazenamento local.', storageError);
+    } catch (e) {
+      console.error('Falha ao recuperar token do armazenamento local.', e);
     }
   }, [token, setToken]);
 
   const updateMetrics = useCallback((payload: MetricsPayload) => {
     setMetrics(prev => {
-      const totalAmount =
-        parseNumericValue(payload.total_amount) ?? prev.totalAmount;
+      const totalAmount = parseNumericValue(payload.total_amount) ?? prev.totalAmount;
       const visualizationsToday =
         parseNumericValue(payload.visualizacoes_hoje ?? payload.visualizacoes) ??
         prev.visualizationsToday;
@@ -144,6 +261,7 @@ const DashboardPage: React.FC = () => {
     });
   }, []);
 
+  // ---- socket ----
   useEffect(() => {
     if (!apiUrl) {
       setError('URL da API não configurada.');
@@ -170,13 +288,12 @@ const DashboardPage: React.FC = () => {
     };
   }, [apiUrl, updateMetrics]);
 
+  // ---- fetch inicial ----
   const fetchMetrics = useCallback(
     async (authToken: string) => {
       if (!apiUrl) return;
-
       setLoading(true);
       setError(null);
-
       try {
         const response = await fetch(`${apiUrl}/get_dados_gerais`, {
           method: 'GET',
@@ -186,30 +303,20 @@ const DashboardPage: React.FC = () => {
           },
           credentials: 'include',
         });
-
         const data = await response.json();
-
         if (!response.ok) {
-          const message =
-            typeof data?.error === 'string'
-              ? data.error
-              : 'Erro ao carregar dados do painel.';
-          throw new Error(message);
+          const msg = typeof data?.error === 'string' ? data.error : 'Erro ao carregar dados do painel.';
+          throw new Error(msg);
         }
-
         updateMetrics(data as MetricsPayload);
-      } catch (requestError) {
-        console.error('Erro ao buscar dados do dashboard:', requestError);
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Erro inesperado ao carregar o painel.',
-        );
+      } catch (err) {
+        console.error('Erro ao buscar dados do dashboard:', err);
+        setError(err instanceof Error ? err.message : 'Erro inesperado ao carregar o painel.');
       } finally {
         setLoading(false);
       }
     },
-    [apiUrl, updateMetrics],
+    [apiUrl, updateMetrics]
   );
 
   useEffect(() => {
@@ -217,51 +324,17 @@ const DashboardPage: React.FC = () => {
     void fetchMetrics(token);
   }, [token, fetchMetrics]);
 
+  // ---- cards (sem amarelo) ----
   const cards = useMemo<
-    Array<{
-      id: CardKey;
-      title: string;
-      value: string;
-      icon: LucideIcon;
-      badgeIcon: LucideIcon;
-      accent: string;
-    }>
+    Array<{ id: CardKey; title: string; value: string; icon: LucideIcon; badgeIcon: LucideIcon }>
   >(
     () => [
-      {
-        id: 'earnings',
-        title: 'Ganhos',
-        value: loading ? '—' : currencyFormatter.format(metrics.totalAmount),
-        icon: BarChart2,
-        badgeIcon: TrendingUp,
-        accent: 'text-yellow-300',
-      },
-      {
-        id: 'shares',
-        title: 'Visualizações',
-        value: loading ? '—' : numberFormatter.format(metrics.visualizationsToday),
-        icon: Share2,
-        badgeIcon: Download,
-        accent: 'text-yellow-300',
-      },
-      {
-        id: 'likes',
-        title: 'Curtidas',
-        value: '1.259',
-        icon: Heart,
-        badgeIcon: ThumbsUp,
-        accent: 'text-yellow-300',
-      },
-      {
-        id: 'rating',
-        title: 'Classificação',
-        value: '8.5',
-        icon: Star,
-        badgeIcon: Award,
-        accent: 'text-yellow-300',
-      },
+      { id: 'earnings', title: 'Ganhos', value: loading ? '—' : currencyFormatter.format(metrics.totalAmount), icon: BarChart2, badgeIcon: TrendingUp },
+      { id: 'shares',   title: 'Visualizações', value: loading ? '—' : numberFormatter.format(metrics.visualizationsToday), icon: Share2, badgeIcon: Download },
+      { id: 'likes',    title: 'Curtidas', value: '1.259', icon: Heart, badgeIcon: ThumbsUp },
+      { id: 'rating',   title: 'Classificação', value: '8.5', icon: Star, badgeIcon: Award },
     ],
-    [loading, metrics.totalAmount, metrics.visualizationsToday],
+    [loading, metrics.totalAmount, metrics.visualizationsToday]
   );
 
   return (
@@ -288,11 +361,8 @@ const DashboardPage: React.FC = () => {
               { icon: BarChart2, label: 'Gráficos' },
             ].map(item => (
               <li key={item.label} className="mb-2">
-                <a
-                  href="#"
-                  className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700"
-                >
-                  <item.icon className="mr-3 text-yellow-300" />
+                <a href="#" className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
+                  <item.icon className="mr-3 text-zinc-400" />
                   {item.label}
                 </a>
               </li>
@@ -327,52 +397,50 @@ const DashboardPage: React.FC = () => {
         )}
 
         <div className="-m-6 flex-1 space-y-6 overflow-y-auto p-6">
-          {/* CARDS com calendário embutido */}
+          {/* Cards com calendário (ícones neutros) */}
           <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {cards.map(card => (
-              <div
-                key={card.id}
-                className="relative flex items-center justify-between rounded-lg bg-zinc-800 p-6 shadow-md"
-              >
-                {/* Ações no topo-direito (Calendário + ícone pequeno) */}
+              <div key={card.id} className="relative flex items-center justify-between rounded-lg bg-zinc-800 p-6 shadow-md">
+                {/* Ações topo-direito */}
                 <div className="absolute right-4 top-4 flex flex-col items-center space-y-2">
                   <button
-                    onClick={() =>
-                      setSelectedCard(selectedCard === card.id ? null : card.id)
-                    }
+                    onClick={() => setSelectedCard(selectedCard === card.id ? null : card.id)}
                     className="rounded-full p-2 transition-colors hover:bg-zinc-700"
                     aria-label={`Selecionar período em ${card.title}`}
                   >
-                    <CalendarDays size={20} className="text-yellow-300" />
+                    <CalendarDays size={20} className="text-zinc-400" />
                   </button>
-                  <card.badgeIcon size={16} className="cursor-pointer text-zinc-500 hover:text-yellow-300" />
+                  <card.badgeIcon size={16} className="text-zinc-500" />
                 </div>
 
-                {/* Conteúdo do card */}
+                {/* Conteúdo */}
                 <div>
                   <p className="mb-1 text-sm text-zinc-400">{card.title}</p>
-                  <h2 className={`text-2xl font-bold ${card.accent}`}>{card.value}</h2>
-                  {/* Data selecionada */}
+                  <h2 className="text-2xl font-bold text-zinc-100">{card.value}</h2>
                   <p className="mt-1 whitespace-pre-line text-xs text-zinc-500">
                     {selectedDates[card.id]}
                   </p>
                 </div>
 
-                <card.icon size={36} className={card.accent} />
+                <card.icon size={36} className="text-zinc-400" />
 
-                {/* Calendário (pop-over) */}
+                {/* Popover do calendário */}
                 {selectedCard === card.id && (
                   <SimpleCalendar
                     onClose={() => setSelectedCard(null)}
-                    onSelectDate={(date) =>
-                      setSelectedDates(prev => ({ ...prev, [card.id]: date }))
-                    }
+                    onConfirm={(label) => setSelectedDates(prev => ({ ...prev, [card.id]: label }))}
+                    defaultMonth={(() => {
+                      // abre no mês atual
+                      const now = new Date();
+                      return { year: now.getFullYear(), month: now.getMonth() };
+                    })()}
                   />
                 )}
               </div>
             ))}
           </section>
 
+          {/* O resto da página permanece igual */}
           <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-bold">Resultado</h2>
