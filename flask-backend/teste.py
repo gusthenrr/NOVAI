@@ -3778,7 +3778,6 @@ def ranking_item_id(item_id, access_token):
     resposta=response.get(url, headers=headers)
     resposta_final=resposta.json()
     
-def itens_mais_vendidos(termo, access_token):
     
 def trands_brasil(access_token):
     url="https://api.mercadolibre.com/trends/MLB"
@@ -4565,6 +4564,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
