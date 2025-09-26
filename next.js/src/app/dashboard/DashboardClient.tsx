@@ -35,7 +35,8 @@ type DashboardMetrics = {
   nickname: string | null;
   email: string | null;
 };
-
+type DateRange = { start: Date | null; end: Date | null };
+type CardKey = 'earnings' | 'shares' | 'likes' | 'rating';
 type MetricsPayload = {
   total_amount?: number | string | null;
   visualizacoes?: number | string | null;
@@ -58,21 +59,6 @@ const parseNumericValue = (value: unknown): number | undefined => {
   }
   return undefined;
 };
-
-type DateRange = { start: Date | null; end: Date | null };
-const [ranges, setRanges] = useState<Record<CardKey, DateRange>>({
-  earnings: { start: startOfDay(new Date()), end: startOfDay(new Date()) },
-  shares:   { start: startOfDay(new Date()), end: startOfDay(new Date()) },
-  likes:    { start: startOfDay(new Date()), end: startOfDay(new Date()) },
-  rating:   { start: startOfDay(new Date()), end: startOfDay(new Date()) },
-});
-type CardKey = 'earnings' | 'shares' | 'likes' | 'rating';
-const [labels, setLabels] = useState<Record<CardKey, string>>({
-  earnings: 'Hoje',
-  shares:   'Hoje',
-  likes:    'Hoje',
-  rating:   'Hoje',
-});
 const buildLabel = (start: Date | null, end: Date | null) => {
   if (start && end) return `De: ${formatPt(start)}\nAté: ${formatPt(end)}`;
   if (start)       return `${formatPt(start)}`;
@@ -110,7 +96,20 @@ const DashboardPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL ?? '', []);
-
+  
+  const [ranges, setRanges] = useState<Record<CardKey, DateRange>>({
+    earnings: { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+    shares:   { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+    likes:    { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+    rating:   { start: startOfDay(new Date()), end: startOfDay(new Date()) },
+  });
+  
+  const [labels, setLabels] = useState<Record<CardKey, string>>({
+    earnings: 'Hoje',
+    shares:   'Hoje',
+    likes:    'Hoje',
+    rating:   'Hoje',
+  });
   // ---- Calendário (estado global por card) ----
   const [selectedCard, setSelectedCard] = useState<CardKey | null>(null);
 
