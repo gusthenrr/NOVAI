@@ -3457,8 +3457,14 @@ def atualizar_dados(data):
         except:
             return
         id=data.get('cardId')
-        start=data.get('start')
-        end=data.get('end')
+        print('id: ',id)
+        start_=data.get('start')
+        start=start_.strftime("%Y-%m-%d")
+        print('start: ', start)
+        end_=data.get('end')
+        end=end_.strftime("%Y-%m-%d")
+        if end:
+            print('end: ', end)
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""SELECT acess_token,id_ml FROM contas_mercado_livre WHERE usuario_id = %s ORDER BY id DESC LIMIT 1 """,(user_id,),)
@@ -4646,6 +4652,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
