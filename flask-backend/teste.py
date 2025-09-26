@@ -3493,7 +3493,7 @@ def atualizar_dados(data):
         
         start = to_yyyy_mm_dd(start_raw)
         end   = to_yyyy_mm_dd(end_raw)
-        print('cardId:', id_card)
+        print('cardId:', id)
         print('start:', start)
         if end:
             print('end: ', end)
@@ -4684,6 +4684,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
