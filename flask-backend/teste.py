@@ -3434,6 +3434,36 @@ def _to_epoch_ms(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
+def to_yyyy_mm_dd(v):
+    """Converte str/datetime/date/timedelta -> 'YYYY-MM-DD' (ou None)."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        s = v.strip().replace('Z', '')
+        # já está no formato certo?
+        if len(s) >= 10 and s[:10].count('-') == 2:
+            try:
+                return datetime.fromisoformat(s[:19]).date().isoformat() if 'T' in s else datetime.strptime(s[:10], "%Y-%m-%d").date().isoformat()
+            except Exception:
+                pass
+        # tenta ISO genérico
+        try:
+            return datetime.fromisoformat(s).date().isoformat()
+        except Exception:
+            # tenta só data
+            try:
+                return datetime.strptime(s, "%Y-%m-%d").date().isoformat()
+            except Exception:
+                return None
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, timedelta):
+        # se vier timedelta, interpretamos como "hoje + delta"
+        return (date.today() + v).isoformat()
+    return None
+
 @socketio.on('mudar_data')
 def atualizar_dados(data):
     try:
@@ -3458,11 +3488,13 @@ def atualizar_dados(data):
             return
         id=data.get('cardId')
         print('id: ',id)
-        start_=data.get('start')
-        start=start_.strftime("%Y-%m-%d")
-        print('start: ', start)
-        end_=data.get('end')
-        end=end_.strftime("%Y-%m-%d")
+        start_raw = data.get('start')  # pode vir str ISO ou outro tipo
+        end_raw   = data.get('end')
+        
+        start = to_yyyy_mm_dd(start_raw)
+        end   = to_yyyy_mm_dd(end_raw)
+        print('cardId:', id_card)
+        print('start:', start)
         if end:
             print('end: ', end)
         with get_db_connection() as conn:
@@ -3481,7 +3513,7 @@ def atualizar_dados(data):
                         headers = {"Authorization": f"Bearer {access_token}"}
                         url = (
                             f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
-                            f"?date_from={date_from}&date_to={date_to}"
+                            f"?date_from={start}&date_to={end}"
                         )
                         try:
                             response = requests.get(url, headers=headers, timeout=20)
@@ -3507,7 +3539,7 @@ def atualizar_dados(data):
                         emit('atualizar_dados',{'total_amount':total_amount})
                     elif id=='shares':
                         headers = {"Authorization": f"Bearer {access_token}"}
-                        date_to = (start + timedelta(days=1)).strftime("%Y-%m-%d")
+                        date_to = (datetime.fromisoformat(start).date() + timedelta(days=1)).isoformat()
                         url = (
                             f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
                             f"?date_from={start}&date_to={date_to}"
@@ -4652,6 +4684,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
