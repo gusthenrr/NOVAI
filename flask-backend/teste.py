@@ -3500,76 +3500,74 @@ def atualizar_dados(data):
         if not start_dt:
             emit('atualizar_dados', {'error': 'Data inicial inválida'})
             return
-    
-        try:
-            with get_db_connection() as conn:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    # pegue suas credenciais (ajuste nomes de colunas conforme seu schema)
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # pegue suas credenciais (ajuste nomes de colunas conforme seu schema)
+                cur.execute("""
+                    SELECT acess_token, id_ml
+                    FROM contas_mercado_livre
+                    WHERE usuario_id = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (user_id,))
+                cred = cur.fetchone()
+                acess_token = cred['acess_token'] if cred else None
+                id_ml       = cred['id_ml']       if cred else None
+
+                # ---------------- earnings (usa timestamp) ----------------
+                if card_id == 'earnings':
+                    # Se não houver end, usa janela de 1 dia
+                    if not end_dt:
+                        end_dt = start_dt + timedelta(days=1)
+
+                    # Opção A (intervalo fechado): BETWEEN start_dt AND end_dt
+                    # Opção B (mais comum): >= start_dt AND < end_dt (exclusivo)
                     cur.execute("""
-                        SELECT acess_token, id_ml
-                        FROM contas_mercado_livre
-                        WHERE usuario_id = %s
-                        ORDER BY id DESC
-                        LIMIT 1
-                    """, (user_id,))
-                    cred = cur.fetchone()
-                    acess_token = cred['acess_token'] if cred else None
-                    id_ml       = cred['id_ml']       if cred else None
-    
-                    # ---------------- earnings (usa timestamp) ----------------
-                    if card_id == 'earnings':
-                        # Se não houver end, usa janela de 1 dia
-                        if not end_dt:
-                            end_dt = start_dt + timedelta(days=1)
-    
-                        # Opção A (intervalo fechado): BETWEEN start_dt AND end_dt
-                        # Opção B (mais comum): >= start_dt AND < end_dt (exclusivo)
-                        cur.execute("""
-                            SELECT COALESCE(SUM(total_amount),0) AS total
-                            FROM pedidos_resumo
-                            WHERE usuario_id_pedidos_resumo = %s
-                              AND date_created >= %s::timestamp
-                              AND date_created <  %s::timestamp
-                        """, (user_id, start_dt, end_dt))
-    
-                        row = cur.fetchone()
-                        total_amount = float(row['total']) if row and row['total'] is not None else 0.0
-                        emit('atualizar_dados', {'total_amount': total_amount})
+                        SELECT COALESCE(SUM(total_amount),0) AS total
+                        FROM pedidos_resumo
+                        WHERE usuario_id_pedidos_resumo = %s
+                          AND date_created >= %s::timestamp
+                          AND date_created <  %s::timestamp
+                    """, (user_id, start_dt, end_dt))
+
+                    row = cur.fetchone()
+                    total_amount = float(row['total']) if row and row['total'] is not None else 0.0
+                    emit('atualizar_dados', {'total_amount': total_amount})
+                    return
+
+                # ---------------- shares (usa apenas data) ----------------
+                if card_id == 'shares':
+                    if not acess_token or not id_ml:
+                        emit('atualizar_dados', {'error': 'Credenciais ML ausentes'})
                         return
-    
-                    # ---------------- shares (usa apenas data) ----------------
-                    if card_id == 'shares':
-                        if not acess_token or not id_ml:
-                            emit('atualizar_dados', {'error': 'Credenciais ML ausentes'})
-                            return
-    
-                        date_from = to_date_str(start_dt)
-                        if end_dt:
-                            date_to = to_date_str(end_dt)
+
+                    date_from = to_date_str(start_dt)
+                    if end_dt:
+                        date_to = to_date_str(end_dt)
+                    else:
+                        # janela de 1 dia
+                        date_to = (start_dt + timedelta(days=1)).date().isoformat()
+
+                    headers = {"Authorization": f"Bearer {acess_token}"}
+                    url = (
+                        f"https://api.mercadolibre.com/users/{id_ml}/items_visits"
+                        f"?date_from={date_from}&date_to={date_to}"
+                    )
+                    try:
+                        resp = requests.get(url, headers=headers, timeout=20)
+                        if resp.ok:
+                            payload = resp.json()
+                            total_visits = payload.get('total_visits') if isinstance(payload, dict) else None
+                            emit('atualizar_dados', {'visualizacoes_hoje': total_visits})
                         else:
-                            # janela de 1 dia
-                            date_to = (start_dt + timedelta(days=1)).date().isoformat()
-    
-                        headers = {"Authorization": f"Bearer {acess_token}"}
-                        url = (
-                            f"https://api.mercadolibre.com/users/{id_ml}/items_visits"
-                            f"?date_from={date_from}&date_to={date_to}"
-                        )
-                        try:
-                            resp = requests.get(url, headers=headers, timeout=20)
-                            if resp.ok:
-                                payload = resp.json()
-                                total_visits = payload.get('total_visits') if isinstance(payload, dict) else None
-                                emit('atualizar_dados', {'visualizacoes_hoje': total_visits})
-                            else:
-                                app.logger.warning('Falha ML: %s %s', resp.status_code, resp.text)
-                                emit('atualizar_dados', {'error': 'Falha ML'})
-                        except requests.exceptions.RequestException as exc:
-                            app.logger.exception('Erro de rede ML: %s', exc)
-                            emit('atualizar_dados', {'error': 'Erro de rede ML'})
-                        return
-    
-                    emit('atualizar_dados', {'info': f'cardId não tratado: {card_id}'})
+                            app.logger.warning('Falha ML: %s %s', resp.status_code, resp.text)
+                            emit('atualizar_dados', {'error': 'Falha ML'})
+                    except requests.exceptions.RequestException as exc:
+                        app.logger.exception('Erro de rede ML: %s', exc)
+                        emit('atualizar_dados', {'error': 'Erro de rede ML'})
+                    return
+
+                emit('atualizar_dados', {'info': f'cardId não tratado: {card_id}'})
     except Exception as exc:
         app.logger.exception('Erro em mudar_data: %s', exc)
         emit('atualizar_dados', {'error': 'Erro interno'})
@@ -4695,6 +4693,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
