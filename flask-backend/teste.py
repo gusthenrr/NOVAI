@@ -3507,7 +3507,9 @@ def atualizar_dados(data):
                     if id=='earnings':
                         cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE usuario_id_pedidos_resumo=%s AND date_created>=%s::date AND date_created<=%s::date", (user_id,start, end))
                         total_amount_dict=cur.fetchone()
+                        print('total_amount: ', total_amount_dict)
                         total_amount=total_amount_dict['total']
+                        print('total: ', total_amount)
                         emit('atualizar_dados',{'total_amount':total_amount})
                     elif id=='shares':
                         headers = {"Authorization": f"Bearer {access_token}"}
@@ -3522,6 +3524,7 @@ def atualizar_dados(data):
                                 print(payload)
                                 if isinstance(payload, dict):
                                     visualizacoes_hoje=payload.get('total_visits')
+                                    print('visualizacoes: ', visualizacoes_hoje)
                             else:
                                 app.logger.warning(
                                     'Falha ao buscar visitas no Mercado Livre: %s %s',
@@ -3536,6 +3539,7 @@ def atualizar_dados(data):
                         cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE usuario_id_pedidos_resumo=%s AND date_created=%s::date", (user_id,start))
                         total_amount_dict=cur.fetchone()
                         total_amount=total_amount_dict['total']
+                        print('total amount: ', total_amount)
                         emit('atualizar_dados',{'total_amount':total_amount})
                     elif id=='shares':
                         headers = {"Authorization": f"Bearer {access_token}"}
@@ -3551,6 +3555,7 @@ def atualizar_dados(data):
                                 print(payload)
                                 if isinstance(payload, dict):
                                     visualizacoes_hoje=payload.get('total_visits')
+                                    print('visualizacoes: ', visualizacoes_hoje)
                             else:
                                 app.logger.warning(
                                     'Falha ao buscar visitas no Mercado Livre: %s %s',
@@ -4684,6 +4689,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
