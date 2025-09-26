@@ -3434,34 +3434,37 @@ def _to_epoch_ms(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
-def to_yyyy_mm_dd(v):
-    """Converte str/datetime/date/timedelta -> 'YYYY-MM-DD' (ou None)."""
-    if v is None:
+def to_date_str(value_dt):
+    """datetime/date -> 'YYYY-MM-DD' (string)"""
+    if isinstance(value_dt, datetime):
+        return value_dt.date().isoformat()
+    if isinstance(value_dt, date):
+        return value_dt.isoformat()
+    return None
+
+def parse_dt(value):
+    """Converte str/datetime/date -> datetime (naive). Retorna None se inválido."""
+    if value is None:
         return None
-    if isinstance(v, str):
-        s = v.strip().replace('Z', '')
-        # já está no formato certo?
-        if len(s) >= 10 and s[:10].count('-') == 2:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if isinstance(value, str):
+        s = value.strip().replace('Z', '')
+        # Tenta ISO completo (com hora) e só data
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f",
+                    "%Y-%m-%dT%H:%M:%S",
+                    "%Y-%m-%d"):
             try:
-                return datetime.fromisoformat(s[:19]).date().isoformat() if 'T' in s else datetime.strptime(s[:10], "%Y-%m-%d").date().isoformat()
-            except Exception:
-                pass
-        # tenta ISO genérico
+                return datetime.strptime(s[:len(fmt)], fmt)
+            except ValueError:
+                continue
+        # fallback fromisoformat
         try:
-            return datetime.fromisoformat(s).date().isoformat()
+            return datetime.fromisoformat(s)
         except Exception:
-            # tenta só data
-            try:
-                return datetime.strptime(s, "%Y-%m-%d").date().isoformat()
-            except Exception:
-                return None
-    if isinstance(v, datetime):
-        return v.date().isoformat()
-    if isinstance(v, date):
-        return v.isoformat()
-    if isinstance(v, timedelta):
-        # se vier timedelta, interpretamos como "hoje + delta"
-        return (date.today() + v).isoformat()
+            return None
     return None
 
 @socketio.on('mudar_data')
@@ -3486,87 +3489,90 @@ def atualizar_dados(data):
                 return
         except:
             return
-        id=data.get('cardId')
-        print('id: ',id)
-        start_raw = data.get('start')  # pode vir str ISO ou outro tipo
-        end_raw   = data.get('end')
-        
-        start = to_yyyy_mm_dd(start_raw)
-        end   = to_yyyy_mm_dd(end_raw)
-        print('cardId:', id)
-        print('start:', start)
-        if end:
-            print('end: ', end)
+        card_id  = data.get('cardId')          # 'earnings' | 'shares' | etc.
+    start_in = data.get('start')           # vem string ISO do front
+    end_in   = data.get('end')             # string ISO ou None
+
+    # Parse base como datetime
+    start_dt = parse_dt(start_in)
+    end_dt   = parse_dt(end_in) if end_in else None
+
+    if not start_dt:
+        emit('atualizar_dados', {'error': 'Data inicial inválida'})
+        return
+
+    try:
         with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""SELECT acess_token,id_ml FROM contas_mercado_livre WHERE usuario_id = %s ORDER BY id DESC LIMIT 1 """,(user_id,),)
-                access_data = cur.fetchone()
-                access_token= access_data['acess_token']
-                id_ml=access_data['id_ml']
-                if end:
-                    if id=='earnings':
-                        cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE usuario_id_pedidos_resumo=%s AND date_created>=%s::date AND date_created<=%s::date", (user_id,start, end))
-                        total_amount_dict=cur.fetchone()
-                        print('total_amount: ', total_amount_dict)
-                        total_amount=total_amount_dict['total']
-                        print('total: ', total_amount)
-                        emit('atualizar_dados',{'total_amount':total_amount})
-                    elif id=='shares':
-                        headers = {"Authorization": f"Bearer {access_token}"}
-                        url = (
-                            f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
-                            f"?date_from={start}&date_to={end}"
-                        )
-                        try:
-                            response = requests.get(url, headers=headers, timeout=20)
-                            if response.ok:
-                                payload = response.json()
-                                print(payload)
-                                if isinstance(payload, dict):
-                                    visualizacoes_hoje=payload.get('total_visits')
-                                    print('visualizacoes: ', visualizacoes_hoje)
-                            else:
-                                app.logger.warning(
-                                    'Falha ao buscar visitas no Mercado Livre: %s %s',
-                                    response.status_code,
-                                    response.text,
-                                )
-                            emit('autalizar_dados', {'visualizacoes_hoje':visualizacoes_hoje})
-                        except requests.exceptions.RequestException as exc:
-                            app.logger.exception('Data invalida: %s', exc)
-                elif start:
-                    if id=='earnings':
-                        cur.execute("SELECT SUM(total_amount) as total FROM pedidos_resumo WHERE usuario_id_pedidos_resumo=%s AND date_created=%s::date", (user_id,start))
-                        total_amount_dict=cur.fetchone()
-                        total_amount=total_amount_dict['total']
-                        print('total amount: ', total_amount)
-                        emit('atualizar_dados',{'total_amount':total_amount})
-                    elif id=='shares':
-                        headers = {"Authorization": f"Bearer {access_token}"}
-                        date_to = (datetime.fromisoformat(start).date() + timedelta(days=1)).isoformat()
-                        url = (
-                            f"https://api.mercadolibre.com/users/{id_mercado_livre}/items_visits"
-                            f"?date_from={start}&date_to={date_to}"
-                        )
-                        try:
-                            response = requests.get(url, headers=headers, timeout=20)
-                            if response.ok:
-                                payload = response.json()
-                                print(payload)
-                                if isinstance(payload, dict):
-                                    visualizacoes_hoje=payload.get('total_visits')
-                                    print('visualizacoes: ', visualizacoes_hoje)
-                            else:
-                                app.logger.warning(
-                                    'Falha ao buscar visitas no Mercado Livre: %s %s',
-                                    response.status_code,
-                                    response.text,
-                                )
-                            emit('autalizar_dados', {'visualizacoes_hoje':visualizacoes_hoje})
-                        except requests.exceptions.RequestException as exc:
-                            app.logger.exception('Data invalida: %s', exc)
-    except Exception as e:
-        print('erro: ',str(e))
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # pegue suas credenciais (ajuste nomes de colunas conforme seu schema)
+                cur.execute("""
+                    SELECT acess_token, id_ml
+                    FROM contas_mercado_livre
+                    WHERE usuario_id = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (user_id,))
+                cred = cur.fetchone()
+                acess_token = cred['acess_token'] if cred else None
+                id_ml       = cred['id_ml']       if cred else None
+
+                # ---------------- earnings (usa timestamp) ----------------
+                if card_id == 'earnings':
+                    # Se não houver end, usa janela de 1 dia
+                    if not end_dt:
+                        end_dt = start_dt + timedelta(days=1)
+
+                    # Opção A (intervalo fechado): BETWEEN start_dt AND end_dt
+                    # Opção B (mais comum): >= start_dt AND < end_dt (exclusivo)
+                    cur.execute("""
+                        SELECT COALESCE(SUM(total_amount),0) AS total
+                        FROM pedidos_resumo
+                        WHERE usuario_id_pedidos_resumo = %s
+                          AND date_created >= %s::timestamp
+                          AND date_created <  %s::timestamp
+                    """, (user_id, start_dt, end_dt))
+
+                    row = cur.fetchone()
+                    total_amount = float(row['total']) if row and row['total'] is not None else 0.0
+                    emit('atualizar_dados', {'total_amount': total_amount})
+                    return
+
+                # ---------------- shares (usa apenas data) ----------------
+                if card_id == 'shares':
+                    if not acess_token or not id_ml:
+                        emit('atualizar_dados', {'error': 'Credenciais ML ausentes'})
+                        return
+
+                    date_from = to_date_str(start_dt)
+                    if end_dt:
+                        date_to = to_date_str(end_dt)
+                    else:
+                        # janela de 1 dia
+                        date_to = (start_dt + timedelta(days=1)).date().isoformat()
+
+                    headers = {"Authorization": f"Bearer {acess_token}"}
+                    url = (
+                        f"https://api.mercadolibre.com/users/{id_ml}/items_visits"
+                        f"?date_from={date_from}&date_to={date_to}"
+                    )
+                    try:
+                        resp = requests.get(url, headers=headers, timeout=20)
+                        if resp.ok:
+                            payload = resp.json()
+                            total_visits = payload.get('total_visits') if isinstance(payload, dict) else None
+                            emit('atualizar_dados', {'visualizacoes_hoje': total_visits})
+                        else:
+                            app.logger.warning('Falha ML: %s %s', resp.status_code, resp.text)
+                            emit('atualizar_dados', {'error': 'Falha ML'})
+                    except requests.exceptions.RequestException as exc:
+                        app.logger.exception('Erro de rede ML: %s', exc)
+                        emit('atualizar_dados', {'error': 'Erro de rede ML'})
+                    return
+
+                emit('atualizar_dados', {'info': f'cardId não tratado: {card_id}'})
+    except Exception as exc:
+        app.logger.exception('Erro em mudar_data: %s', exc)
+        emit('atualizar_dados', {'error': 'Erro interno'})
 
 
 @app.route('/get_dados_gerais', methods=['GET'])
@@ -4689,6 +4695,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
