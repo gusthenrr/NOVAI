@@ -582,7 +582,7 @@ def public_offers_notifications(data, acess_token_data):
         if 'conn' in locals():
             conn.close()
 
-@app.route('/visitsItems', methods=['GET'])
+@app.route('/visitsItems', methods=['POST'])
 def visitsItems(data):
     print("Buscando visualizações...")
     with get_db_connect() as conn, conn.cursor() as cur:
@@ -4707,6 +4707,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
