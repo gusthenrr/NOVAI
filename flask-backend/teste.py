@@ -610,16 +610,15 @@ def visitas_por_mes():
     price = data.get('price', 0)
     print("Buscando visualizações...")
     total_visits_mes=0
-    date_to= datetime.datetime.now().strftime('%Y-%m-%d')
+    date_to= datetime.now().strftime('%Y-%m-%d')
     meses = []
     faturamentos = []
     for i in range(0,24):
-        date_from= (datetime.datetime.now() - datetime.timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
-        date_to= (datetime.datetime.now() - datetime.timedelta(days=i*30)).strftime('%Y-%m-%d')
+        date_from= (datetime.now() - datetime.timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
+        date_to= (datetime.now() - datetime.timedelta(days=i*30)).strftime('%Y-%m-%d')
         url_por_mes= f'https://api.mercadolibre.com/items/visits?ids={item}&date_from={date_from}&date_to={date_to}'
         response = requests.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
         visitas=response.json()
-        date_from= (datetime.datetime.now() - datetime.timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
         print(f'Mês: {date_from}', end=' ')
         total_visits_mes=int(visitas[0]['total_visits'])
         meses.append(total_visits_mes)
@@ -4738,6 +4737,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
