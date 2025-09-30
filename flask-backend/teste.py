@@ -582,6 +582,20 @@ def public_offers_notifications(data, acess_token_data):
         if 'conn' in locals():
             conn.close()
 
+@app.route('/visitsItems', methods=['GET'])
+def visitsItems(data):
+    print("Buscando visualizações...")
+    with get_db_connect() as conn, conn.cursor() as cur:
+        cur.execute("SELECT acess_token FROM contas_mercado_livre LIMIT 1")
+    url = f"https://api.mercadolibre.com/visits/items?ids={data}"
+    response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+    print("Status:", response.status_code)
+    print(response.json())
+    resposta= response.json()
+    print(resposta)
+    print(resposta[data])
+    return resposta[data]
+
 
 def claims_notifications(data, acess_token_data):
     try:
@@ -4693,6 +4707,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
