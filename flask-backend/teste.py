@@ -614,8 +614,8 @@ def visitas_por_mes():
     meses = []
     faturamentos = []
     for i in range(0,24):
-        date_from= (datetime.now() - datetime.timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
-        date_to= (datetime.now() - datetime.timedelta(days=i*30)).strftime('%Y-%m-%d')
+        date_from= (datetime.now() - timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
+        date_to= (datetime.now() - timedelta(days=i*30)).strftime('%Y-%m-%d')
         url_por_mes= f'https://api.mercadolibre.com/items/visits?ids={item}&date_from={date_from}&date_to={date_to}'
         response = requests.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
         visitas=response.json()
@@ -4737,6 +4737,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
