@@ -5,7 +5,7 @@ import eventlet
 eventlet.monkey_patch()
 from psycogreen.eventlet import patch_psycopg
 patch_psycopg()
-import uuidf
+import uuid
 from uuid import UUID
 import hashlib
 import base64
@@ -4738,6 +4738,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
