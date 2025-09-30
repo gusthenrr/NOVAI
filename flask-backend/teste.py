@@ -5,7 +5,7 @@ import eventlet
 eventlet.monkey_patch()
 from psycogreen.eventlet import patch_psycopg
 patch_psycopg()
-import uuid
+import uuidf
 from uuid import UUID
 import hashlib
 import base64
@@ -601,7 +601,7 @@ def visitsItems():
 @app.route('/visitas_por_mes', methods=['POST'])
 def visitas_por_mes():
     with get_db_connection() as conn, conn.cursor() as cur:
-        cur.execute('SELECT acess_token FROM tokens LIMIT 1')
+        cur.execute('SELECT acess_token FROM contas_mercado_livre LIMIT 1')
         acess_token_dict = cur.fetchone()
         token = acess_token_dict['acess_token']
     data = request.get_json()
@@ -4738,6 +4738,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
