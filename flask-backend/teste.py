@@ -652,6 +652,7 @@ def procurar_data_inicial(item_id, data_from,data_to,token):
             if visitas_dia[0]['total_visits']>0:
                 print('dia que as visitas iniciaram: ', df)
                 return df
+        return None
     except Exception as e:
         print('Erro', str(e))
 
@@ -4765,6 +4766,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
