@@ -633,6 +633,7 @@ def visitas_por_mes():
             data_to=data_date['date_to']
             data_criacao_item=procurar_data_inicial(item,data_from,data_to,token)
             print('data_criacao do item: ',data_criacao_item)
+            return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item}
     print("Status:", response.status_code)
     return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item}
 
@@ -4764,6 +4765,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
