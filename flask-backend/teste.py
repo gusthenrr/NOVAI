@@ -612,6 +612,7 @@ def visitas_por_mes():
     total_visits_mes=0
     date_to= datetime.now().strftime('%Y-%m-%d')
     meses = []
+    meses_data=[]
     faturamentos = []
     for i in range(0,24):
         date_from= (datetime.now() - timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
@@ -4759,6 +4760,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
