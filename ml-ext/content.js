@@ -12,9 +12,38 @@
     let monthlySeries = null;         // série pronta (labels/visits/revenue)
     let monthlyFetchInFlight = false; // evita chamadas paralelas
     let monthlyFetched = false;       // garante fetch único por item/página
+    let lastCreatedAt = null;
+
+    let subtitleObs = null;          // NEW: observer do subtítulo
+    let subtitlePatchLock = 0;
   
     const ROOT_ID = "novai-root";
     let lastUrl = location.href;
+
+    // --- no topo do arquivo (perto das outras variáveis de estado)
+let chartHoverCount = 0;
+let chartCloseTimer = null;
+
+// helpers
+function openPanel(panel, card){
+  clearTimeout(chartCloseTimer);
+  ensureChartPortal(panel);
+
+  if (!monthlySeries || monthlySeries.length === 0) {
+    showChartPlaceholder(monthlyFetchInFlight ? "Carregando..." : "Sem dados ainda");
+  } else {
+    drawRevenueChart(monthlySeries);
+  }
+  placePanelNearCard(panel, card, "above");
+  panel.style.display = "block";
+}
+function closePanelLater(panel, delay = 140){
+  clearTimeout(chartCloseTimer);
+  chartCloseTimer = setTimeout(() => {
+    if (chartHoverCount <= 0) hidePanel(panel);
+  }, delay);
+}
+
   
     // ---- utils ----
     function nowUrlChanged() {
@@ -167,14 +196,34 @@
     }
   
     function observeSubtitleArea() {
-      const sub = document.querySelector(".ui-pdp-header__subtitle, .ui-pdp-subtitle");
-      if (!sub) return;
-      const obs = new MutationObserver(() => {
-        updateFaturamentoCard();
-        updateConversionCard();
-      });
-      obs.observe(sub, { childList: true, subtree: true, characterData: true });
+  const container = document.querySelector(".ui-pdp-header__subtitle");
+  if (!container) return;
+
+  // evita múltiplos observers
+  if (subtitleObs) subtitleObs.disconnect();
+
+  subtitleObs = new MutationObserver((mutations) => {
+    // se a mudança foi causada por nós, ignora
+    if (subtitlePatchLock > 0) return;
+
+    // se removerem/alterarem nosso conteúdo, reaplica
+    const hasNovai = !!container.querySelector(".novai-subtitle");
+    if (!hasNovai) {
+      renderCustomSubtitle(lastCreatedAt);
+    } else {
+      // mesmo com nosso conteúdo, revalida quando mudar o "vendidos"
+      renderCustomSubtitle(lastCreatedAt);
     }
+  });
+
+  subtitleObs.observe(container, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+}
+
+
   
     // ---- gráfico ----
     function showChartPlaceholder(text) {
@@ -357,33 +406,158 @@
       })();
   
       fetchMonthlyFromBG(itemId, price, conv)
-        .then(({ labels, visits, revenues }) => {
-          monthlySeries = labels.map((label, i) => ({
-            label,
-            visits: Number(visits[i]) || 0,
-            revenue: Number(revenues[i]) || 0,
-          }));
-          monthlyFetched = true;
-          log("[chart] monthly series pronta:", monthlySeries.length, "pontos");
-        })
+        .then(({ labels, visits, revenues, createdAt }) => {
+        if (createdAt != null) {
+          lastCreatedAt = createdAt;
+          renderCustomSubtitle(createdAt); // idempotente, pode chamar de novo
+        }
+        monthlySeries = labels.map((label, i) => ({
+          label,
+          visits: Number(visits[i]) || 0,
+          revenue: Number(revenues[i]) || 0,
+        }));
+        monthlyFetched = true;
+        log("[chart] monthly series pronta:", monthlySeries.length, "pontos");
+      })
         .catch(err => warn("[chart] falha no fetch mensal:", err))
         .finally(() => { monthlyFetchInFlight = false; });
     }
   
     function fetchMonthlyFromBG(itemId, price, convRatio) {
-      const conversionPct = (Number(convRatio) || 0) * 100; // backend espera %
-      return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage(
-          { type: "GET_VISITS_MONTHLY", itemId, conversion: conversionPct, price },
-          (response) => {
-            if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
-            if (!response || !response.ok) return reject(response?.error || "falha");
-            resolve(response.data); // { labels:[], visits:[], revenues:[] }
-          }
-        );
-      });
+  const conversionPct = (Number(convRatio) || 0) * 100; // backend espera %
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "GET_VISITS_MONTHLY", itemId, conversion: conversionPct, price },
+      (response) => {
+        if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+        if (!response || !response.ok) return reject(response?.error || "falha");
+
+        const data = response.data || {};
+        // atualiza a data (troca "--" por "X dias")
+        lastCreatedAt = data.createdAt ?? null;
+        renderCustomSubtitle(lastCreatedAt);
+
+        resolve(data); // { labels, visits, revenues, createdAt }
+      }
+    );
+  });
+}
+
+
+    function parseCreatedAt(createdAt) {
+  if (!createdAt) return null;
+  let d = null;
+  if (typeof createdAt === "number") d = new Date(createdAt);
+  if (!d || isNaN(d.getTime())) d = new Date(String(createdAt));
+  if (isNaN(d.getTime())) {
+    const s = String(createdAt).slice(0,10).split("-");
+    if (s.length === 3) d = new Date(+s[0], +s[1]-1, +s[2]);
+  }
+  return isNaN(d.getTime()) ? null : d;
+}
+
+
+function daysSince(dateObj) {
+  const ms = Date.now() - dateObj.getTime();
+  return Math.max(0, Math.floor(ms / (1000*60*60*24)));
+}
+
+function extractSoldTextFromNativeSubtitle() {
+  const el = document.querySelector(".ui-pdp-header__subtitle .ui-pdp-subtitle");
+  if (!el) return null;
+  const src = el.getAttribute("aria-label") || el.textContent || "";
+  // pega a parte que contém "vendid" (vendido/vendidos)
+  const part = src.split("|").map(s => s.trim()).find(s => /vendid/i.test(s));
+  return part || null; // ex.: "+750 mil vendidos"
+}
+
+/** Substitui o conteúdo do subtítulo por algo personalizado */
+function renderCustomSubtitle(createdAtRaw) {
+  try {
+    const host =
+      document.querySelector(".ui-pdp-header__subtitle .ui-pdp-subtitle") ||
+      document.querySelector(".ui-pdp-header__subtitle"); // fallback
+    if (!host) return;
+
+    // --- CreatedAt
+    const created = parseCreatedAt(createdAtRaw);
+    let createdFrag = `
+      <span class="novai-pill" title="Criado em —">Criado há --</span>`;
+    if (created) {
+      const d = daysSince(created);
+      const label = d === 0 ? "hoje" : `${d} ${d === 1 ? "dia" : "dias"}`;
+      createdFrag = `
+        <span class="novai-pill" title="Criado em ${created.toLocaleDateString('pt-BR')}">
+          Criado há ${label}
+        </span>`;
+        const el = document.querySelector("#novai-dias");
+  if (el) {
+    el.textContent = `últimos ${d} dias`;
+    el.title = `Desde ${created.toLocaleDateString('pt-BR')}`;
+  }
+} else {
+  // sem data
+  const el = document.querySelector("#novai-dias");
+  if (el) {
+    el.textContent = "—";
+    el.title = "Sem informação de criação";
+  }
+}
+
+    // --- Vendidos (sempre tentamos mostrar)
+    const nativeSold = extractSoldTextFromNativeSubtitle() || "";
+    let soldFrag = "";
+if (nativeSold) {
+  // normaliza o texto nativo (remove "|" e pontos depois de "Novo")
+  let raw = nativeSold.replace(/\s*\|\s*/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  // detecta se contém "Novo"
+  const hasNovo = /^novo\b/i.test(raw);
+
+  // extrai/ajusta a parte da contagem de vendidos
+  let count = raw
+    .replace(/^novo[.\s]*/i, "")       // tira "Novo" do começo
+    .replace(/^\+/, "Mais de ")        // "+750 mil vendidos" -> "Mais de 750 mil vendidos"
+    .replace(/^mais\s+de\s*/i, "Mais de ")
+    .trim();
+
+  // garante que começa com "Mais de "
+  if (!/^Mais de /i.test(count)) {
+    count = "Mais de " + count;
+  }
+  // garante sufixo "vendidos"
+  if (!/vendid[oa]s$/i.test(count)) {
+    count = count.replace(/\.*$/, "") + " vendidos";
+  }
+
+  const line1 = hasNovo ? "Novo" : "";
+  const line2 = count;
+
+  // quebra de linha entre as duas partes
+  const labelHtml = [line1, line2].filter(Boolean).join("<br>");
+
+  soldFrag = `
+    <span class="novai-pill" title="${count.replace(/"/g, "&quot;")}">
+      ${labelHtml}
+    </span>`;
+}
+
+    const dot = createdFrag && soldFrag ? `<span class="novai-dot">•</span>` : "";
+    const nextHTML = `<span class="novai-subtitle">${createdFrag}${dot}${soldFrag}</span>`;
+
+    // Só escreve se mudou (evita loop do MutationObserver)
+    if (host.dataset.novaiHtml !== nextHTML) {
+      host.dataset.novaiHtml = nextHTML;
+      host.innerHTML = nextHTML;
     }
-  
+  } catch (e) {
+    console.warn("[NOVAI] renderCustomSubtitle error:", e);
+  }
+}
+
+
+
+
     // ---- UI ----
     function insertUi(itemId) {
       if (document.getElementById(ROOT_ID)) return;
@@ -406,7 +580,7 @@
             </div>
             <div id="novai-faturamento" class="novai-kpi-value">--</div>
             <div class="novai-kpi-sub">
-              <span class="novai-muted">últimos 7 dias</span>
+              <span id="novai-dias" class="novai-muted">--</span>
             </div>
             <div id="novai-chart-panel" style="
                 position:absolute; inset:auto 0 100% auto;
@@ -436,18 +610,26 @@
   
       // hover do gráfico (NÃO faz fetch aqui)
       const fatCard = block.querySelector("#novai-fat-card");
-      const panel   = block.querySelector("#novai-chart-panel");
+      const panel = block.querySelector("#novai-chart-panel");
       fatCard.addEventListener("mouseenter", () => {
-        panel.style.display = "block";
-        if (!monthlySeries || monthlySeries.length === 0) {
-          showChartPlaceholder(monthlyFetchInFlight ? "Carregando..." : "Sem dados ainda");
-          return;
-        }
-        drawRevenueChart(monthlySeries);
-      });
-      fatCard.addEventListener("mouseleave", () => {
-        setTimeout(() => { panel.style.display = "none"; }, 120);
-      });
+  chartHoverCount++;
+  openPanel(panel, fatCard);
+});
+fatCard.addEventListener("mouseleave", () => {
+  chartHoverCount = Math.max(0, chartHoverCount - 1);
+  closePanelLater(panel);
+});
+
+// conta hover no próprio painel (para não fechar ao passar o mouse nele)
+panel.addEventListener("mouseenter", () => {
+  chartHoverCount++;
+  // já está aberto/posicionado, mas garantimos
+  panel.style.display = "block";
+});
+panel.addEventListener("mouseleave", () => {
+  chartHoverCount = Math.max(0, chartHoverCount - 1);
+  closePanelLater(panel);
+});
   
       injected = true;
   
@@ -478,12 +660,51 @@
         updateConversionCard();
         observePriceArea();
         observeSubtitleArea();
+        renderCustomSubtitle(lastCreatedAt); 
   
         // fetch mensal UMA vez por item
         triggerMonthlyFetchOnce(itemId);
       });
     }
+function ensureChartPortal(panel) {
+  if (!panel) return;
+  if (panel.parentElement !== document.body) {
+    document.body.appendChild(panel);
+  }
+  // garantias de estilo quando virar "portal"
+  panel.style.position = "fixed";
+  panel.style.inset = "auto auto auto auto"; // reseta
+  panel.style.transform = "none";
+  panel.style.zIndex = "2147483646"; // super alto
+}
+// Calcula uma posição perto do card, respeitando viewport
+function placePanelNearCard(panel, card, prefer = "above") {
+  if (!panel || !card) return;
+  const r = card.getBoundingClientRect();
 
+  panel.style.display = "block";
+  panel.style.visibility = "hidden"; // mede sem flicker
+
+  // tamanhos (fallback pros valores do inline)
+  const pw = panel.offsetWidth  || 420;
+  const ph = panel.offsetHeight || 240;
+  const gap = 8;
+
+  let left = r.left;
+  let top  = prefer === "above" ? (r.top - ph - gap) : (r.bottom + gap);
+
+  // clampa dentro do viewport
+  left = Math.min(Math.max(6, left),  window.innerWidth  - pw - 6);
+  top  = Math.min(Math.max(6, top ),  window.innerHeight - ph - 6);
+
+  panel.style.left = left + "px";
+  panel.style.top  = top  + "px";
+  panel.style.visibility = "visible";
+}
+
+function hidePanel(panel){
+  if (panel) panel.style.display = "none";
+}
     function ensureChartTip(panel) {
         let tip = panel.querySelector("#novai-chart-tip");
         if (!tip) {

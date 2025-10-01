@@ -55,25 +55,35 @@
   }
   
   #novai-fat-card { position: relative; overflow: visible; }
-  #novai-chart-panel:hover { display: block !important; }
   #novai-chart-tip{
-    position:absolute; left:0; top:0;
-    transform:translate(-9999px,-9999px); /* JS atualiza isso */
-    pointer-events:none;
-    background:#111; color:#fff;
-    border:1px solid var(--novai-ml-yellow);
-    box-shadow:0 8px 18px rgba(0,0,0,.35);
-    border-radius:8px; padding:6px 8px; white-space:nowrap;
-    font:500 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto;
-    z-index:100000;
-    transition:opacity .08s linear;
-    opacity:0; /* JS põe 1 ao mostrar */
-  }
+  position:absolute;
+  left:0; top:0;
+  transform:translate(-9999px,-9999px);
+  pointer-events:none;
+  background:#111; color:#fff;
+  border:1px solid var(--novai-ml-yellow);
+  box-shadow:0 8px 18px rgba(0,0,0,.35);
+  border-radius:8px; padding:6px 8px; white-space:nowrap;
+  font:500 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto;
+  transition:opacity .08s linear;
+  opacity:0;
+  z-index: 2147483647 !important;  /* > panel */
+}
   
   /* Fundo e borda do painel para bater com o card */
-  #novai-chart-panel{
-    background:#111; border-color:#fff;
-  }
+ #novai-chart-panel{
+  position: fixed !important;     /* sai do contexto do card/containers */
+  inset: auto auto auto auto;     /* JS define left/top */
+  background:#111;
+  border:1px solid #fff;
+  border-radius:12px;
+  box-shadow:0 10px 25px rgba(0,0,0,.12);
+  padding:10px 12px;
+  width:420px; 
+  height:240px;
+  display:none;                    /* JS controla exibição */
+  z-index: 2147483646 !important;  /* quase “infinito” */
+}
 
   .novai-chart-head{
     display:flex; align-items:center; justify-content:center; gap:8px;
@@ -187,3 +197,53 @@
   .novai-sep {
     height: 1px; margin: 8px 0; background: var(--novai-border);
   }
+  /* === NOVAI Subtitle Pills === */
+.novai-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 2px 0 6px;
+  font: 600 12px/1.3 system-ui, -apple-system, Segoe UI, Roboto;
+}
+.novai-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #222;          /* como os cards */
+  color: #fff;               /* como os cards */
+  border: 1px solid #fff;    /* como os cards */
+  box-shadow: var(--novai-shadow);
+  white-space: nowrap;
+  gap: 8px;                  /* espaço entre dot e texto */
+}
+.novai-pill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--novai-ml-yellow);
+  flex: 0 0 8px;
+}
+.novai-pill--yellow {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--novai-ml-yellow);
+  color: #111;
+  border: 1px solid #111;
+  font-weight: 800;
+}
+.novai-pill .nv-dot {
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: var(--novai-ml-yellow);
+  flex: 0 0 8px;
+}
+.novai-dot {
+  color: var(--novai-muted);
+  font-weight: 700;
+  transform: translateY(-1px);
+}

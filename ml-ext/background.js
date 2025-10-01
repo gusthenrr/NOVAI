@@ -78,6 +78,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           labels: labels.slice(-len),
           visits: visitasArr.slice(-len),
           revenues: faturArr.slice(-len),
+          createdAt: data?.data_criacao ?? null,
         };
 
         console.log("[BG] resposta /visitas_por_mes (normalizada):", payload);
