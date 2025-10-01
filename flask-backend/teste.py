@@ -635,7 +635,7 @@ def visitas_por_mes():
             print('data_criacao do item: ',data_criacao_item)
             return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item}
     print("Status:", response.status_code)
-    return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':'--'}
+    return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':None}
 
 def procurar_data_inicial(item_id, data_from,data_to,token):
     try:
@@ -652,7 +652,7 @@ def procurar_data_inicial(item_id, data_from,data_to,token):
             if visitas_dia[0]['total_visits']>0:
                 print('dia que as visitas iniciaram: ', df)
                 return df
-        df='--'
+        df=None
         return df
     except Exception as e:
         print('Erro', str(e))
@@ -4767,6 +4767,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
