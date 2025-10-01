@@ -596,7 +596,7 @@ def visitsItems():
     print("Status:", response.status_code)
     print(response.json())
     resposta= response.json()
-    total_visitas=resposta[item]
+    total_visitas=resposta[itemId]
     return total_visitas
 
 @app.route('/visitas_por_mes', methods=['POST'])
@@ -4738,6 +4738,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
