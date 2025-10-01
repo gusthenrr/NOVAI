@@ -614,6 +614,7 @@ def visitas_por_mes():
     meses = []
     meses_data=[]
     faturamentos = []
+    quantityMounth=[]
     for i in range(0,24):
         date_from= (datetime.now() - timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
         date_to= (datetime.now() - timedelta(days=i*30)).strftime('%Y-%m-%d')
@@ -625,6 +626,7 @@ def visitas_por_mes():
         meses.append(total_visits_mes)
         meses_data.append({"date_from":date_from,"date_to":date_to})
         faturamentos.append(int(total_visits_mes * (conversion/100))*price)
+        quantityMounth.append(int(total_visits_mes * (conversion/100)))
         print(f'{i+1}: ',total_visits_mes)
     for i, mes in reversed(list(enumerate(meses))):
         if mes > 0:
@@ -633,9 +635,9 @@ def visitas_por_mes():
             data_to=data_date['date_to']
             data_criacao_item=procurar_data_inicial(item,data_from,data_to,token)
             print('data_criacao do item: ',data_criacao_item)
-            return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item}
+            return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item,'quantityMonths':quantityMounth}
     print("Status:", response.status_code)
-    return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':None}
+    return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':None, 'quantityMonths':quantityMounth}
 
 def procurar_data_inicial(item_id, data_from,data_to,token):
     try:
@@ -4767,6 +4769,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
