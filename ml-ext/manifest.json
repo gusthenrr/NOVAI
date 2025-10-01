@@ -1,0 +1,30 @@
+{
+  "name": "ML DOM Tweaks",
+  "description": "Altera elementos do HTML no Mercado Livre.",
+  "version": "1.0.0",
+  "manifest_version": 3,
+
+  "background": { "service_worker": "background.js" },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.mercadolivre.com.br/*",
+        "*://mercadolivre.com.br/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+
+  "host_permissions": [
+    "https://nossopoint-backend-flask-server.com/*"
+  ]
+}
