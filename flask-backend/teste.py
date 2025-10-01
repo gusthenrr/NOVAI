@@ -622,10 +622,32 @@ def visitas_por_mes():
         print(f'Mês: {date_from}', end=' ')
         total_visits_mes=int(visitas[0]['total_visits'])
         meses.append(total_visits_mes)
+        meses_data.append({"date_from":date_from,"date_to":date_to})
         faturamentos.append(int(total_visits_mes * (conversion/100))*price)
         print(f'{i+1}: ',total_visits_mes)
+    for i, mes in reversed(list(enumerate(meses))):
+        if mes > 0 and i>0:
+            data_date=meses_data[i]
+            data_from=data_date['date_from']
+            data_to=data_date['date_to']
+            data_criacao_item=procurar_data_inicial(item,data_from,data_to,token)
     print("Status:", response.status_code)
-    return {'meses': meses, 'faturamentos': faturamentos}
+    return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item}
+
+def procurar_data_inicial(item_id, data_from,data_to,token):
+    try:
+        for i in range(30):
+            start = datetime.strptime(data_from, "%Y-%m-%d") + timedelta(days=i)
+            end = start + timedelta(days=1)
+            df = start.strftime('%Y-%m-%d')
+            dt= end.strftime('%Y-%m-%d')
+            url_por_mes= f'https://api.mercadolibre.com/items/visits?ids={item_id}&date_from={df}&date_to={dt}'
+            resposta_final = requests.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
+            visitas_dia=resposta_final.json()
+            if visitas_dia[0]['total_visits']>0:
+                return df
+    except Exception as e:
+        print('Erro', str(e))
 
 def claims_notifications(data, acess_token_data):
     try:
@@ -4737,6 +4759,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
