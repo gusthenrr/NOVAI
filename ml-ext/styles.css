@@ -1,145 +1,189 @@
 /* ===== NOVAI KPI CARDS – estilo puro ===== */
 :root {
-  --novai-ml-yellow: #ffe600;
-  --novai-fg: #222;
-  --novai-muted: #6b7280;     /* cinza */
-  --novai-border: #e5e7eb;    /* borda clara */
-  --novai-bg: #ffffff;        /* fundo card */
-  --novai-shadow: 0 6px 18px rgba(0,0,0,.06);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --novai-fg: #f3f4f6;
-    --novai-muted: #9ca3af;
-    --novai-border: #272a30;
-    --novai-bg: #0f1115;
-    --novai-shadow: 0 8px 24px rgba(0,0,0,.35);
+    --novai-ml-yellow: #ffe600;
+    --novai-fg: #222;
+    --novai-muted: #6b7280;     /* cinza */
+    --novai-border: #e5e7eb;    /* borda clara */
+    --novai-bg: #ffffff;        /* fundo card */
+    --novai-shadow: 0 6px 18px rgba(0,0,0,.06);
   }
-}
 
-/* container genérico (você pode anexar em qualquer lugar da página) */
-.novai-kpi-grid {
-  display: grid;
-  width: 100%;
-  box-sizing: border-box;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-@media (max-width: 900px) {
-  .novai-kpi-grid { grid-template-columns: 1fr; }
-  .novai-kpi-card.big { grid-column: auto; }
-}
-/* responsivo: empilha em telas menores */
-@media (max-width: 1100px) {
-  .novai-kpi-grid {
-    grid-template-columns: repeat(2, minmax(160px, 1fr));
-  }
-}
-@media (max-width: 720px) {
-  .novai-kpi-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-#novai-fat-card { position: relative; overflow: visible; }
-#novai-chart-panel:hover { display: block !important; }
-/* card base */
-.novai-kpi-card {
-  position: relative;
-  background: #222;
-  color: #fff;
-  border: 1px solid #fff;
-  border-radius: 12px;
-  padding: 10px 12px;
-  overflow: hidden; /* CLIPA o pseudo-elemento nos cantos arredondados */
-}
-
-/* filete amarelo superior */
-.novai-kpi-card::before {
-  content: "";
-  position: absolute;
-  top: -1px;       /* compensa a espessura da borda */
-  left: -1px;
-  right: -1px;
-  height: 4px;     /* 3px do filete + 1px que cobre a borda */
-  background: var(--novai-ml-yellow);
-  border-top-left-radius: inherit;
-  border-top-right-radius: inherit;
+  /* deixa só os círculos “clicáveis” */
+#novai-chart text,
+#novai-chart line,
+#novai-chart path,
+#novai-chart rect {
   pointer-events: none;
 }
-
-/* header do card (título + ícone opcional) */
-.novai-kpi-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.novai-kpi-icon {
-  width: 26px; height: 26px;
-  border-radius: 999px;
-  background: rgba(255, 230, 0, .25);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;           /* pode usar emoji/ícone */
-}
-.novai-kpi-title {
-  color: #fff; 
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  font-weight: 700;
-  font-size: 12px;
+#novai-chart circle {
+  pointer-events: all;
 }
 
-.novai-kpi-card.big { grid-column: 1 / -1; }
+  
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --novai-fg: #f3f4f6;
+      --novai-muted: #9ca3af;
+      --novai-border: #272a30;
+      --novai-bg: #0f1115;
+      --novai-shadow: 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  
+  /* container genérico (você pode anexar em qualquer lugar da página) */
+  .novai-kpi-grid {
+    display: grid;
+    width: 100%;
+    box-sizing: border-box;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (max-width: 900px) {
+    .novai-kpi-grid { grid-template-columns: 1fr; }
+    .novai-kpi-card.big { grid-column: auto; }
+  }
+  /* responsivo: empilha em telas menores */
+  @media (max-width: 1100px) {
+    .novai-kpi-grid {
+      grid-template-columns: repeat(2, minmax(160px, 1fr));
+    }
+  }
+  @media (max-width: 720px) {
+    .novai-kpi-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  
+  #novai-fat-card { position: relative; overflow: visible; }
+  #novai-chart-panel:hover { display: block !important; }
+  #novai-chart-tip{
+    position:absolute; left:0; top:0;
+    transform:translate(-9999px,-9999px); /* JS atualiza isso */
+    pointer-events:none;
+    background:#111; color:#fff;
+    border:1px solid var(--novai-ml-yellow);
+    box-shadow:0 8px 18px rgba(0,0,0,.35);
+    border-radius:8px; padding:6px 8px; white-space:nowrap;
+    font:500 12px/1.2 system-ui,-apple-system,Segoe UI,Roboto;
+    z-index:100000;
+    transition:opacity .08s linear;
+    opacity:0; /* JS põe 1 ao mostrar */
+  }
+  
+  /* Fundo e borda do painel para bater com o card */
+  #novai-chart-panel{
+    background:#111; border-color:#fff;
+  }
 
-/* valor principal */
-.novai-kpi-value {
-  color: #fff;
-  font-weight: 900;
-  font-size: 24px;
-  line-height: 1.1;
-  margin: 2px 0 6px;
-  word-break: break-word;
-}
+  .novai-chart-head{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    margin:0 6px 8px; text-align:center;
+  }
+  .novai-chart-title{
+    font:600 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto;
+    color:#fff;
+  }
+  .novai-chart-hint{
+    font:400 12px/1.4 system-ui, -apple-system, Segoe UI, Roboto;
+    color:#9ca3af; /* cinza suave */
+  }
 
-/* linha auxiliar (ex.: variação, período) */
-.novai-kpi-sub {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  color: #bbb;
-  font-size: 12px;
-}
-
-/* badges de tendência */
-.novai-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--novai-border);
-  font-weight: 600;
-  font-size: 12px;
-  background: transparent;
-}
-.novai-kpi-block { width: 100%; flex: 1 1 100%; }
-
-.novai-badge { font-size: 11px; padding: 1px 6px; }
-.novai-badge.up { color: #0ea5e9; }       /* azul/crescendo */
-.novai-badge.ok { color: #10b981; }       /* verde */
-.novai-badge.down { color: #ef4444; }     /* vermelho */
-
-/* versão compacta (opcional) */
-.novai-compact .novai-kpi-value { font-size: 20px; }
-.novai-compact .novai-kpi-title { font-size: 11px; }
-.novai-compact .novai-badge { padding: 1px 6px; font-size: 11px; }
-
-/* utilidades (use se quiser) */
-.novai-muted { color: var(--novai-muted); }
-.novai-sep {
-  height: 1px; margin: 8px 0; background: var(--novai-border);
-}
+  /* card base */
+  .novai-kpi-card {
+    position: relative;
+    background: #222;
+    color: #fff;
+    border: 1px solid #fff;
+    border-radius: 12px;
+    padding: 10px 12px;
+    overflow: hidden; /* CLIPA o pseudo-elemento nos cantos arredondados */
+  }
+  
+  /* filete amarelo superior */
+  .novai-kpi-card::before {
+    content: "";
+    position: absolute;
+    top: -1px;       /* compensa a espessura da borda */
+    left: -1px;
+    right: -1px;
+    height: 4px;     /* 3px do filete + 1px que cobre a borda */
+    background: var(--novai-ml-yellow);
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+    pointer-events: none;
+  }
+  
+  /* header do card (título + ícone opcional) */
+  .novai-kpi-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .novai-kpi-icon {
+    width: 26px; height: 26px;
+    border-radius: 999px;
+    background: rgba(255, 230, 0, .25);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;           /* pode usar emoji/ícone */
+  }
+  .novai-kpi-title {
+    color: #fff; 
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  
+  .novai-kpi-card.big { grid-column: 1 / -1; }
+  
+  /* valor principal */
+  .novai-kpi-value {
+    color: #fff;
+    font-weight: 900;
+    font-size: 24px;
+    line-height: 1.1;
+    margin: 2px 0 6px;
+    word-break: break-word;
+  }
+  
+  /* linha auxiliar (ex.: variação, período) */
+  .novai-kpi-sub {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    color: #bbb;
+    font-size: 12px;
+  }
+  
+  /* badges de tendência */
+  .novai-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--novai-border);
+    font-weight: 600;
+    font-size: 12px;
+    background: transparent;
+  }
+  .novai-kpi-block { width: 100%; flex: 1 1 100%; }
+  
+  .novai-badge { font-size: 11px; padding: 1px 6px; }
+  .novai-badge.up { color: #0ea5e9; }       /* azul/crescendo */
+  .novai-badge.ok { color: #10b981; }       /* verde */
+  .novai-badge.down { color: #ef4444; }     /* vermelho */
+  
+  /* versão compacta (opcional) */
+  .novai-compact .novai-kpi-value { font-size: 20px; }
+  .novai-compact .novai-kpi-title { font-size: 11px; }
+  .novai-compact .novai-badge { padding: 1px 6px; font-size: 11px; }
+  
+  /* utilidades (use se quiser) */
+  .novai-muted { color: var(--novai-muted); }
+  .novai-sep {
+    height: 1px; margin: 8px 0; background: var(--novai-border);
+  }
