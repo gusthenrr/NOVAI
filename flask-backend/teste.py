@@ -627,7 +627,7 @@ def visitas_por_mes():
         faturamentos.append(int(total_visits_mes * (conversion/100))*price)
         print(f'{i+1}: ',total_visits_mes)
     for i, mes in reversed(list(enumerate(meses))):
-        if mes > 0 and i>0:
+        if mes > 0:
             data_date=meses_data[i]
             data_from=data_date['date_from']
             data_to=data_date['date_to']
@@ -635,7 +635,7 @@ def visitas_por_mes():
             print('data_criacao do item: ',data_criacao_item)
             return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item}
     print("Status:", response.status_code)
-    return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item}
+    return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':'--'}
 
 def procurar_data_inicial(item_id, data_from,data_to,token):
     try:
@@ -4767,6 +4767,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
