@@ -647,7 +647,7 @@ def procurar_data_inicial(item_id, data_from,data_to,token):
             url_por_mes= f'https://api.mercadolibre.com/items/visits?ids={item_id}&date_from={df}&date_to={dt}'
             resposta_final = requests.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
             visitas_dia=resposta_final.json()
-            print(f'Total de visitas do dia[{df}]: {visitas_dia[0]['total_visits']}')
+            print(f'Total de visitas do dia[{df}]: {visitas_dia[0]["total_visits"]}')
             if visitas_dia[0]['total_visits']>0:
                 print('dia que as visitas iniciaram: ', df)
                 return df
@@ -4764,6 +4764,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
