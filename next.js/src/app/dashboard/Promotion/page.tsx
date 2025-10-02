@@ -15,12 +15,35 @@ interface Promotion {
   type_promotion: string;
 }
 
+interface ItemAppliedToPromotion {
+  item_id: string;
+  promotion_name: string;
+  nome_item: string;
+  image_url: string;
+  price: number;
+  original_price: number;
+  min_discounted_price: number;
+  max_discounted_price: number;
+  suggested_discounted_price: number;
+  start_date: string;
+  end_date: string;
+}
+
+interface ActiveItem {
+  item_id: string;
+  nome_item: string;
+  price: number;
+  ranking_position: number;
+  quantity_sold: number;
+}
+
+
 const DashboardPromotionPage: React.FC = () => {
   const { token, setToken } = useUser();
-  const [promotions, setPromotions] = useState([]);
-  const [itemsAppliedToPromotions, setItemsAppliedToPromotions] = useState([]);
-  const [activeItems, setActiveItems] = useState([]);
-  const [selectedItem, setSelectedItem] = useState(null);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [itemsAppliedToPromotions, setItemsAppliedToPromotions] = useState<ItemAppliedToPromotion[]>([]);
+  const [activeItems, setActiveItems] = useState<ActiveItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<ItemAppliedToPromotion | ActiveItem | null>(null);
   const [searchItem, setSearchItem] = useState('');
   const [loading, setLoading] = useState({
     promotions: true,
@@ -244,6 +267,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
