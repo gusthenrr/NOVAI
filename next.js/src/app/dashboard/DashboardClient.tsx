@@ -381,7 +381,7 @@ const DashboardPage: React.FC = () => {
               { icon: MessageSquare, label: 'Mensagens' },
               { icon: Bell, label: 'Notificações' },
               { icon: MapPin, label: 'Localização' },
-              { icon: Puzzle, label: 'Novai Extensão', link:'/Manager'},
+              { icon: Puzzle, label: 'Novai Extensão', link:'/dashboard/ExtensaoNovai'},
             ].map(item => (
               <li key={item.label} className="mb-2">
                 <a href={item.link} className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
