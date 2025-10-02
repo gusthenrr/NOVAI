@@ -1111,6 +1111,7 @@ def itens_notifications(data,acess_token_data):
         nome_item = item_data.get('title')
         quantidade= item_data.get('available_quantity', 0)
         preco=item_data.get('price')
+        status=item_data.get('status')
         print('pegando descrição')
         url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
         response_descricao = requests.get(url_descricao, headers=headers)
@@ -1143,19 +1144,20 @@ def itens_notifications(data,acess_token_data):
         if item_realdict:
             print("Item já existe no banco de dados, atualizando item.")
             cur.execute("""
-        UPDATE itens SET nome_item = %s, quantidade = %s, preco = %s, descricao = %s, imagem = %s, preco_original = %s, preco_base = %s, disponivel = %s, tipo_ad = %s, categoria = %s
+        UPDATE itens SET nome_item = %s, status = %s,quantidade = %s, preco = %s, descricao = %s, imagem = %s, preco_original = %s, preco_base = %s, disponivel = %s, tipo_ad = %s, categoria = %s
         WHERE item_id = %s AND usuario_id_item = %s             
-    """,(nome_item,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,item_id,acess_token_data['usuario_id'],))
+    """,(nome_item, status,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,item_id,acess_token_data['usuario_id'],))
             print('Item atualizado com sucesso no banco de dados.')
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(item_data), 'item_existe',json.dumps(data),))
+            egar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'],type='ja_possui')
         else :
             print("Item não existe no banco de dados, inserindo item.")
             cur.execute("""
-                        INSERT INTO itens (item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base, disponivel, tipo_ad, categoria, usuario_id_item) 
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        """,(item_id,nome_item,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,acess_token_data['usuario_id'],))
+                        INSERT INTO itens (item_id, nome_item, status,quantidade, preco, descricao, imagem, preco_original, preco_base, disponivel, tipo_ad, categoria, usuario_id_item) 
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """,(item_id,nome_item, status,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,acess_token_data['usuario_id'],))
             print('Item inserido com sucesso no banco de dados.')
-            pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'])
+            pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'],type='novo')
         conn.commit()
         cur.close()
         conn.close()
@@ -1171,12 +1173,13 @@ def itens_notifications(data,acess_token_data):
 
 
 
-def pegar_anuncio_novo(item_id, acess_token,user_id):
+def pegar_anuncio_novo(item_id, acess_token,user_id,type):
     try:
         print("Pegando anuncio novo")
         conn = get_db_connection()
         cur = conn.cursor()
-        url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
+        advertiser_id='MLB'
+        url = f"https://api.mercadolibre.com/advertising/{advertiser_id}/product_ads/items/{item_id}"
         headers = {"Authorization": f"Bearer {acess_token}"}
         try:
             response = requests.get(url, headers=headers, timeout=15)
@@ -1207,12 +1210,20 @@ def pegar_anuncio_novo(item_id, acess_token,user_id):
         recomended = data.get('recommended', False)
         image_quality = data.get('image_quality', 'N/A')
 
-
-        cur.execute('''
-        INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
-        channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
-        (%s ,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', (item_id,item_id ,listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
-        logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, user_id,))
+        if type='novo':
+            cur.execute('''
+            INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
+            channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
+            (%s ,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', (item_id,item_id ,listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
+            logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, user_id,))
+            conn.commit()
+        else:
+            cur.execute('''
+            UPDATE anuncios SET listing_type_id=%s, price=%s, title=%s, status=%s, has_discount=%s, catalog_listing=%s, condition=%s, logistic_type=%s, domain_id=%s, date_created=%s, buy_box_winner=%s, 
+            channel=%s, brand_value_id=%s, brand_value_name=%s, thumbnail=%s, current_level=%s, diferred_stock=%s, permalink=%s, recomended=%s, image_quality=%s WHERE item_id=%s AND usuario_id_anuncios=%s
+            ''',(listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
+            logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality,item_id, user_id,))
+            conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
@@ -2508,10 +2519,11 @@ def campanhas_e_anuncios(user_id, access_token,room):
         }
         campanhas = []
         item_ids = []
+        advertising_id='MLB'
         for i,item in enumerate(itens):
             item_id = item['item_id']
             try:
-                url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
+                url = f"https://api.mercadolibre.com/advertising/{advertising_id}/product_ads/items/{item_id}"
                 response = requests.get(url, headers=headers_url)
             except requests.exceptions.RequestException as e:
                 cont_errados += 1
@@ -2559,7 +2571,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
 
 
 
-            url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
+            url = f"https://api.mercadolibre.com/advertising/{advertising_id}/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
             response_summary = requests.get(url, headers=headers_url)
             if response_summary.status_code not in [200, 206]:
                 return response_summary.status_code
@@ -3150,6 +3162,7 @@ def listar_todos_itens(user_id,id,access_token):
                     tipo_ad = resposta_itens.get('listing_type_id', 'sem tipo ad')
                     quantidade = resposta_itens.get('available_quantity', 0)
                     preco = resposta_itens.get('price', 0.0)
+                    status = resposta_itens.get('status')
                     preco_original = resposta_itens.get('original_price', 0.0)
                     preco_base = resposta_itens.get('base_price', 0.0)
                     descricao = resposta_descricao.get('plain_text', 'Sem descrição')
@@ -3157,8 +3170,8 @@ def listar_todos_itens(user_id,id,access_token):
                     imagem = [img['url'] for img in imagens] if imagens else ['Sem imagem']
                     try:
                         cur.execute(
-                            'INSERT INTO itens (usuario_id_item, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,disponivel,tipo_ad,categoria) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (item_id) DO NOTHING',
-                            (user_id, item_id, nome_item, quantidade, preco, descricao, imagem, preco_original, preco_base,True,tipo_ad,categoria)
+                            'INSERT INTO itens (usuario_id_item, item_id, nome_item, quantidade, preco, status,descricao, imagem, preco_original, preco_base,disponivel,tipo_ad,categoria) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (item_id) DO NOTHING',
+                            (user_id, item_id, nome_item, quantidade, preco, status,descricao, imagem, preco_original, preco_base,True,tipo_ad,categoria)
                         )
                         conn.commit()
                     except Exception as e:
@@ -3710,6 +3723,16 @@ def get_dados_gerais():
                     (user_id,),
                 )
                 total_row = cur.fetchone()
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(total_amount), 0) AS total
+                    FROM pedidos_resumo
+                    WHERE date_created >= CURRENT_DATE
+                      AND date_created < CURRENT_DATE + INTERVAL '1 day'
+                      AND usuario_id_pedidos_resumo = %s
+                    """,
+                    (user_id,),
+                )
                 if total_row and total_row.get('total') is not None:
                     total_amount_today = float(total_row['total'])
     except Exception as exc:
@@ -4769,6 +4792,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
