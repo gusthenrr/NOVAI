@@ -274,7 +274,7 @@ const DashboardPage: React.FC = () => {
         typeof payload.nickname === 'string' && payload.nickname.trim()
           ? payload.nickname.trim()
           : prev.nickname ?? null;
-
+      
       const email =
         typeof payload.email === 'string' && payload.email.trim()
           ? payload.email.trim()
@@ -327,6 +327,8 @@ const DashboardPage: React.FC = () => {
           credentials: 'include',
         });
         const data = await response.json();
+        localStorage.setItem('novai_nickname',data.nickname);
+        localStorage.setItem('novai_email', data.email);
         if (!response.ok) {
           const msg = typeof data?.error === 'string' ? data.error : 'Erro ao carregar dados do painel.';
           throw new Error(msg);
