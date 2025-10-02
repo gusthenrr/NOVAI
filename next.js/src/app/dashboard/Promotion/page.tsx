@@ -2,7 +2,26 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { io } from 'socket.io-client';
-import { ArrowLeft, Tag, PlusCircle, Settings, Loader,User } from 'lucide-react';
+import {PlusCircle, Loader,ArrowLeft,
+  BarChart2,
+  Bell,
+  FileText,
+  Heart,
+  Home,
+  MapPin,
+  MessageSquare,
+  Share2,
+  Star,
+  User,
+  CalendarDays,
+  TrendingUp,
+  Download,
+  ThumbsUp,
+  Puzzle,
+  Award,
+  Tag,
+  MessageSquareWarning,
+  Settings,} from 'lucide-react';
 import { useUser } from '../../../../userContext';
 
 interface Promotion {
@@ -153,7 +172,13 @@ const DashboardPromotionPage: React.FC = () => {
 
         <nav>
           <ul>
-            {[{ icon: Tag, label: 'Promoções', link: '/dashboard/promotion' }].map(item => (
+            {[{icon: Home, label: 'Início',link:'/dashboard'},
+              { icon: BarChart2, label: 'Anúncios Métricas', link:'/dashboard/AnalyticsAnuncios'},
+              { icon: Tag, label: 'Promoções', link:'/dashboard/Promotion'},
+              { icon: MessageSquareWarning, label: 'Reclamações', link:'/dashboard/claims'},
+              { icon: MessageSquare, label: 'Assistente Novai', link:'/Manager'},
+              { icon: Puzzle, label: 'Novai Extensão', link:'/dashboard/ExtensaoNovai'},
+              { icon: Settings, label:'Configurações', link:'/dashboard/config'}].map(item => (
               <li key={item.label} className="mb-2">
                 <a href={item.link} className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
                   <item.icon className="mr-3 text-zinc-400" />
@@ -276,6 +301,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
