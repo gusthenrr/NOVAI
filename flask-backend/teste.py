@@ -561,18 +561,18 @@ def public_offers_notifications(data, acess_token_data):
                 cur.execute("""UPDATE ponte_item_promotions SET status = %s,price = %s,original_price = %s,min_discounted_price = %s,max_discounted_price = %s,
                 suggested_discounted_price = %s,start_date = %s,end_date = %s,sub_type = %s,offer_id = %s,meli_percentage = %s,seller_percentage = %s,
                 buy_quantity = %s,pay_quantity = %s,allow_combination = %s,fixed_amount = %s,fixed_percentage = %s,top_deal_price = %s,
-                discount_percentage = %s,nome_item=%s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
+                discount_percentage = %s,nome_item=%s, auto=%s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
                 min_discounted_price,max_discounted_price,suggested_discounted_price,start_date,end_date,sub_type,offer_id,meli_percentage,seller_percentage,
-                buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,nome_item,id_promotion_item,item_id,user_id))
+                buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,nome_item,False,id_promotion_item,item_id,user_id))
     
             else:
                 cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
                                     min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
                                     seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                    discount_percentage,nome_item, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
+                                    discount_percentage,nome_item, usuario_id_ponte_item_promotions,auto) VALUES (%s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
                                     min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
                                     seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                    discount_percentage, nome_item, user_id,))
+                                    discount_percentage, nome_item, user_id,False))
     except Exception as e:
         print("Erro nas notificacao das promocoes: ", str(e))
     finally:
@@ -1179,7 +1179,7 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         conn = get_db_connection()
         cur = conn.cursor()
         advertiser_id='MLB'
-        url = f"https://api.mercadolibre.com/advertising/{advertiser_id}/product_ads/items/{item_id}"
+        url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
         headers = {"Authorization": f"Bearer {acess_token}"}
         try:
             response = requests.get(url, headers=headers, timeout=15)
@@ -2218,7 +2218,8 @@ def get_promotions_and_items():
             pim.max_discounted_price,
             pim.suggested_discounted_price,
             pim.start_date AS item_start_date,
-            pim.end_date AS item_end_date
+            pim.end_date AS item_end_date,
+            pim.auto AS item_auto
         FROM 
             promotion p
         JOIN 
@@ -2267,6 +2268,7 @@ def get_promotions_and_items():
                     'suggested_discounted_price': float(row['suggested_discounted_price']) if row['suggested_discounted_price'] else 0.0,
                     'start_date': row['item_start_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['item_start_date'] else 'N/A',
                     'end_date': row['item_end_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['item_end_date'] else 'N/A',
+                    'renovacao_auto':row['item_auto'],
                 }
                 items_list.append(item)
     
@@ -2628,7 +2630,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
         for i,item in enumerate(itens):
             item_id = item['item_id']
             try:
-                url = f"https://api.mercadolibre.com/advertising/{advertising_id}/product_ads/items/{item_id}"
+                url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
                 response = requests.get(url, headers=headers_url)
             except requests.exceptions.RequestException as e:
                 cont_errados += 1
@@ -2676,7 +2678,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
 
 
 
-            url = f"https://api.mercadolibre.com/advertising/{advertising_id}/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
+            url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
             response_summary = requests.get(url, headers=headers_url)
             if response_summary.status_code not in [200, 206]:
                 return response_summary.status_code
@@ -3172,10 +3174,10 @@ def promocoes(user_id, access_token,id_ml):
                     cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
                                 min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
                                 seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                discount_percentage, usuario_id_ponte_item_promotions) VALUES (%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
+                                discount_percentage, usuario_id_ponte_item_promotions, auto) VALUES (%s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
                                 min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
                                 seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
-                                discount_percentage, user_id,))
+                                discount_percentage, user_id,False))
     
     
         conn.commit()         
@@ -4898,6 +4900,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
