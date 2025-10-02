@@ -142,7 +142,7 @@ const DashboardPromotionPage: React.FC = () => {
     if (token) {
       console.log('token: ',token)
       fetchPromotionsAndItems();
-      fetchActiveItems();  // Fetch active items on page load
+      //fetchActiveItems();  // Fetch active items on page load
       const nick = localStorage.getItem('novai_nickname') || '--';
       const email = localStorage.getItem('novai_email') || '--';
       setUser({'nickname':nick,'email':email});
@@ -318,6 +318,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
