@@ -23,7 +23,7 @@ import {
   Percent,
   ShoppingCart,
 } from 'lucide-react';
-import { useUser } from '../../../userContext';
+import { useUser } from '../../../../userContext';
 
 type DashboardMetrics = {
   nickname: string | null;
@@ -399,3 +399,4 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
