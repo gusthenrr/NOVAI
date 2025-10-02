@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  ArrowLeft,
+import {PlusCircle, Loader,ArrowLeft,
   BarChart2,
   Bell,
   FileText,
@@ -20,9 +19,12 @@ import {
   ThumbsUp,
   Puzzle,
   Award,
+  Tag,
+  MessageSquareWarning,
+  Settings,
   Percent,
-  ShoppingCart,
-} from 'lucide-react';
+  ShoppingCart, } from 'lucide-react';
+
 import { useUser } from '../../../../userContext';
 
 type DashboardMetrics = {
@@ -74,12 +76,13 @@ const ExtensaoNovaiPage: React.FC = () => {
         <nav>
           <ul>
             {[
-              { icon: Home, label: 'Início', link: '/dashboard' },
-              { icon: FileText, label: 'Arquivos', link: '/dashboard/Arquivos' },
-              { icon: MessageSquare, label: 'Mensagens', link: '/dashboard/Mensagens' },
-              { icon: Bell, label: 'Notificações', link: '/dashboard/Notificacoes' },
-              { icon: MapPin, label: 'Localização', link: '/dashboard/Localizacao' },
-              { icon: Puzzle, label: 'Novai Extensão', link: '/dashboard/ExtensaoNovai' },
+              icon: Home, label: 'Início'},
+              { icon: BarChart2, label: 'Anúncios Métricas', link:'/dashboard/AnalyticsAnuncios'},
+              { icon: Tag, label: 'Promoções', link:'/dashboard/Promotion'},
+              { icon: MessageSquareWarning, label: 'Reclamações', link:'/dashboard/claims'},
+              { icon: MessageSquare, label: 'Assistente Novai', link:'/Manager'},
+              { icon: Puzzle, label: 'Novai Extensão', link:'/dashboard/ExtensaoNovai'},
+              { icon: Settings, label:'Configurações', link:'/dashboard/config'},
             ].map(item => (
               <li key={item.label} className="mb-2">
                 <Link
@@ -399,5 +402,6 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
