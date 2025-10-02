@@ -36,6 +36,10 @@ interface ActiveItem {
   ranking_position: number;
   quantity_sold: number;
 }
+interface usuarioI{
+  nickname: string,
+  email: string,
+}
 
 
 const DashboardPromotionPage: React.FC = () => {
@@ -45,6 +49,7 @@ const DashboardPromotionPage: React.FC = () => {
   const [activeItems, setActiveItems] = useState<ActiveItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<ItemAppliedToPromotion | ActiveItem | null>(null);
   const [searchItem, setSearchItem] = useState('');
+  const [user, serUser] = useState<usuarioI | null>(null);
   const [loading, setLoading] = useState({
     promotions: true,
     items: true,
@@ -112,6 +117,9 @@ const DashboardPromotionPage: React.FC = () => {
     if (token) {
       fetchPromotionsAndItems();
       fetchActiveItems();  // Fetch active items on page load
+      const nick = localStorage.getItem('novai_nickname');
+      const email = localStorage.getItem('novai_email');
+      setUser({'nickname':nick,'email':email});
     }
   }, [token]);
 
@@ -138,7 +146,8 @@ const DashboardPromotionPage: React.FC = () => {
             <User size={36} />
           </div>
           <div className="text-center">
-            <h1 className="text-xl font-bold">Usuário</h1>
+            <h1 className="text-xl font-bold">{user.nickname ?? '—'}</h1>
+            <p className="text-sm text-zinc-400">{user.email ?? '—'}</p>
           </div>
         </div>
 
@@ -267,6 +276,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
