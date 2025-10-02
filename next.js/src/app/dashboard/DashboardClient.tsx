@@ -26,6 +26,9 @@ import {
   ThumbsUp,
   Puzzle,
   Award,
+  Tag,
+  MessageSquareWarning,
+  Settings,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useUser } from '../../../userContext';
@@ -378,12 +381,13 @@ const DashboardPage: React.FC = () => {
         <nav>
           <ul>
             {[
-              { icon: Home, label: 'Início' },
-              { icon: FileText, label: 'Arquivos' },
-              { icon: MessageSquare, label: 'Mensagens' },
-              { icon: Bell, label: 'Notificações' },
-              { icon: MapPin, label: 'Localização' },
+              { icon: Home, label: 'Início'},
+              { icon: BarChart2, label: 'Anúncios Métricas', link:'/dashboard/AnalyticsAnuncios'},
+              { icon: Tag, label: 'Promoções', link:'/dashboard/Promotion'},
+              { icon: MessageSquareWarning, label: 'Reclamações', link:'/dashboard/claims'},
+              { icon: MessageSquare, label: 'Assistente Novai', link:'/Manager'},
               { icon: Puzzle, label: 'Novai Extensão', link:'/dashboard/ExtensaoNovai'},
+              { icon: Settings, label:'Configurações', link:'/dashboard/config'}
             ].map(item => (
               <li key={item.label} className="mb-2">
                 <a href={item.link} className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
