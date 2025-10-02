@@ -3725,14 +3725,14 @@ def get_dados_gerais():
                 total_row = cur.fetchone()
                 cur.execute(
                     """
-                    SELECT COALESCE(SUM(total_amount), 0) AS total
-                    FROM pedidos_resumo
-                    WHERE date_created >= CURRENT_DATE
-                      AND date_created < CURRENT_DATE + INTERVAL '1 day'
-                      AND usuario_id_pedidos_resumo = %s
+                    SELECT SUM(am.cost) AS custo FROM anuncios_metricas_diarias am JOIN anuncios a ON a.usuario_id_anuncios=am.usuario_id_anuncios_metricas_diarias
+                    WHERE a.status=%s AND a.usuario_id_anuncios = %s
+                    AND am.usuario_id_anuncios_metricas_diarias = %s AND date >= CURRENT_DATE AND date < CURRENT_DATE + INTERVAL '1 days'
                     """,
-                    (user_id,),
+                    ('active',user_id,user_id,),
                 )
+                custo_dict=cur.fetchone()
+                custo=custo_dict['custo']
                 if total_row and total_row.get('total') is not None:
                     total_amount_today = float(total_row['total'])
     except Exception as exc:
@@ -3768,6 +3768,7 @@ def get_dados_gerais():
     payload = {
         'total_amount': total_amount_today,
         'visualizacoes_hoje': visualizacoes_hoje,
+        'custo':custo,
         'nickname':nickname,
         'email':email,
     }
@@ -4792,6 +4793,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
