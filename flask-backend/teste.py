@@ -2226,51 +2226,50 @@ def get_promotions_and_items():
         JOIN 
             itens i ON pim.item_id = i.item_id
         WHERE
-            p.usuario_id_promotions = %s  -- Filtrando por ID do vendedor (usuário)
+            p.usuario_id_promotions = %s  
         ORDER BY 
             p.start_date DESC;
     """
     
     try:
-        # Conexão ao banco de dados e execução da consulta
+    # Conexão ao banco de dados e execução da consulta
         with get_db_connection() as conn, conn.cursor() as cur:
             # Substitua %s pelo ID do usuário autenticado
             cur.execute(query, (user_id,))
             results = cur.fetchall()
-            print('results: ', results)
     
             # Processando os resultados para o formato esperado
             promotions = []
             for row in results:
                 promotion = {
                     'id_promotion': row['id_promotion'],
-                    'name': row['name'],
+                    'name': row['name'] if row['name'] else 'N/A',  # Atribuir valor padrão caso esteja None
                     'status': row['status'],
-                    'start_date': row['start_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'finish_date': row['finish_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'deadline_date': row['deadline_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'start_date': row['start_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['start_date'] else 'N/A',
+                    'finish_date': row['finish_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['finish_date'] else 'N/A',
+                    'deadline_date': row['deadline_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['deadline_date'] else 'N/A',
                     'type_promotion': row['type_promotion'],
                 }
-    
                 item = {
                     'item_id': row['item_id'],
                     'promotion_name': row['name'],
                     'nome_item': row['nome_item'],
                     'image_url': row['image_url'] if row['image_url'] else '',  # Garantir que a imagem seja uma string vazia se não houver imagem
-                    'price': row['price'],
-                    'original_price': row['original_price'],
-                    'min_discounted_price': row['min_discounted_price'],
-                    'max_discounted_price': row['max_discounted_price'],
-                    'suggested_discounted_price': row['suggested_discounted_price'],
-                    'start_date': row['item_start_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'end_date': row['item_end_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'price': float(row['price']) if row['price'] else 0.0,  # Garantir que o preço seja 0 caso esteja None
+                    'original_price': float(row['original_price']),
+                    'min_discounted_price': float(row['min_discounted_price']) if row['min_discounted_price'] else 0.0,
+                    'max_discounted_price': float(row['max_discounted_price']) if row['max_discounted_price'] else 0.0,
+                    'suggested_discounted_price': float(row['suggested_discounted_price']) if row['suggested_discounted_price'] else 0.0,
+                    'start_date': row['item_start_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['item_start_date'] else 'N/A',
+                    'end_date': row['item_end_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['item_end_date'] else 'N/A',
                 }
     
                 # Adiciona a promoção com seus itens
                 promotion['items'] = [item]
                 promotions.append(promotion)
-            
-            # Retorna os dados no formato JSON
+            print('promotions: ', promotions)
+        
+        # Retorna os dados no formato JSON
         return jsonify({
             'promotions': promotions
         })
@@ -4895,6 +4894,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
