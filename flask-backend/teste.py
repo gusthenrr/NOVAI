@@ -1149,7 +1149,7 @@ def itens_notifications(data,acess_token_data):
     """,(nome_item, status,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,item_id,acess_token_data['usuario_id'],))
             print('Item atualizado com sucesso no banco de dados.')
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(item_data), 'item_existe',json.dumps(data),))
-            egar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'],type='ja_possui')
+            pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'],type='ja_possui')
         else :
             print("Item não existe no banco de dados, inserindo item.")
             cur.execute("""
@@ -2178,10 +2178,10 @@ def reclamacoes(access_token, user_id, room):
 
     print("✅ Sincronização de reclamações finalizada com sucesso.")
 
-@app.route('/api/promotions-and-items', methods=['GET'])
+@app.route('/promotions-and-items', methods=['GET'])
 def get_promotions_and_items():
     # Verifique se o usuário está autenticado ou autorizado, com base no seu fluxo de autenticação.
-    
+    print('entrou no promotions_and_items')
     # Definindo a consulta SQL
     query = """
         SELECT 
@@ -4878,6 +4878,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
