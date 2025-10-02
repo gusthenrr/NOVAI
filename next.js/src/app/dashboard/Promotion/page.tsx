@@ -136,8 +136,8 @@ const DashboardPromotionPage: React.FC = () => {
     if (token) {
       fetchPromotionsAndItems();
       fetchActiveItems();  // Fetch active items on page load
-      const nick = localStorage.getItem('novai_nickname');
-      const email = localStorage.getItem('novai_email');
+      const nick = localStorage.getItem('novai_nickname') || '--';
+      const email = localStorage.getItem('novai_email') || '--';
       setUser({'nickname':nick,'email':email});
     }
   }, [token]);
@@ -301,6 +301,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
