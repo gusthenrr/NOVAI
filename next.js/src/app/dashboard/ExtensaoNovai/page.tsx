@@ -76,7 +76,7 @@ const ExtensaoNovaiPage: React.FC = () => {
         <nav>
           <ul>
             {[
-              icon: Home, label: 'Início'},
+      {icon: Home, label: 'Início', link:'/dashboard'},
               { icon: BarChart2, label: 'Anúncios Métricas', link:'/dashboard/AnalyticsAnuncios'},
               { icon: Tag, label: 'Promoções', link:'/dashboard/Promotion'},
               { icon: MessageSquareWarning, label: 'Reclamações', link:'/dashboard/claims'},
@@ -402,6 +402,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
