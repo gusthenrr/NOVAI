@@ -5,6 +5,16 @@ import { io } from 'socket.io-client';
 import { ArrowLeft, Tag, PlusCircle, Settings, Loader,User } from 'lucide-react';
 import { useUser } from '../../../../userContext';
 
+interface Promotion {
+  id_promotion: string;
+  name: string;
+  status: string;
+  start_date: string;
+  finish_date: string;
+  deadline_date: string;
+  type_promotion: string;
+}
+
 const DashboardPromotionPage: React.FC = () => {
   const { token, setToken } = useUser();
   const [promotions, setPromotions] = useState([]);
@@ -234,5 +244,6 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
