@@ -2180,6 +2180,7 @@ def reclamacoes(access_token, user_id, room):
 
 @app.route('/promotions-and-items', methods=['GET'])
 def get_promotions_and_items():
+    print('entrou no promotions-and-items')
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
@@ -2196,6 +2197,7 @@ def get_promotions_and_items():
         return jsonify({"error": f"Falha ao decodificar token: {exc}"}), 400
 
     user_id = decoded_token.get("sub") if decoded_token else None
+    print(user_id)
     if not user_id:
         return jsonify({"error": "Usuário não encontrado no token"}), 400
     query = """
@@ -2235,6 +2237,7 @@ def get_promotions_and_items():
             # Substitua %s pelo ID do usuário autenticado
             cur.execute(query, (user_id,))
             results = cur.fetchall()
+            print('results: ', results)
 
             # Processando os resultados para o formato esperado
             promotions = []
@@ -4892,6 +4895,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
