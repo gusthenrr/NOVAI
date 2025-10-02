@@ -126,8 +126,8 @@ const ExtensaoNovaiPage: React.FC = () => {
             <h2 className="mb-3 text-xl font-bold">Como funciona</h2>
             <p className="text-zinc-400">
               A <span className="font-semibold text-yellow-300">Extensão Novai</span> exibe métricas
-              do seu catálogo no Mercado Livre diretamente na página, oferecendo uma visão rápida e
-              prática do desempenho dos seus anúncios. Ela mostra:
+              dos anuncios de concorrentes no Mercado Livre diretamente na página, oferecendo uma visão rápida e
+              prática do desempenho desses anúncios. Ela mostra:
             </p>
             <ul className="mt-4 list-disc space-y-1 pl-6 text-zinc-300">
               <li>
@@ -338,7 +338,7 @@ const ExtensaoNovaiPage: React.FC = () => {
           <section className="rounded-lg border border-yellow-300/40 bg-zinc-800 p-6 shadow-md">
             <h3 className="mb-2 text-lg font-semibold text-yellow-300">Observação importante</h3>
             <p className="text-zinc-300">
-              Alguns itens do Mercado Livre são <span className="font-semibold">Produtos de Catálogo</span>.
+              Alguns anúncios do Mercado Livre são <span className="font-semibold">Produtos de Catálogo</span>.
               Em certos casos, o Mercado Livre não permite a visualização de dados como{' '}
               <span className="font-semibold">número de visualizações</span>,{' '}
               <span className="font-semibold">% de conversão</span> e{' '}
@@ -399,4 +399,5 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
