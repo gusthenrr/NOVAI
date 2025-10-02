@@ -2178,6 +2178,91 @@ def reclamacoes(access_token, user_id, room):
 
     print("✅ Sincronização de reclamações finalizada com sucesso.")
 
+@app.route('/api/promotions-and-items', methods=['GET'])
+def get_promotions_and_items():
+    # Verifique se o usuário está autenticado ou autorizado, com base no seu fluxo de autenticação.
+    
+    # Definindo a consulta SQL
+    query = """
+        SELECT 
+            p.id_promotion,
+            p.name,
+            p.status,
+            p.start_date,
+            p.finish_date,
+            p.deadline_date,
+            p.type_promotion,
+            i.item_id,
+            i.nome_item,
+            i.imagem[1] AS image_url,  -- Pegando a primeira imagem do array
+            pim.price,
+            pim.original_price,
+            pim.min_discounted_price,
+            pim.max_discounted_price,
+            pim.suggested_discounted_price,
+            pim.start_date AS item_start_date,
+            pim.end_date AS item_end_date
+        FROM 
+            promotion p
+        JOIN 
+            ponte_item_promotions pim ON p.id_promotion = pim.id_promotion
+        JOIN 
+            itens i ON pim.item_id = i.item_id
+        WHERE
+            p.usuario_id_promotions = %s  -- Filtrando por ID do vendedor (usuário)
+        ORDER BY 
+            p.start_date DESC;
+    """
+    
+    try:
+        # Conexão ao banco de dados e execução da consulta
+        with get_db_connection() as conn, conn.cursor() as cur:
+            # Substitua %s pelo ID do usuário autenticado
+            user_id = 1  # Exemplo, você deve pegar o ID do usuário autenticado
+            cur.execute(query, (user_id,))
+            results = cur.fetchall()
+
+            # Processando os resultados para o formato esperado
+            promotions = []
+            for row in results:
+                promotion = {
+                    'id_promotion': row[0],
+                    'name': row[1],
+                    'status': row[2],
+                    'start_date': row[3].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'finish_date': row[4].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'deadline_date': row[5].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'type_promotion': row[6],
+                }
+
+                item = {
+                    'item_id': row[7],
+                    'promotion_name': row[1],
+                    'nome_item': row[8],
+                    'image_url': row[9] if row[9] else '',  # Garantir que a imagem seja uma string vazia se não houver imagem
+                    'price': row[10],
+                    'original_price': row[11],
+                    'min_discounted_price': row[12],
+                    'max_discounted_price': row[13],
+                    'suggested_discounted_price': row[14],
+                    'start_date': row[15].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'end_date': row[16].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                }
+
+                # Adiciona a promoção com seus itens
+                promotion['items'] = [item]
+                promotions.append(promotion)
+            
+            # Retorna os dados no formato JSON
+            return jsonify({
+                'promotions': promotions
+            })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
 def faturamento_por_pedidos(user_id, room):
     print("entrou no faturamento_por_pedidos")
     try:
@@ -4793,6 +4878,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
