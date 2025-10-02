@@ -2238,42 +2238,42 @@ def get_promotions_and_items():
             cur.execute(query, (user_id,))
             results = cur.fetchall()
             print('results: ', results)
-
+    
             # Processando os resultados para o formato esperado
             promotions = []
             for row in results:
                 promotion = {
-                    'id_promotion': row[0],
-                    'name': row[1],
-                    'status': row[2],
-                    'start_date': row[3].strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'finish_date': row[4].strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'deadline_date': row[5].strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'type_promotion': row[6],
+                    'id_promotion': row['id_promotion'],
+                    'name': row['name'],
+                    'status': row['status'],
+                    'start_date': row['start_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'finish_date': row['finish_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'deadline_date': row['deadline_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'type_promotion': row['type_promotion'],
                 }
-
+    
                 item = {
-                    'item_id': row[7],
-                    'promotion_name': row[1],
-                    'nome_item': row[8],
-                    'image_url': row[9] if row[9] else '',  # Garantir que a imagem seja uma string vazia se não houver imagem
-                    'price': row[10],
-                    'original_price': row[11],
-                    'min_discounted_price': row[12],
-                    'max_discounted_price': row[13],
-                    'suggested_discounted_price': row[14],
-                    'start_date': row[15].strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    'end_date': row[16].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'item_id': row['item_id'],
+                    'promotion_name': row['name'],
+                    'nome_item': row['nome_item'],
+                    'image_url': row['image_url'] if row['image_url'] else '',  # Garantir que a imagem seja uma string vazia se não houver imagem
+                    'price': row['price'],
+                    'original_price': row['original_price'],
+                    'min_discounted_price': row['min_discounted_price'],
+                    'max_discounted_price': row['max_discounted_price'],
+                    'suggested_discounted_price': row['suggested_discounted_price'],
+                    'start_date': row['item_start_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'end_date': row['item_end_date'].strftime('%Y-%m-%dT%H:%M:%SZ'),
                 }
-
+    
                 # Adiciona a promoção com seus itens
                 promotion['items'] = [item]
                 promotions.append(promotion)
             
             # Retorna os dados no formato JSON
-            return jsonify({
-                'promotions': promotions
-            })
+        return jsonify({
+            'promotions': promotions
+        })
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -4895,6 +4895,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
