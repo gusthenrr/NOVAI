@@ -134,6 +134,7 @@ const DashboardPromotionPage: React.FC = () => {
 
   useEffect(() => {
     if (token) {
+      console.log('token: ',token)
       fetchPromotionsAndItems();
       fetchActiveItems();  // Fetch active items on page load
       const nick = localStorage.getItem('novai_nickname') || '--';
@@ -142,7 +143,9 @@ const DashboardPromotionPage: React.FC = () => {
     }
     else{
       try {
+        console.log('pegando token')
       const storedToken = localStorage.getItem('authToken');
+        console.log('storedtoken: ', storedToken)
       if (storedToken && storedToken!==token) setToken(storedToken);
     } catch (e) {
       console.error('Falha ao recuperar token do armazenamento local.', e);
@@ -309,6 +312,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
