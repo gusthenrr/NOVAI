@@ -66,10 +66,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Esperado: { meses: [...], faturamentos: [...] }
         let visitasArr = Array.isArray(data?.meses) ? data.meses.slice() : [];
         let faturArr   = Array.isArray(data?.faturamentos) ? data.faturamentos.slice() : [];
+        let quantArr   = Array.isArray(data?.quantityMonths) ? data.quantityMonths.slice() : [];
 
         // Backend vem 1 mês atrás → 24 meses atrás; normaliza p/ cronologia
         visitasArr.reverse();
         faturArr.reverse();
+        quantArr.reverse();
 
         const labels = makeMonthLabels_30dWindows(Math.min(24, visitasArr.length));
         const len = Math.min(labels.length, visitasArr.length, faturArr.length);
@@ -79,6 +81,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           visits: visitasArr.slice(-len),
           revenues: faturArr.slice(-len),
           createdAt: data?.data_criacao ?? null,
+          quantityMonths: quantArr.slice(-len),
         };
 
         console.log("[BG] resposta /visitas_por_mes (normalizada):", payload);

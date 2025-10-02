@@ -277,6 +277,8 @@ function closePanelLater(panel, delay = 140){
         const labels = series.map(d => d.label);
         const values = series.map(d => Math.max(0, Number(d.revenue) || 0));
         const visits = series.map(d => Math.max(0, Number(d.visits) || 0));
+        const qty = series.map(d => Math.max(0, Number(d.quantity) || 0));
+
         const maxV = Math.max(...values, 1);
       
         const x = (i) => PADL + (i * innerW) / Math.max(series.length - 1, 1);
@@ -347,10 +349,12 @@ function closePanelLater(panel, delay = 140){
           const label = labels[i] || "";
           const val = values[i] || 0;
           const vis = visits[i] || 0;
+          const q   = qty[i]     || 0;
       
           tip.innerHTML = `
             <div style="font-weight:700">${label}</div>
             <div>${brl.format(val)}</div>
+            <div>Quantidade vendida: ${q.toLocaleString('pt-BR')}</div>
             <div style="opacity:.8">Visitas: ${vis.toLocaleString('pt-BR')}</div>
           `;
       
@@ -369,6 +373,7 @@ function closePanelLater(panel, delay = 140){
           tip.style.transform = `translate(${left}px, ${top}px)`;
           tip.style.opacity = "1";
         }
+
         function hideTip() {
           tip.style.opacity = "0";
           tip.style.transform = "translate(-9999px,-9999px)";
@@ -406,21 +411,24 @@ function closePanelLater(panel, delay = 140){
       })();
   
       fetchMonthlyFromBG(itemId, price, conv)
-        .then(({ labels, visits, revenues, createdAt }) => {
-        if (createdAt != null) {
-          lastCreatedAt = createdAt;
-          renderCustomSubtitle(createdAt); // idempotente, pode chamar de novo
-        }
-        monthlySeries = labels.map((label, i) => ({
-          label,
-          visits: Number(visits[i]) || 0,
-          revenue: Number(revenues[i]) || 0,
-        }));
-        monthlyFetched = true;
-        log("[chart] monthly series pronta:", monthlySeries.length, "pontos");
-      })
-        .catch(err => warn("[chart] falha no fetch mensal:", err))
-        .finally(() => { monthlyFetchInFlight = false; });
+  .then(({ labels, visits, revenues, createdAt, quantityMonths }) => {
+    if (createdAt != null) {
+      lastCreatedAt = createdAt;
+      renderCustomSubtitle(createdAt);
+    }
+    monthlySeries = labels.map((label, i) => ({
+      label,
+      visits:   Number(visits[i]) || 0,
+      revenue:  Number(revenues[i]) || 0,
+      quantity: Number(quantityMonths?.[i]) || 0, // << AQUI
+    }));
+
+    monthlyFetched = true;
+    log("[chart] monthly series pronta:", monthlySeries.length, "pontos");
+  })
+  .catch(err => warn("[chart] falha no fetch mensal:", err))
+  .finally(() => { monthlyFetchInFlight = false; });
+
     }
   
     function fetchMonthlyFromBG(itemId, price, convRatio) {
@@ -589,8 +597,7 @@ if (nativeSold) {
                 box-shadow:0 10px 25px rgba(0,0,0,.12);
                 padding:10px 12px; display:none; z-index:99999;">
             <div class="novai-chart-head">
-                <span class="novai-chart-title">Faturamento mensal (estimado)</span>
-                <span class="novai-chart-hint">(Faturamento aproximado por mês)</span>
+                <span class="novai-chart-title">Faturamento mensal e quantidade vendidas (estimadas)</span>
             </div>
             <svg id="novai-chart" viewBox="0 0 400 180" width="100%" height="180" role="img" aria-label="Gráfico de faturamento"></svg>
             <!-- tooltip HTML absoluto (criado por JS se não existir) -->
