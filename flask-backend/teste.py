@@ -3109,7 +3109,7 @@ def home():
 
 def minha_tarefa():
     print("Rodando tarefa de atualização diária às 00:00")
-    socketio.emit('limpar_dados_atais', {'status':True})
+    socketio.emit('limpar_dados_atuais', {'status':True})
 
 # Scheduler que roda todos os dias meia noite
 scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
@@ -4793,6 +4793,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
