@@ -2180,9 +2180,24 @@ def reclamacoes(access_token, user_id, room):
 
 @app.route('/promotions-and-items', methods=['GET'])
 def get_promotions_and_items():
-    # Verifique se o usuário está autenticado ou autorizado, com base no seu fluxo de autenticação.
-    print('entrou no promotions_and_items')
-    # Definindo a consulta SQL
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
+
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+
+    try:
+        decoded_token = decode_token(token)
+    except ExpiredSignatureError:
+        return jsonify({"error": "Token expirado"}), 401
+    except InvalidTokenError:
+        return jsonify({"error": "Token inválido"}), 401
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao decodificar token: {exc}"}), 400
+
+    user_id = decoded_token.get("sub") if decoded_token else None
+    if not user_id:
+        return jsonify({"error": "Usuário não encontrado no token"}), 400
     query = """
         SELECT 
             p.id_promotion,
@@ -2218,7 +2233,6 @@ def get_promotions_and_items():
         # Conexão ao banco de dados e execução da consulta
         with get_db_connection() as conn, conn.cursor() as cur:
             # Substitua %s pelo ID do usuário autenticado
-            user_id = 1  # Exemplo, você deve pegar o ID do usuário autenticado
             cur.execute(query, (user_id,))
             results = cur.fetchall()
 
@@ -4878,6 +4892,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
