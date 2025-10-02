@@ -68,7 +68,7 @@ const DashboardPromotionPage: React.FC = () => {
   const [activeItems, setActiveItems] = useState<ActiveItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<ItemAppliedToPromotion | ActiveItem | null>(null);
   const [searchItem, setSearchItem] = useState('');
-  const [user, setUser] = useState<usuarioI | null>(null);
+  const [user, setUser] = useState<usuarioI>({'nickname':'--','email':'--'});
   const [loading, setLoading] = useState({
     promotions: true,
     items: true,
@@ -301,6 +301,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
