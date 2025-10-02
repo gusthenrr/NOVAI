@@ -2239,17 +2239,22 @@ def get_promotions_and_items():
             results = cur.fetchall()
     
             # Processando os resultados para o formato esperado
-            promotions = []
+            promotions_list = []
+            items_list = []
+            processed_promotions = set()
             for row in results:
-                promotion = {
-                    'id_promotion': row['id_promotion'],
-                    'name': row['name'] if row['name'] else 'N/A',  # Atribuir valor padrão caso esteja None
-                    'status': row['status'],
-                    'start_date': row['start_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['start_date'] else 'N/A',
-                    'finish_date': row['finish_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['finish_date'] else 'N/A',
-                    'deadline_date': row['deadline_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['deadline_date'] else 'N/A',
-                    'type_promotion': row['type_promotion'],
-                }
+                if row['id_promotion'] not in processed_promotions:
+                    promotion = {
+                        'id_promotion': row['id_promotion'],
+                        'name': row['name'] if row['name'] else 'N/A',  # Atribuir valor padrão caso esteja None
+                        'status': row['status'],
+                        'start_date': row['start_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['start_date'] else 'N/A',
+                        'finish_date': row['finish_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['finish_date'] else 'N/A',
+                        'deadline_date': row['deadline_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['deadline_date'] else 'N/A',
+                        'type_promotion': row['type_promotion'],
+                    }
+                    promotions_list.append(promotion)
+                    processed_promotions.add(row['id_promotion'])
                 item = {
                     'item_id': row['item_id'],
                     'promotion_name': row['name'],
@@ -2263,16 +2268,15 @@ def get_promotions_and_items():
                     'start_date': row['item_start_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['item_start_date'] else 'N/A',
                     'end_date': row['item_end_date'].strftime('%Y-%m-%dT%H:%M:%SZ') if row['item_end_date'] else 'N/A',
                 }
+                items_list.append(item)
     
                 # Adiciona a promoção com seus itens
-                promotion['items'] = [item]
-                promotions.append(promotion)
-            print('promotions: ', promotions)
         
         # Retorna os dados no formato JSON
         return jsonify({
-            'promotions': promotions
-        })
+        'promotions': promotions_list,
+        'itemsAppliedToPromotions': items_list,
+    })
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -4894,6 +4898,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
