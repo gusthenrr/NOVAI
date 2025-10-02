@@ -17,13 +17,14 @@ const DashboardPromotionPage: React.FC = () => {
     items: true,
     competitors: false,
   });
+  const apiUrl = useMemo(() => process.env.NEXT_PUBLIC_API_URL ?? '', []);
 
   // Fetch promotions and items applied to promotions
   const fetchPromotionsAndItems = async () => {
     if (!token) return;
     setLoading(prev => ({ ...prev, promotions: true }));
     try {
-      const response = await fetch('/api/promotions-and-items', {
+      const response = await fetch(`${apiUrl}/promotions-and-items`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -42,7 +43,7 @@ const DashboardPromotionPage: React.FC = () => {
     if (!token) return;
     setLoading(prev => ({ ...prev, items: true }));
     try {
-      const response = await fetch('/api/active-items', {
+      const response = await fetch(`${apiUrl}/active-items`, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -60,9 +61,10 @@ const DashboardPromotionPage: React.FC = () => {
     if (!token) return;
     setLoading(prev => ({ ...prev, competitors: true }));
     try {
-      const response = await fetch(`/api/competitor-items?itemId=${itemId}`, {
-        method: 'GET',
+      const response = await fetch(`${apiUrl}/competitor-items`, {
+        method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({'item_id':itemId})
       });
       const data = await response.json();
       setSelectedItem(data.item);  // Update the selected item data
