@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { io } from 'socket.io-client';
-import { ArrowLeft, Tag, PlusCircle, Settings, Loader } from 'lucide-react';
+import { ArrowLeft, Tag, PlusCircle, Settings, Loader,User } from 'lucide-react';
 import { useUser } from '../../../../userContext';
 
 const DashboardPromotionPage: React.FC = () => {
@@ -234,4 +234,5 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
