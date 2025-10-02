@@ -24,6 +24,7 @@ import {
   TrendingUp,
   Download,
   ThumbsUp,
+  Puzzle,
   Award,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -380,10 +381,10 @@ const DashboardPage: React.FC = () => {
               { icon: MessageSquare, label: 'Mensagens' },
               { icon: Bell, label: 'Notificações' },
               { icon: MapPin, label: 'Localização' },
-              { icon: BarChart2, label: 'Gráficos' },
+              { icon: Puzzle, label: 'Novai Extensão', link:'/Manager'},
             ].map(item => (
               <li key={item.label} className="mb-2">
-                <a href="#" className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
+                <a href={item.link} className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
                   <item.icon className={`mr-3 ${item.label === 'Início' ? 'text-yellow-300' : 'text-zinc-400'}`} />
                   {item.label}
                 </a>
