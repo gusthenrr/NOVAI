@@ -83,7 +83,9 @@ const DashboardPromotionPage: React.FC = () => {
     try {
       const response = await fetch(`${apiUrl}/promotions-and-items`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,},
+        credentials: 'include'
       });
       const data = await response.json();
       setPromotions(data.promotions);
@@ -102,7 +104,9 @@ const DashboardPromotionPage: React.FC = () => {
     try {
       const response = await fetch(`${apiUrl}/active-items`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,},
+        credentials: 'include'
       });
       const data = await response.json();
       setActiveItems(data.activeItems);
@@ -120,7 +124,9 @@ const DashboardPromotionPage: React.FC = () => {
     try {
       const response = await fetch(`${apiUrl}/competitor-items`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,},
+        credentials: 'include',
         body: JSON.stringify({'item_id':itemId})
       });
       const data = await response.json();
@@ -312,6 +318,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
