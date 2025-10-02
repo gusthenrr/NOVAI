@@ -140,7 +140,15 @@ const DashboardPromotionPage: React.FC = () => {
       const email = localStorage.getItem('novai_email') || '--';
       setUser({'nickname':nick,'email':email});
     }
-  }, [token]);
+    else{
+      try {
+      const storedToken = localStorage.getItem('authToken');
+      if (storedToken && storedToken!==token) setToken(storedToken);
+    } catch (e) {
+      console.error('Falha ao recuperar token do armazenamento local.', e);
+    }
+    }
+  }, [token,setToken]);
 
   const handleAddPromotion = () => {
     // Show a card to add a new promotion (simplified)
@@ -301,6 +309,7 @@ const DashboardPromotionPage: React.FC = () => {
 };
 
 export default DashboardPromotionPage;
+
 
 
 
