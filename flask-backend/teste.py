@@ -1210,7 +1210,7 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         recomended = data.get('recommended', False)
         image_quality = data.get('image_quality', 'N/A')
 
-        if type='novo':
+        if type=='novo':
             cur.execute('''
             INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
             channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
@@ -4793,6 +4793,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
