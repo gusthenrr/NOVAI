@@ -1177,7 +1177,7 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         advertiser_id='MLB'
         url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
         headers = {
-            "Authorization": f"Bearer {access_token}",
+            "Authorization": f"Bearer {acess_token}",
             'api-version': '2',
         }
         try:
@@ -5099,6 +5099,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
