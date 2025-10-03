@@ -1234,7 +1234,7 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         dict= cur.fetchone()
         if dict:
             campanhas_id_exitentes=dict['campanha_id']
-        else campanhas_id_existentes=None
+        else: campanhas_id_existentes=None
         if type=='novo':
             cur.execute('''
             INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
@@ -5077,4 +5077,5 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
