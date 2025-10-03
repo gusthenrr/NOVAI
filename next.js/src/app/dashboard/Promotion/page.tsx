@@ -240,7 +240,7 @@ const DashboardPromotionPage: React.FC = () => {
         <nav>
           <ul>
             {[
-              { icon: Home, label: 'Início', link: '/dashboard' },
+              { icon: Home, label: 'Início', link: '/dashboard/inicio' },
               { icon: BarChart2, label: 'Anúncios Métricas', link: '/dashboard/AnalyticsAnuncios' },
               { icon: Tag, label: 'Promoções', link: '/dashboard/Promotion' },
               { icon: MessageSquareWarning, label: 'Reclamações', link: '/dashboard/claims' },
@@ -506,3 +506,4 @@ function Info({ label, value }: { label: string; value?: React.ReactNode }) {
     </div>
   );
 }
+
