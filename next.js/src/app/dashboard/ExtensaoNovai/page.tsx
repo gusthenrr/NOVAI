@@ -114,9 +114,6 @@ const ExtensaoNovaiPage: React.FC = () => {
           {/* Título mostrando onde a pessoa está */}
           <h1 className="text-2xl font-bold">Novai Extensão</h1>
           <div className="flex items-center space-x-4">
-            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
-              <BarChart2 />
-            </button>
             <Link href="/Manager" className="rounded-full p-2 transition-colors hover:bg-zinc-800" aria-label="Manager">
               <MessageSquare />
             </Link>
@@ -385,6 +382,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
