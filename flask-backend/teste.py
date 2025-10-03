@@ -677,21 +677,20 @@ def claims_notifications(data, acess_token_data):
         claim_data = response.json() 
         print('claim_data:', claim_data)
         claim_id = claim_data.get('id')
-        resource_id= claim_data.get('resource')
+        resource= claim_data.get('resource')
+        resource_id=claim_data.get('resource_id')
         status= claim_data.get('status')
         tipo= claim_data.get('type')
         stage= claim_data.get('stage')
         parent_id= claim_data.get('parent_id')
     
-        if resource_id=='order':
-            resource_id = 'pack_id'
+        if resource=='order':
             order_id=claim_data.get("resource_id")
             cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
             pack_id_dict = cur.fetchone()
             pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-        elif resource_id=='shipment':
+        elif resource=='shipment':
             print('shipment')
-            resource_id = 'pack_id'
             url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim_data.get('resource_id', 0)}/items"
             response_order_shipment = requests.get(url_order_shipment, headers=headers)
             if response_order_shipment.status_code in [200,206]:
@@ -798,11 +797,11 @@ def claims_notifications(data, acess_token_data):
             cur.execute("SELECT * FROM reclamacoes WHERE claim_id = %s", (claim_id,))
             data_reclamacao = cur.fetchone()
             print("Dados da reclamação existente:", data_reclamacao)
-            cur.execute("""UPDATE reclamacoes SET resource_id = %s, status = %s, tipo = %s, stage = %s, parent_id = %s, pack_id = %s, reason_id = %s,
+            cur.execute("""UPDATE reclamacoes SET resource_id = %s, resource=%s,status = %s, tipo = %s, stage = %s, parent_id = %s, pack_id = %s, reason_id = %s,
                         fulfilled = %s, quantity_type = %s, site_id = %s, date_created = %s, last_updated = %s,
                         comprador_id = %s, vendedor_id = %s, acoes_disponiveis=%s,name_reason=%s,expected_solutions=%s,problem=%s,
                         description=%s,due_date=%s,title=%s,action_responsible=%s WHERE claim_id = %s AND usuario_id_reclamacoes=%s""",
-                        (resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
+                        (resource_id,resource, status, tipo, stage, parent_id, pack_id, reason_id,
                          fulfilled, quantity_type, site_id, date_created, last_updated,
                          comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,
                          problem, description,due_date_detail,title,action_responsible,
@@ -813,14 +812,14 @@ def claims_notifications(data, acess_token_data):
                         INSERT INTO reclamacoes (
                             claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
                         fulfilled, quantity_type, site_id, date_created, last_updated,
-                            comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes
+                            comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes,resource
                         )
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (claim_id) DO NOTHING
                     ''', (
                     claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
                     fulfilled, quantity_type, site_id, date_created, last_updated,
-                    comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,acess_token_data['usuario_id'],
+                    comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,acess_token_data['usuario_id'],resource,
                     ))
         conn.commit()
         conn.close()
@@ -1978,15 +1977,14 @@ def reclamacoes(access_token, user_id, room):
     
             for claim in data:
                 claim_id = claim.get("id")
-                resource_id = claim.get("resource")
-                if resource_id=='order':
-                    resource_id = 'pack_id'
-                    order_id=claim.get("resource_id")
+                resource = claim.get("resource")
+                resource_id = claim.get('resource_id')
+                if resource=='order':
+                    order_id=resource_id
                     cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                elif resource_id=='shipment':
-                    resource_id = 'pack_id'
+                elif resource=='shipment':
                     url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource', 0)}/items"
                     response_order_shipment = requests.get(url_order_shipment, headers=headers)
                     if response_order_shipment.status_code in [200,206]:
@@ -2023,13 +2021,6 @@ def reclamacoes(access_token, user_id, room):
                     if player["role"] == "respondent" and player["type"] == "seller":
                         vendedor_id = player["user_id"]
                         acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
-                #print(f"Reclamação ID: {claim_id}, Comprador ID: {comprador_id}, Vendedor ID: {vendedor_id}")
-                #print(f"Status: {status}, Tipo: {tipo}, Stage: {stage}, Parent ID: {parent_id}")
-                #print(f"Resource: {resource}, Reason ID: {reason_id}, Fulfilled: {fulfilled}")
-                #print(f"Quantity Type: {quantity_type}, Site ID: {site_id}")
-                #print(f"Date Created: {date_created}, Last Updated: {last_updated}")
-                #print(f"Ações Disponíveis: {acoes_disponiveis}")
-                #print("-------------------------------------------------------------")
                 url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
                 response_reason = requests.get(url_reason, headers=headers)
                 if response_reason.status_code != 200:
@@ -2060,14 +2051,14 @@ def reclamacoes(access_token, user_id, room):
                     INSERT INTO reclamacoes (
                         claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
                       fulfilled, quantity_type, site_id, date_created, last_updated,
-                        comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes
+                        comprador_id, vendedor_id, acoes_disponiveis,name_reason,expected_solutions,problem,description,due_date,title,action_responsible,usuario_id_reclamacoes,resource
                     )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (claim_id) DO NOTHING
                 ''', (
                    claim_id, resource_id, 'open', tipo, stage, parent_id, pack_id, reason_id,
                    fulfilled, quantity_type, site_id, date_created, last_updated,
-                 comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,user_id,
+                 comprador_id, vendedor_id, acoes_disponiveis,nome_reason,expected_solution,problem, description, due_date_detail,title,action_responsible,user_id,resource
                 ))
                 conn.commit()
             count_20+=1
@@ -2098,15 +2089,14 @@ def reclamacoes(access_token, user_id, room):
                 break
             for i,claim in enumerate(data):
                 claim_id = claim.get("id")
+                resource = claim.get("resource")
                 resource_id = claim.get("resource_id")
-                if resource_id=='order':
-                    resource_id = 'pack_id'
+                if resource=='order':
                     order_id=claim.get("resource")
                     cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                elif resource_id=='shipment':
-                    resource_id = 'pack_id'
+                elif resource=='shipment':
                     url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource_id', 0)}/items"
                     response_order_shipment = requests.get(url_order_shipment, headers=headers)
                     if response_order_shipment.status_code in [200,206]:
@@ -2190,14 +2180,14 @@ def reclamacoes(access_token, user_id, room):
                         claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
                         fulfilled, quantity_type, site_id, date_created, last_updated,
                         comprador_id, vendedor_id, acoes_disponiveis,name_reason, description, title,reason_resolution,
-                        date_resolution, benefited, resolution_closed_by, apllied_coverage ,usuario_id_reclamacoes
+                        date_resolution, benefited, resolution_closed_by, apllied_coverage ,usuario_id_reclamacoes,resource
                     )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (claim_id) DO NOTHING
                 ''', (
                     claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
                     fulfilled, quantity_type, site_id, date_created, last_updated,
-                    comprador_id, vendedor_id, acoes_disponiveis,nome_reason,description,title,reason,resolution_date_created,benefited,closed_by,apllied_coverage,user_id,
+                    comprador_id, vendedor_id, acoes_disponiveis,nome_reason,description,title,reason,resolution_date_created,benefited,closed_by,apllied_coverage,user_id,resource
                 ))
             count_20+=1
             if count_20>20:
@@ -3259,7 +3249,6 @@ def home():
 def minha_tarefa():
     print("Rodando tarefa de atualização diária às 00:00")
     pegar_anuncios_e_campanhas_diario()
-    socketio.emit('limpar_dados_atuais', {'status':True})
 
 # Scheduler que roda todos os dias meia noite
 scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
@@ -5088,3 +5077,4 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
