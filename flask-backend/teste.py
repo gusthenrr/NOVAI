@@ -1984,16 +1984,26 @@ def reclamacoes(access_token, user_id, room):
                     cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                elif resource=='shipment':
-                    url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource', 0)}/items"
+                elif resource == 'shipment':
+                    shipment_id = claim.get('resource_id') 
+                    
+                    url_order_shipment = f"https://api.mercadolibre.com/shipments/{shipment_id}/items"
                     response_order_shipment = requests.get(url_order_shipment, headers=headers)
-                    if response_order_shipment.status_code in [200,206]:
-    
-                        order_data = response_order_shipment.json()
-                        order_id = order_data.get("order_id")
-                        cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
-                        pack_id_dict = cur.fetchone()
-                        pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
+                    
+                    pack_id = None # Garante que pack_id seja definido
+                    
+                    if response_order_shipment.status_code in [200, 206]:
+                        order_items = response_order_shipment.json()
+                        
+                        # VERIFICA SE A RESPOSTA É UMA LISTA E NÃO ESTÁ VAZIA
+                        if isinstance(order_items, list) and order_items:
+                            # Pega o order_id do PRIMEIRO item da lista
+                            order_id = order_items[0].get("order_id")
+                            
+                            if order_id:
+                                cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s", (order_id,))
+                                pack_id_dict = cur.fetchone()
+                                pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
                 else :
                      pack_id= None
     
@@ -2092,19 +2102,31 @@ def reclamacoes(access_token, user_id, room):
                 resource = claim.get("resource")
                 resource_id = claim.get("resource_id")
                 if resource=='order':
-                    order_id=claim.get("resource")
-                    cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
+                    order_id=resource_id
+                    cur.execute("SELECT pack_id from pedidos_resumo WHERE id_order=%s",(order_id,))
                     pack_id_dict = cur.fetchone()
                     pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                elif resource=='shipment':
-                    url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim.get('resource_id', 0)}/items"
+                elif resource == 'shipment':
+                    # No primeiro loop, o resource_id estava faltando, já corrigido aqui:
+                    shipment_id = claim.get('resource_id') 
+                    
+                    url_order_shipment = f"https://api.mercadolibre.com/shipments/{shipment_id}/items"
                     response_order_shipment = requests.get(url_order_shipment, headers=headers)
-                    if response_order_shipment.status_code in [200,206]:
-                        order_data = response_order_shipment.json()
-                        order_id = order_data.get("order_id")
-                        cur.execute("SELECT pack_id from pedidos_resumo WHERE order_id=%s",(order_id,))
-                        pack_id_dict = cur.fetchone()
-                        pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
+                    
+                    pack_id = None # Garante que pack_id seja definido
+                    
+                    if response_order_shipment.status_code in [200, 206]:
+                        order_items = response_order_shipment.json()
+                        
+                        # VERIFICA SE A RESPOSTA É UMA LISTA E NÃO ESTÁ VAZIA
+                        if isinstance(order_items, list) and order_items:
+                            # Pega o order_id do PRIMEIRO item da lista
+                            order_id = order_items[0].get("order_id")
+                            
+                            if order_id:
+                                cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s", (order_id,))
+                                pack_id_dict = cur.fetchone()
+                                pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
                 else :
                      pack_id= None
                 status = claim.get("status")
@@ -2209,6 +2231,7 @@ def reclamacoes(access_token, user_id, room):
 
 
     print("✅ Sincronização de reclamações finalizada com sucesso.")
+
 
 @app.route('/promotions-and-items', methods=['GET'])
 def get_promotions_and_items():
@@ -5079,6 +5102,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
