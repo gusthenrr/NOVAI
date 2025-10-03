@@ -276,6 +276,9 @@ const DashboardPromotionPage: React.FC = () => {
           </button>
           <h1 className="text-2xl font-bold">Promoções</h1>
           <div className="flex items-center space-x-3">
+            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
+              <Bell />
+            </button>
             <button
               onClick={handleAddPromotion}
               className="flex items-center gap-2 rounded-full bg-zinc-800 px-3 py-2 text-sm transition-colors hover:bg-zinc-700"
@@ -506,4 +509,5 @@ function Info({ label, value }: { label: string; value?: React.ReactNode }) {
     </div>
   );
 }
+
 
