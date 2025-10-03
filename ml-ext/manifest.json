@@ -20,11 +20,10 @@
 
   "permissions": [
     "storage",
-    "scripting",
-    "activeTab"
   ],
 
   "host_permissions": [
     "https://nossopoint-backend-flask-server.com/*"
   ]
+
 }
