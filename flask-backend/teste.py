@@ -3216,6 +3216,7 @@ def home():
 
 def minha_tarefa():
     print("Rodando tarefa de atualização diária às 00:00")
+    pegar_anuncios_e_campanhas_diario()
     socketio.emit('limpar_dados_atuais', {'status':True})
 
 # Scheduler que roda todos os dias meia noite
@@ -3223,7 +3224,13 @@ scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
 scheduler.add_job(minha_tarefa, CronTrigger(hour=0, minute=0, second=0))
 scheduler.start()
 
-
+def pegar_anuncios_e_campanhas_diario():
+    print('Entrou em campanhas e anuncios diarios')
+    try:
+        url_metricas_anuncios_ontem='https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY'
+        
+    except Exception as e:
+        print('Erro: ', str(e))
 
 def listar_todos_itens(user_id,id,access_token):
     try:
@@ -4900,6 +4907,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
