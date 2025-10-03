@@ -1256,7 +1256,7 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
                 cur.execute('INSERT INTO campanhas (campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,usuario_id_campanhas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (campanha_id) DO NOTHING',(campanha_id,name_campanha,status_campanha,strategy_campanha,budget_campanha,currency_id_campanha,last_updated_campanha,date_created_campanha,channel_campanha,acos_target_campanha,user_id,))
                 conn.commit()
                 cur.execute('UPDATE anuncios SET campanha_id = %s WHERE item_id = %s AND usuario_id_anuncios = %s', (campanha_id, item_id, user_id,))
-            conn.commit()
+                conn.commit()
             else:
                 cur.execute("""
                 UPDATE campanhas
@@ -5077,5 +5077,6 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
