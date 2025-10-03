@@ -417,9 +417,6 @@ const DashboardPage: React.FC = () => {
           </button>
           <h1 className="text-2xl font-bold">Painel de Controle</h1>
           <div className="flex items-center space-x-4">
-            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
-              <BarChart2 />
-            </button>
             <a href="/Manager" className="rounded-full p-2 transition-colors hover:bg-zinc-800">
               <MessageSquare />
             </a>
