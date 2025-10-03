@@ -3970,7 +3970,6 @@ def get_dados_gerais():
     total_amount_today = 0.0
     access_token = None
     id_mercado_livre = None
-
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -3994,6 +3993,9 @@ def get_dados_gerais():
                 access_data = cur.fetchone()
                 if access_data:
                     access_token = access_data.get('acess_token')
+                    room = f'user:{user_id}'
+                    t = threading.Thread(target=reclamacoes, args=(access_token,user_id,room))
+                    t.start()
                     id_mercado_livre = access_data.get('id_ml')
 
                 cur.execute(
@@ -5077,6 +5079,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
