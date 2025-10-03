@@ -96,6 +96,7 @@ function formatPt(d: Date) {
 
 const DashboardPage: React.FC = () => {
   const { token, setToken } = useUser();
+  const pathname = usePathname();
   const [metrics, setMetrics] = useState<DashboardMetrics>({ totalAmount: 0, visualizationsToday: 0, nickname: null, email: null });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
