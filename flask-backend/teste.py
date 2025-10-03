@@ -1180,7 +1180,10 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         cur = conn.cursor()
         advertiser_id='MLB'
         url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
-        headers = {"Authorization": f"Bearer {acess_token}"}
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            'api-version': '2',
+        }
         try:
             response = requests.get(url, headers=headers, timeout=15)
             response.raise_for_status()
@@ -1191,7 +1194,7 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         listingtype_id = data.get('listing_type_id', 'N/A')
         price = data.get('price', 0.0)
         title = data.get('title', 'N/A')
-        campanha_id = data.get('campaign_id', 'N/A')
+        campanha_id = data.get('campaign_id', None)
         status = data.get('status', 'N/A')
         has_discount = data.get('has_discount', False)
         catalog_listing = data.get('catalog_listing', False)
@@ -1209,13 +1212,40 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         permalink = data.get('permalink', 'N/A')
         recomended = data.get('recommended', False)
         image_quality = data.get('image_quality', 'N/A')
-
+        ###Pegando dados da campanha_id:###
+        final = datetime.now().date()
+        inicio = final - timedelta(days=1)
+        url = f'''https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark'''
+        response_campanha = requests.get(url, headers=headers)
+        if response_campanha.status_code not in [200, 206]:
+            return response_campanha.status_code
+        result = response_campanha.json()
+        name_campanha = result.get('name', 'N/A')
+        status_campanha = result.get('status', 'N/A')
+        strategy_campanha = result.get('strategy', 'N/A')
+        budget_campanha = result.get('budget', 0.0)
+        automatic_budget_campanha = result.get('automatic_budget', False)
+        currency_id_campanha = result.get('currency_id', 'N/A')
+        last_updated_campanha = result.get('last_updated', 'N/A')
+        date_created_campanha = result.get('date_created', 'N/A')
+        channel_campanha= result.get('channel', 'N/A')
+        acos_target_campanha = result.get('acos_target', 0.0)
+        if campanha_id:
+            cur.execute('SELECT campanha_id FROM campanhas WHERE usuario_id_campanhas=%s AND campanha_id=%s', (user_id,campanha_id))
+        dict= cur.fetchone()
+        if dict:
+            campanhas_id_exitentes=dict['campanha_id']
+        else campanhas_id_existentes=None
         if type=='novo':
             cur.execute('''
             INSERT INTO anuncios (id_anuncio ,item_id, listing_type_id, price, title, status, has_discount, catalog_listing, condition, logistic_type, domain_id, date_created, buy_box_winner, 
             channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, usuario_id_anuncios) VALUES 
             (%s ,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''', (item_id,item_id ,listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
             logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality, user_id,))
+            if not campanhas_id_existentes:
+                cur.execute('INSERT INTO campanhas (campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,usuario_id_campanhas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (campanha_id) DO NOTHING',(campanha_id,name_campanha,status_campanha,strategy_campanha,budget_campanha,currency_id_campanha,last_updated_campanha,date_created_campanha,channel_campanha,acos_target_campanha,user_id,))
+                conn.commit()
+                cur.execute('UPDATE anuncios SET campanha_id = %s WHERE item_id = %s AND usuario_id_anuncios = %s', (campanha_id, item_id, user_id,))
             conn.commit()
         else:
             cur.execute('''
@@ -1223,7 +1253,19 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
             channel=%s, brand_value_id=%s, brand_value_name=%s, thumbnail=%s, current_level=%s, diferred_stock=%s, permalink=%s, recomended=%s, image_quality=%s WHERE item_id=%s AND usuario_id_anuncios=%s
             ''',(listingtype_id, price, title, status, has_discount, catalog_listing, condition, 
             logistic_type, domain_id, date_created, buy_box_winner, channel, brand_value_id, brand_value_name, thumbnail, current_level, diferred_stock, permalink, recomended, image_quality,item_id, user_id,))
+            if not campanhas_id_existentes:
+                cur.execute('INSERT INTO campanhas (campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,usuario_id_campanhas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (campanha_id) DO NOTHING',(campanha_id,name_campanha,status_campanha,strategy_campanha,budget_campanha,currency_id_campanha,last_updated_campanha,date_created_campanha,channel_campanha,acos_target_campanha,user_id,))
+                conn.commit()
+                cur.execute('UPDATE anuncios SET campanha_id = %s WHERE item_id = %s AND usuario_id_anuncios = %s', (campanha_id, item_id, user_id,))
             conn.commit()
+            else:
+                cur.execute("""
+                UPDATE campanhas
+                SET nome = %s,status = %s,strategy = %s,budget = %s,currency_id = %s,last_updated = %s,
+                    date_created = %s,channel = %s,acos_target = %s WHERE campanha_id = %s AND usuario_id_campanhas = %s
+                """, (
+                name,status,strategy,budget,currency_id,last_updated,date_created,channel,acos_target,campanha_id,user_id))
+        conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
@@ -3227,8 +3269,147 @@ scheduler.start()
 def pegar_anuncios_e_campanhas_diario():
     print('Entrou em campanhas e anuncios diarios')
     try:
-        url_metricas_anuncios_ontem='https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY'
-        
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT i.item_id as item_id, i.title as title,i.usuario_id_anuncios as user_id,a.acess_token as access_token, a.refresh_token as refresh_token,a.expiracao_token as expiracao_token FROM anuncios i JOIN contas_mercado_livre a ON i.usuario_id_itens=a.usuario_id")
+            rows_dict_anuncios=cur.fetchall()
+            cur.execute("SELECT c.campanha_id as campanha_id, c.usuario_id_campanhas as user_id, a.acess_token as access_token, a.refresh_token as refresh_token, a.expiracao_token as expiracao_token FROM campanhas c JOIN contas_mercado_livre a ON c.usuario_id_campanhas=a.usuario_id WHERE c.status=%s", 'active')
+            rows_dict_campanhas=cur.fetchall()
+        for i in rows_dict_anuncios:
+            now = datetime.utcnow()
+            item_id=i['item_id']
+            user_id=i['user_id']
+            title=i['title']
+            if i and i['expiracao_token'] and now > i['expiracao_token']:
+                app.logger.info("Token expirado, renovando...")
+                dados = renovar_access_token(i["refresh_token"])
+                access_token = dados["access_token"]
+                cur.execute("""
+                    UPDATE contas_mercado_livre
+                    SET acess_token=%s,
+                        refresh_token=%s,
+                        expiracao_token=%s
+                    WHERE usuario_id=%s
+                """, (dados["access_token"], dados["novo_refresh_token"],
+                    dados["nova_expiracao"], user_id))
+                conn.commit()
+            else:
+                access_token=i['access_token']
+            headers = {
+            "Authorization": f"Bearer {access_token}",
+            'api-version': '2',
+            }
+            final = datetime.now().date()
+            inicio = final - timedelta(days=1) 
+            url_metricas_anuncios_ontem=f'https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY'
+            response_summary = requests.get(url_metricas_anuncios_ontem, headers=headers)
+            if response_summary.status_code not in [200, 206]:
+                return response_summary.status_code
+            resumo_data = response_summary.json()
+
+            results_resumo = resumo_data.get('results', [])
+            for resumo in results_resumo:
+                clicks = resumo.get('clicks', 0)
+                prints = resumo.get('prints', 0)
+                cost = resumo.get('cost', 0.0)
+                cpc = resumo.get('cpc', 0.0)
+                direct_amount = resumo.get('direct_amount', 0.0)
+                indirect_amount = resumo.get('indirect_amount', 0.0)
+                total_amount = resumo.get('total_amount', 0.0)
+                direct_units_quantity = resumo.get('direct_units_quantity', 0)
+                indirect_units_quantity = resumo.get('indirect_units_quantity', 0)
+                units_quantity = resumo.get('units_quantity', 0)
+                direct_items_quantity = resumo.get('direct_items_quantity', 0)
+                indirect_items_quantity = resumo.get('indirect_items_quantity', 0)
+                advertising_items_quantity = resumo.get('advertising_items_quantity', 0)
+                organic_units_quantity = resumo.get('organic_units_quantity', 0)
+                organic_items_quantity = resumo.get('organic_items_quantity', 0)
+                acos = resumo.get('acos', 0.0)
+                organic_units_amount = resumo.get('organic_units_amount', 0.0)
+                sov = resumo.get('sov', 0.0)
+                ctr = resumo.get('ctr', 0.0)
+                cvr = resumo.get('cvr', 0.0)
+                roas = resumo.get('roas', 0.0)
+                date = resumo.get('date', 'N/A')    
+
+                cur.execute('''
+                INSERT INTO anuncios_metricas_diarias (id_anuncio, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, 
+                indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos,
+                organic_amount,sov, ctr, cvr, roas, date,title, usuario_id_anuncios_metricas_diarias) VALUES (%s,%s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s, %s, %s,%s, %s, %s, %s, %s,%s, %s, %s, %s, %s)
+                ''', (
+                item_id, item_id, clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity,
+                indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos, organic_units_amount,sov, ctr, cvr, roas, date, title, user_id,))
+            conn.commit()
+        for a in rows_dict_campanhas:
+            now=datetime.utcnow()
+            user_id=a['user_id']
+            if a['expiracao_token'] and now > a['expiracao_token']:
+                app.logger.info("Token expirado, renovando...")
+                dados = renovar_access_token(a["refresh_token"])
+                access_token = dados["access_token"]
+                cur.execute("""
+                    UPDATE contas_mercado_livre
+                    SET acess_token=%s,
+                        refresh_token=%s,
+                        expiracao_token=%s
+                    WHERE usuario_id=%s
+                """, (dados["access_token"], dados["novo_refresh_token"],
+                    dados["nova_expiracao"], user_id))
+                conn.commit()
+            else:
+                access_token=a['access_token']
+            headers = {
+            "Authorization": f"Bearer {access_token}",
+            'api-version': '2',
+            }
+            final = datetime.now().date()
+            inicio = final - timedelta(days=1) 
+            url_campanhas_diaria = f"""https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"""
+            response_campanhas_diaria = requests.get(url_campanhas_diaria, headers=headers)
+            if response_campanhas_diaria.status_code not in [200, 206]:
+                return response_campanhas_diaria.status_code
+            campanhas_diaria_data = response_campanhas_diaria.json() 
+            results_diaria = campanhas_diaria_data.get('results', [])
+            for result_diaria in results_diaria:
+                clicks = result_diaria.get('clicks', 0)
+                prints = result_diaria.get('prints', 0)
+                cost = result_diaria.get('cost', 0.0)
+                cpc = result_diaria.get('cpc', 0.0)
+                ctr = result_diaria.get('ctr', 0.0)
+                direct_amount = result_diaria.get('direct_amount', 0.0)
+                indirect_amount = result_diaria.get('indirect_amount', 0.0)
+                total_amount = result_diaria.get('total_amount', 0.0)
+                direct_units_quantity = result_diaria.get('direct_units_quantity', 0)
+                indirect_units_quantity = result_diaria.get('indirect_units_quantity', 0)
+                units_quantity = result_diaria.get('units_quantity', 0)
+                direct_items_quantity = result_diaria.get('direct_items_quantity', 0)
+                indirect_items_quantity = result_diaria.get('indirect_items_quantity', 0)
+                advertising_items_quantity = result_diaria.get('advertising_items_quantity', 0)
+                organic_units_quantity = result_diaria.get('organic_units_quantity', 0)
+                organic_units_amount = result_diaria.get('organic_units_amount', 0.0)
+                organic_items_quantity = result_diaria.get('organic_items_quantity', 0)
+                acos = result_diaria.get('acos', 0.0)
+                cvr = result_diaria.get('cvr', 0.0)
+                roas = result_diaria.get('roas', 0.0)
+                sov = result_diaria.get('sov', 0.0)
+                impression_share = result_diaria.get('impression_share', 0.0)
+                top_impression_share = result_diaria.get('top_impression_share', 0.0)
+                lost_impression_share_by_budget = result_diaria.get('lost_impression_share_by_budget', 0.0)
+                lost_impression_share_by_ad_rank = result_diaria.get('lost_impression_share_by_ad_rank', 0.0)
+                acos_benchmark = result_diaria.get('acos_benchmark', 0.0)
+                date = result_diaria.get('date', 'N/A')
+
+
+
+                cur.execute('''
+                INSERT INTO campanhas_metricas_diarias (campanha_id, clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,
+                total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity, indirect_items_quantity, advertising_items_quantity,
+                organic_units_quantity, organic_amount, organic_items_quantity, acos,cvr, roas, sov, impression_share, top_impression_share,
+                lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark,nome, date, usuario_id_campanhas_metricas_diarias)
+                VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s,%s)''', (
+                campanha_id, clicks, prints, cost, cpc, ctr, direct_amount, indirect_amount,total_amount, direct_units_quantity, indirect_units_quantity, units_quantity,
+                direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_units_amount, organic_items_quantity, acos,
+                cvr, roas, sov, impression_share, top_impression_share,lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, name,date, user_id,))
     except Exception as e:
         print('Erro: ', str(e))
 
@@ -4907,193 +5088,3 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
