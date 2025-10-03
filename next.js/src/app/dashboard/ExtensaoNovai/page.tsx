@@ -110,6 +110,44 @@ const ExtensaoNovaiPage: React.FC = () => {
           </button>
           {/* Título mostrando onde a pessoa está */}
           <h1 className="text-2xl font-bold">Novai Extensão</h1>
+          {/* CTA final */}
+          <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-600"
+              >
+                <Puzzle className="h-4 w-4 text-yellow-300" />
+                Novai-Extensão
+              </button>
+
+              {/* Aponta para /public/ml-ext.zip. Coloque seu arquivo lá. */}
+              <a
+                href="/ml-ext.zip"
+                download
+                className="flex items-center gap-2 rounded-lg bg-yellow-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:bg-yellow-400"
+              >
+                <Download className="h-4 w-4" />
+                Baixar extensão
+              </a>
+            </div>
+
+            {/* Guia rápido opcional (pode esconder se preferir explicar depois) */}
+            <details className="mt-4 rounded-md border border-zinc-700 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-zinc-200">
+                Como instalar localmente (Chrome/Edge)
+              </summary>
+              <div className="mt-3 space-y-2 text-sm text-zinc-400">
+                <p className="font-semibold text-zinc-300">Instalar local (modo desenvolvedor)</p>
+                <ol className="list-decimal space-y-1 pl-6">
+                  <li>Baixe e descompacte o arquivo <code>ml-ext.zip</code>.</li>
+                  <li>Abra <code>chrome://extensions</code> (ou <code>edge://extensions</code>).</li>
+                  <li>Ative <strong>Modo do desenvolvedor</strong>.</li>
+                  <li>Clique em <strong>Carregar sem compactação (Load unpacked)</strong> e selecione a pasta <code>ml-ext</code>.</li>
+                </ol>
+              </div>
+            </details>
+          </section>
           <div className="flex items-center space-x-4">
             <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
               <BarChart2 />
@@ -132,26 +170,6 @@ const ExtensaoNovaiPage: React.FC = () => {
               dos anuncios de concorrentes no Mercado Livre diretamente na página, oferecendo uma visão rápida e
               prática do desempenho desses anúncios. Ela mostra:
             </p>
-            <ul className="mt-4 list-disc space-y-1 pl-6 text-zinc-300">
-              <li>
-                <span className="font-semibold">Faturamento por mês</span> (estimativa).
-              </li>
-              <li>
-                <span className="font-semibold">Quantidade vendida por mês</span>.
-              </li>
-              <li>
-                <span className="font-semibold">Número de visualizações por mês</span>.
-              </li>
-              <li>
-                <span className="font-semibold">Visualizações totais</span>.
-              </li>
-              <li>
-                <span className="font-semibold">% de conversão</span> de visualização em venda.
-              </li>
-              <li>
-                <span className="font-semibold">Faturamento total</span> (estimativa).
-              </li>
-            </ul>
             <p className="mt-4 text-sm text-zinc-500">
               <strong>Importante:</strong> os valores de faturamento exibidos são{' '}
               <span className="font-semibold">estimativas</span> calculadas com base em dados
@@ -351,50 +369,7 @@ const ExtensaoNovaiPage: React.FC = () => {
             </p>
           </section>
 
-          {/* CTA final */}
-          <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
-            <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-              <button
-                type="button"
-                className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-600"
-              >
-                <Puzzle className="h-4 w-4 text-yellow-300" />
-                Novai-Extensão
-              </button>
 
-              {/* Aponta para /public/ml-ext.zip. Coloque seu arquivo lá. */}
-              <a
-                href="/ml-ext.zip"
-                download
-                className="flex items-center gap-2 rounded-lg bg-yellow-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:bg-yellow-400"
-              >
-                <Download className="h-4 w-4" />
-                Baixar extensão
-              </a>
-            </div>
-
-            {/* Guia rápido opcional (pode esconder se preferir explicar depois) */}
-            <details className="mt-4 rounded-md border border-zinc-700 p-4">
-              <summary className="cursor-pointer text-sm font-semibold text-zinc-200">
-                Como instalar localmente (Chrome/Edge) & publicar
-              </summary>
-              <div className="mt-3 space-y-2 text-sm text-zinc-400">
-                <p className="font-semibold text-zinc-300">Instalar local (modo desenvolvedor)</p>
-                <ol className="list-decimal space-y-1 pl-6">
-                  <li>Baixe e descompacte o arquivo <code>ml-ext.zip</code> (ou use a pasta <code>NOVAI/ml-ext</code>).</li>
-                  <li>Abra <code>chrome://extensions</code> (ou <code>edge://extensions</code>).</li>
-                  <li>Ative <strong>Modo do desenvolvedor</strong>.</li>
-                  <li>Clique em <strong>Carregar sem compactação (Load unpacked)</strong> e selecione a pasta <code>ml-ext</code>.</li>
-                </ol>
-                <p className="mt-3 font-semibold text-zinc-300">Publicar oficialmente</p>
-                <ol className="list-decimal space-y-1 pl-6">
-                  <li>Crie uma conta no painel de desenvolvedor da Chrome Web Store.</li>
-                  <li>Compacte a pasta da extensão em um <code>.zip</code> conforme as regras do manifesto.</li>
-                  <li>Envie, preencha as informações (nome, descrição, imagens) e aguarde a revisão.</li>
-                </ol>
-              </div>
-            </details>
-          </section>
         </div>
       </main>
     </div>
@@ -402,6 +377,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
