@@ -125,7 +125,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 
         <div className="-m-6 flex-1 space-y-6 overflow-y-auto p-6">
           {/* CTA final */}
-          <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
+          <section className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
             <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
               <button
                 type="button"
@@ -163,7 +163,7 @@ const ExtensaoNovaiPage: React.FC = () => {
             </details>
           </section>
           {/* Introdução */}
-          <section className="rounded-lg bg-transparent p-6 shadow-md">
+          <section className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
   <h2 className="mb-3 text-xl font-bold">Como funciona</h2>
   <p className="text-zinc-400">
     A <span className="font-semibold text-yellow-300">Extensão Novai</span> exibe métricas
@@ -186,7 +186,7 @@ const ExtensaoNovaiPage: React.FC = () => {
           {/* Cards de explicação com imagem/link placeholder */}
           <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Faturamento por mês */}
-            <article className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <article className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
               <div className="mb-2 flex items-center gap-3">
                 <BarChart2 className="text-yellow-300" />
                 <h3 className="text-lg font-semibold">Faturamento (por mês)</h3>
@@ -215,7 +215,7 @@ const ExtensaoNovaiPage: React.FC = () => {
             </article>
 
             {/* Quantidade vendida por mês */}
-            <article className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <article className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
               <div className="mb-2 flex items-center gap-3">
                 <ShoppingCart className="text-yellow-300" />
                 <h3 className="text-lg font-semibold">Quantidade vendida (por mês)</h3>
@@ -244,7 +244,7 @@ const ExtensaoNovaiPage: React.FC = () => {
             </article>
 
             {/* Visualizações por mês */}
-            <article className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <article className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
               <div className="mb-2 flex items-center gap-3">
                 <Share2 className="text-yellow-300" />
                 <h3 className="text-lg font-semibold">Visualizações (por mês)</h3>
@@ -273,7 +273,7 @@ const ExtensaoNovaiPage: React.FC = () => {
             </article>
 
             {/* Visualizações totais */}
-            <article className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <article className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
               <div className="mb-2 flex items-center gap-3">
                 <Share2 className="text-yellow-300" />
                 <h3 className="text-lg font-semibold">Visualizações totais</h3>
@@ -302,7 +302,7 @@ const ExtensaoNovaiPage: React.FC = () => {
             </article>
 
             {/* Conversão */}
-            <article className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <article className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
               <div className="mb-2 flex items-center gap-3">
                 <Percent className="text-yellow-300" />
                 <h3 className="text-lg font-semibold">% de conversão (view → venda)</h3>
@@ -331,7 +331,7 @@ const ExtensaoNovaiPage: React.FC = () => {
             </article>
 
             {/* Faturamento total */}
-            <article className="rounded-lg bg-zinc-800 p-6 shadow-md">
+            <article className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
               <div className="mb-2 flex items-center gap-3">
                 <TrendingUp className="text-yellow-300" />
                 <h3 className="text-lg font-semibold">Faturamento total (estimado)</h3>
@@ -361,7 +361,7 @@ const ExtensaoNovaiPage: React.FC = () => {
           </section>
 
           {/* Observação sobre Produtos de Catálogo */}
-          <section className="rounded-lg border border-yellow-300/40 bg-zinc-800 p-6 shadow-md">
+          <section className="rounded-lg bg-transparent border border-yellow-300/40 p-6 shadow-lg shadow-black/40">
             <h3 className="mb-2 text-lg font-semibold text-yellow-300">Observação importante</h3>
             <p className="text-zinc-300">
               Alguns anúncios do Mercado Livre são <span className="font-semibold">Produtos de Catálogo</span>.
@@ -382,6 +382,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
