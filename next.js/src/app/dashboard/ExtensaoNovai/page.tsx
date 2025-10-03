@@ -110,6 +110,20 @@ const ExtensaoNovaiPage: React.FC = () => {
           </button>
           {/* Título mostrando onde a pessoa está */}
           <h1 className="text-2xl font-bold">Novai Extensão</h1>
+          <div className="flex items-center space-x-4">
+            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
+              <BarChart2 />
+            </button>
+            <Link href="/Manager" className="rounded-full p-2 transition-colors hover:bg-zinc-800" aria-label="Manager">
+              <MessageSquare />
+            </Link>
+            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
+              <Bell />
+            </button>
+          </div>
+        </div>
+
+        <div className="-m-6 flex-1 space-y-6 overflow-y-auto p-6">
           {/* CTA final */}
           <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
             <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -148,35 +162,26 @@ const ExtensaoNovaiPage: React.FC = () => {
               </div>
             </details>
           </section>
-          <div className="flex items-center space-x-4">
-            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
-              <BarChart2 />
-            </button>
-            <Link href="/Manager" className="rounded-full p-2 transition-colors hover:bg-zinc-800" aria-label="Manager">
-              <MessageSquare />
-            </Link>
-            <button className="rounded-full p-2 transition-colors hover:bg-zinc-800">
-              <Bell />
-            </button>
-          </div>
-        </div>
-
-        <div className="-m-6 flex-1 space-y-6 overflow-y-auto p-6">
           {/* Introdução */}
-          <section className="rounded-lg bg-zinc-800 p-6 shadow-md">
-            <h2 className="mb-3 text-xl font-bold">Como funciona</h2>
-            <p className="text-zinc-400">
-              A <span className="font-semibold text-yellow-300">Extensão Novai</span> exibe métricas
-              dos anuncios de concorrentes no Mercado Livre diretamente na página, oferecendo uma visão rápida e
-              prática do desempenho desses anúncios. Ela mostra:
-            </p>
-            <p className="mt-4 text-sm text-zinc-500">
-              <strong>Importante:</strong> os valores de faturamento exibidos são{' '}
-              <span className="font-semibold">estimativas</span> calculadas com base em dados
-              obtidos do próprio Mercado Livre (como preço e quantidade vendida), podendo variar de
-              acordo com promoções, fretes, descontos e outras condições da plataforma.
-            </p>
-          </section>
+          <section className="rounded-lg bg-transparent p-6 shadow-md">
+  <h2 className="mb-3 text-xl font-bold">Como funciona</h2>
+  <p className="text-zinc-400">
+    A <span className="font-semibold text-yellow-300">Extensão Novai</span> exibe métricas
+    dos anúncios de concorrentes no Mercado Livre diretamente na página, oferecendo uma visão rápida e
+    prática do desempenho desses anúncios. Ela mostra:
+  </p>
+
+  <p className="mt-4 text-sm text-zinc-500">
+    <strong className="text-red-400 bg-red-950/40 px-2 py-0.5 rounded">
+      Importante:
+    </strong>{' '}
+    os valores de faturamento exibidos são{' '}
+    <span className="font-semibold">estimativas</span> calculadas com base em dados
+    obtidos do próprio Mercado Livre (como preço e quantidade vendida), podendo variar de
+    acordo com promoções, fretes, descontos e outras condições da plataforma.
+  </p>
+</section>
+
 
           {/* Cards de explicação com imagem/link placeholder */}
           <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -377,6 +382,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
