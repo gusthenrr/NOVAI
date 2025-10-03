@@ -923,9 +923,6 @@ def orders_notifications(resource,acess_token, data_ant):
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(order_data), 'dados_novos',data_ant,))
         conn.commit()
         print("Dados do pedido inseridos ou atualizados com sucesso.")
-        now_=datetime.now().date()
-        if date_created.date()>=now_:
-            get_dados_gerais()
     except Exception as e:
         print("Erro ao processar pedido:", str(e))
         return jsonify({"error": str(e)}), 500
@@ -5102,6 +5099,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
