@@ -137,7 +137,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 
               {/* Aponta para /public/ml-ext.zip. Coloque seu arquivo lá. */}
               <a
-                href="/ml-ext.zip"
+                href="/nova_extension.zip"
                 download
                 className="flex items-center gap-2 rounded-lg bg-yellow-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:bg-yellow-400"
               >
@@ -382,6 +382,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
