@@ -379,23 +379,31 @@ const DashboardPage: React.FC = () => {
         </div>
 
         <nav>
-          <ul>
+           <ul>
             {[
-              { icon: Home, label: 'Início'},
-              { icon: BarChart2, label: 'Anúncios Métricas', link:'/dashboard/AnalyticsAnuncios'},
-              { icon: Tag, label: 'Promoções', link:'/dashboard/Promotion'},
-              { icon: MessageSquareWarning, label: 'Reclamações', link:'/dashboard/claims'},
-              { icon: MessageSquare, label: 'Assistente Novai', link:'/Manager'},
-              { icon: Puzzle, label: 'Novai Extensão', link:'/dashboard/ExtensaoNovai'},
-              { icon: Settings, label:'Configurações', link:'/dashboard/config'}
-            ].map(item => (
-              <li key={item.label} className="mb-2">
-                <a href={item.link} className="flex items-center rounded-lg p-3 transition-colors hover:bg-zinc-700">
-                  <item.icon className={`mr-3 ${item.label === 'Início' ? 'text-yellow-300' : 'text-zinc-400'}`} />
-                  {item.label}
-                </a>
-              </li>
-            ))}
+              { icon: Home, label: 'Início', link:'/dashboard/inicio'},
+              { icon: BarChart2, label: 'Anúncios Métricas', link: '/dashboard/AnalyticsAnuncios' },
+              { icon: Tag, label: 'Promoções', link: '/dashboard/Promotion' },
+              { icon: MessageSquareWarning, label: 'Reclamações', link: '/dashboard/claims' },
+              { icon: MessageSquare, label: 'Assistente Novai', link: '/Manager' },
+              { icon: Puzzle, label: 'Novai Extensão', link: '/dashboard/ExtensaoNovai' },
+              { icon: Settings, label: 'Configurações', link: '/dashboard/config' },
+            ].map((item) => {
+              const active = pathname?.startsWith(item.link);
+              return (
+                <li key={item.label} className="mb-2">
+                  <a
+                    href={item.link}
+                    className={`flex items-center rounded-lg p-3 transition-colors ${
+                      active ? 'bg-zinc-700/50' : 'hover:bg-zinc-700'
+                    }`}
+                  >
+                    <item.icon className={`mr-3 ${active ? 'text-yellow-400' : 'text-zinc-400'}`} />
+                    <span className={active ? 'text-yellow-200 font-medium' : ''}>{item.label}</span>
+                  </a>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       </aside>
