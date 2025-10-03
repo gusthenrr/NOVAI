@@ -35,6 +35,7 @@ type DashboardMetrics = {
 
 const ExtensaoNovaiPage: React.FC = () => {
   const { token } = useUser();
+  const pathname = usePathname();
   const [metrics, setMetrics] = useState<DashboardMetrics>({ nickname: null, email: null });
 
   // Opcional: resgatar nome/email do localStorage (igual ao dashboard),
@@ -384,6 +385,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
