@@ -127,40 +127,24 @@ const ExtensaoNovaiPage: React.FC = () => {
           {/* CTA final */}
           <section className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
             <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-              <button
-                type="button"
+              <div
                 className="flex items-center gap-2 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:bg-zinc-600"
               >
                 <Puzzle className="h-4 w-4 text-yellow-300" />
                 Novai-Extensão
-              </button>
+              </div>
 
               {/* Aponta para /public/ml-ext.zip. Coloque seu arquivo lá. */}
               <a
-                href="/nova_extension.zip"
-                download
+                href="https://chromewebstore.google.com/detail/ml-dom-tweaks/jpealehclhneipfmmmjedklohciigpkl?authuser=0&hl=pt-BR"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex items-center gap-2 rounded-lg bg-yellow-300 px-4 py-2 text-sm font-semibold text-zinc-900 transition-colors hover:bg-yellow-400"
               >
                 <Download className="h-4 w-4" />
                 Baixar extensão
               </a>
             </div>
-
-            {/* Guia rápido opcional (pode esconder se preferir explicar depois) */}
-            <details className="mt-4 rounded-md border border-zinc-700 p-4">
-              <summary className="cursor-pointer text-sm font-semibold text-zinc-200">
-                Como instalar localmente (Chrome/Edge)
-              </summary>
-              <div className="mt-3 space-y-2 text-sm text-zinc-400">
-                <p className="font-semibold text-zinc-300">Instalar local (modo desenvolvedor)</p>
-                <ol className="list-decimal space-y-1 pl-6">
-                  <li>Baixe e descompacte o arquivo <code>ml-ext.zip</code>.</li>
-                  <li>Abra <code>chrome://extensions</code> (ou <code>edge://extensions</code>).</li>
-                  <li>Ative <strong>Modo do desenvolvedor</strong>.</li>
-                  <li>Clique em <strong>Carregar sem compactação (Load unpacked)</strong> e selecione a pasta <code>ml-ext</code>.</li>
-                </ol>
-              </div>
-            </details>
           </section>
           {/* Introdução */}
           <section className="rounded-lg bg-transparent border border-zinc-700/40 p-6 shadow-lg shadow-black/40">
@@ -382,6 +366,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
