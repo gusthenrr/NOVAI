@@ -3966,6 +3966,285 @@ def atualizar_dados(data):
         emit('atualizar_dados', {'error': 'Erro interno'})
 
 
+
+ALLOWED_ORDER = {"default", "updated_desc", "due_date_asc"}
+ALLOWED_STATUS = {"opened", "closed", "pendent-novai"}
+
+def _parse_auth_or_400() -> int:
+    """Extrai e valida o token do header Authorization e retorna user_id (sub)."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise ValueError("Cabeçalho Authorization ausente")
+
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+    try:
+        decoded = decode_token(token)
+    except ExpiredSignatureError:
+        # Propague como ValueError para ser tratado no endpoint
+        raise ValueError("Token expirado")
+    except InvalidTokenError:
+        raise ValueError("Token inválido")
+    except Exception as exc:
+        raise ValueError(f"Falha ao decodificar token: {exc}")
+
+    user_id = decoded.get("sub") if decoded else None
+    if not user_id:
+        raise ValueError("Usuário não encontrado no token (sub ausente)")
+    return int(user_id)
+
+
+def _get_seller_id_ml(user_id: int) -> Optional[int]:
+    """
+    Busca o id_ml mais recente da conta Mercado Livre do usuário.
+    Se não existir, retorna None.
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id_ml
+                    FROM contas_mercado_livre
+                    WHERE usuario_id = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                # row pode ser RealDictRow ou tupla; trate ambos:
+                return row["id_ml"] if isinstance(row, dict) else row[0]
+    except Exception:
+        # Não derrube a requisição se essa consulta falhar; apenas não filtra por vendedor_id
+        return None
+
+
+def _serialize_claim(row: Dict[str, Any]) -> Dict[str, Any]:
+    d = dict(row)
+    for k in ("date_created", "last_updated", "due_date", "date_resolution"):
+        if d.get(k) is not None:
+            d[k] = d[k].isoformat()
+    return d
+
+
+def _status_order_case() -> str:
+    # Prioridade: opened (0) < pendent-novai (1) < closed (2) < demais (3)
+    return (
+        "CASE "
+        "WHEN status = 'opened' THEN 0 "
+        "WHEN status = 'pendent-novai' THEN 1 "
+        "WHEN status = 'closed' THEN 2 "
+        "ELSE 3 END"
+    )
+
+
+def _safe_int(param: str, default: int, minv: int, maxv: int) -> int:
+    try:
+        v = int(request.args.get(param, default))
+        return max(minv, min(maxv, v))
+    except Exception:
+        return default
+
+@app.route("/claims", methods=["GET"])
+def list_claims():
+    # 1) Autenticação
+    try:
+        user_id = _parse_auth_or_400()
+    except ValueError as e:
+        # mensagens iguais ao seu padrão
+        msg = str(e)
+        if "ausente" in msg:
+            return jsonify({"error": msg}), 401
+        if "expirado" in msg:
+            return jsonify({"error": msg}), 401
+        if "inválido" in msg:
+            return jsonify({"error": msg}), 401
+        return jsonify({"error": msg}), 400
+
+    # 2) Parâmetros
+    status = request.args.get("status")
+    if status and status not in ALLOWED_STATUS:
+        return jsonify({"error": f"status inválido. Use um de {sorted(ALLOWED_STATUS)}"}), 400
+
+    q = (request.args.get("q") or "").strip()
+    page = _safe_int("page", default=1, minv=1, maxv=10_000)
+    limit = _safe_int("limit", default=50, minv=1, maxv=200)
+    offset = (page - 1) * limit
+
+    order = request.args.get("order", "default")
+    if order not in ALLOWED_ORDER:
+        order = "default"
+
+    # 3) Filtro de segurança (usuario_id OU vendedor_id)
+    seller_id_ml = _get_seller_id_ml(user_id)
+    # construímos (usuario_id_reclamacoes = %s OR vendedor_id = %s) quando tivermos ambos
+    sec_filter, sec_params = [], []
+    if seller_id_ml is not None:
+        sec_filter.append("(usuario_id_reclamacoes = %s OR vendedor_id = %s)")
+        sec_params.extend([user_id, seller_id_ml])
+    else:
+        sec_filter.append("usuario_id_reclamacoes = %s")
+        sec_params.append(user_id)
+
+    # 4) Where dinâmico
+    where, params = [], []
+    where.extend(sec_filter)
+    params.extend(sec_params)
+
+    if status:
+        where.append("status = %s")
+        params.append(status)
+
+    if q:
+        # Se você tiver EXTENSION unaccent, pode trocar para unaccent(title) ILIKE unaccent(%s)
+        where.append(
+            "("
+            "title ILIKE %s OR "
+            "problem ILIKE %s OR "
+            "description ILIKE %s OR "
+            "name_reason ILIKE %s"
+            ")"
+        )
+        like = f"%{q}%"
+        params.extend([like, like, like, like])
+
+    where_sql = " WHERE " + " AND ".join(where)
+
+    # 5) Ordenação
+    if order == "updated_desc":
+        order_sql = " ORDER BY last_updated DESC NULLS LAST"
+    elif order == "due_date_asc":
+        order_sql = " ORDER BY due_date ASC NULLS LAST"
+    else:
+        order_sql = f" ORDER BY {_status_order_case()}, due_date ASC NULLS LAST, last_updated DESC NULLS LAST"
+
+    sql = (
+        "SELECT * FROM reclamacoes"
+        f"{where_sql}"
+        f"{order_sql}"
+        " LIMIT %s OFFSET %s"
+    )
+    params_all = params + [limit, offset]
+
+    count_sql = "SELECT COUNT(*) AS total FROM reclamacoes" + where_sql
+
+    # 6) Execução
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(count_sql, params)
+                total = cur.fetchone()["total"]
+
+                cur.execute(sql, params_all)
+                rows = cur.fetchall() or []
+    except Exception as exc:
+        return jsonify({"error": f"Erro ao consultar banco de dados: {exc}"}), 500
+
+    claims = [_serialize_claim(r) for r in rows]
+
+    resp = jsonify({"claims": claims, "page": page, "limit": limit, "total": total})
+    # Útil pro front paginar sem parsear JSON
+    resp.headers["X-Total-Count"] = str(total)
+    return resp
+
+@app.route("/claims/counters", methods=["GET"])
+def claim_counters():
+    try:
+        user_id = _parse_auth_or_400()
+    except ValueError as e:
+        msg = str(e)
+        if "ausente" in msg:
+            return jsonify({"error": msg}), 401
+        if "expirado" in msg:
+            return jsonify({"error": msg}), 401
+        if "inválido" in msg:
+            return jsonify({"error": msg}), 401
+        return jsonify({"error": msg}), 400
+
+    seller_id_ml = _get_seller_id_ml(user_id)
+
+    where = []
+    params: List[Any] = []
+
+    if seller_id_ml is not None:
+        where.append("(usuario_id_reclamacoes = %s OR vendedor_id = %s)")
+        params.extend([user_id, seller_id_ml])
+    else:
+        where.append("usuario_id_reclamacoes = %s")
+        params.append(user_id)
+
+    where_sql = " WHERE " + " AND ".join(where)
+
+    sql = (
+        "SELECT "
+        "  COUNT(*) FILTER (WHERE status = 'opened') AS opened, "
+        "  COUNT(*) FILTER (WHERE status = 'closed') AS closed, "
+        "  COUNT(*) FILTER (WHERE status = 'pendent-novai') AS pendent_novai, "
+        "  COUNT(*) AS total "
+        "FROM reclamacoes"
+        f"{where_sql}"
+    )
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone() or {"opened": 0, "closed": 0, "pendent_novai": 0, "total": 0}
+    except Exception as exc:
+        return jsonify({"error": f"Erro ao consultar banco de dados: {exc}"}), 500
+
+    return jsonify({
+        "opened": row.get("opened", 0) or 0,
+        "closed": row.get("closed", 0) or 0,
+        "pendent_novai": row.get("pendent_novai", 0) or 0,
+        "total": row.get("total", 0) or 0
+    })
+
+@app.route("/claims/<int:claim_id>", methods=["GET"])
+def claim_detail(claim_id: int):
+    try:
+        user_id = _parse_auth_or_400()
+    except ValueError as e:
+        msg = str(e)
+        if "ausente" in msg:
+            return jsonify({"error": msg}), 401
+        if "expirado" in msg:
+            return jsonify({"error": msg}), 401
+        if "inválido" in msg:
+            return jsonify({"error": msg}), 401
+        return jsonify({"error": msg}), 400
+
+    seller_id_ml = _get_seller_id_ml(user_id)
+
+    where = ["claim_id = %s"]
+    params: List[Any] = [claim_id]
+
+    if seller_id_ml is not None:
+        where.append("(usuario_id_reclamacoes = %s OR vendedor_id = %s)")
+        params.extend([user_id, seller_id_ml])
+    else:
+        where.append("usuario_id_reclamacoes = %s")
+        params.append(user_id)
+
+    where_sql = " WHERE " + " AND ".join(where)
+    sql = "SELECT * FROM reclamacoes" + where_sql + " LIMIT 1"
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone()
+    except Exception as exc:
+        return jsonify({"error": f"Erro ao consultar banco de dados: {exc}"}), 500
+
+    if not row:
+        return jsonify({"error": "claim_not_found"}), 404
+
+    return jsonify({"claim": _serialize_claim(row)})
+
+
 @app.route('/get_dados_gerais', methods=['GET'])
 def get_dados_gerais():
     auth_header = request.headers.get("Authorization")
@@ -5096,6 +5375,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
