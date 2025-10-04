@@ -86,7 +86,7 @@ const ExtensaoNovaiPage: React.FC = () => {
               { icon: Puzzle, label: 'Novai Extensão', link: '/dashboard/ExtensaoNovai' },
               { icon: Settings, label: 'Configurações', link: '/dashboard/config' },
             ].map((item) => {
-              const active = pathname?.startsWith(item.link);
+              const active = item?.link ? false : true;
               return (
                 <li key={item.label} className="mb-2">
                   <a
@@ -382,6 +382,7 @@ const ExtensaoNovaiPage: React.FC = () => {
 };
 
 export default ExtensaoNovaiPage;
+
 
 
 
