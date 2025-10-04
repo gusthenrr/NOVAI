@@ -410,12 +410,12 @@ export default function App(): JSX.Element {
   const chatHistoryRef = useRef<ChatHistory[]>([]);
 
   // Novos estados para controlar a abertura/fechamento dos painéis
-  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(false);
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isLeftPanelPinned, setIsLeftPanelPinned] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [isRightPanelPinned, setIsRightPanelPinned] = useState(false);
 
-  const [isHoveringLeft, setIsHoveringLeft] = useState(true);
+  const [isHoveringLeft, setIsHoveringLeft] = useState(false);
   const [isHoveringRight, setIsHoveringRight] = useState(false);
   const [token, setToken] = useState('');
   const [activeConversaId, setActiveConversaId] = useState<string>('');
@@ -1308,6 +1308,7 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
 
