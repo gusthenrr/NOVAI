@@ -242,13 +242,13 @@ const DashboardPromotionPage: React.FC = () => {
             {[
               { icon: Home, label: 'Início', link: '/dashboard/inicio' },
               { icon: BarChart2, label: 'Anúncios Métricas', link: '/dashboard/AnalyticsAnuncios' },
-              { icon: Tag, label: 'Promoções', link: '/dashboard/Promotion' },
+              { icon: Tag, label: 'Promoções',},
               { icon: MessageSquareWarning, label: 'Reclamações', link: '/dashboard/claims' },
               { icon: MessageSquare, label: 'Assistente Novai', link: '/Manager' },
               { icon: Puzzle, label: 'Novai Extensão', link: '/dashboard/ExtensaoNovai' },
               { icon: Settings, label: 'Configurações', link: '/dashboard/config' },
             ].map((item) => {
-              const active = pathname?.startsWith(item.link);
+              const active = item?.link ? false : true;
               return (
                 <li key={item.label} className="mb-2">
                   <a
@@ -509,5 +509,6 @@ function Info({ label, value }: { label: string; value?: React.ReactNode }) {
     </div>
   );
 }
+
 
 
