@@ -15,6 +15,7 @@ import {
   Settings,
   Home,
   User,
+  Bell,
 } from 'lucide-react';
 import { useUser } from '../../../../userContext';
 
@@ -509,6 +510,7 @@ function Info({ label, value }: { label: string; value?: React.ReactNode }) {
     </div>
   );
 }
+
 
 
 
