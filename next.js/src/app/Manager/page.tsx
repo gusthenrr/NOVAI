@@ -415,7 +415,7 @@ export default function App(): JSX.Element {
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [isRightPanelPinned, setIsRightPanelPinned] = useState(false);
 
-  const [isHoveringLeft, setIsHoveringLeft] = useState(false);
+  const [isHoveringLeft, setIsHoveringLeft] = useState(true);
   const [isHoveringRight, setIsHoveringRight] = useState(false);
   const [token, setToken] = useState('');
   const [activeConversaId, setActiveConversaId] = useState<string>('');
@@ -856,7 +856,7 @@ const conversationList: ConversationListItem[] = useMemo(() => {
           <>
             <nav style={styles.nav}>
               <a href="#" style={{ ...styles.navItem, ...styles.navItemActive }}>Manager</a>
-              <a href="/dashboard" style={styles.navItem}>Dashboard</a>
+              <a href="/dashboard/inicio" style={styles.navItem}>Dashboard</a>
               <a href="#" style={styles.navItem}>Relatórios</a>
             </nav>
             <div style={styles.footer}>
@@ -1308,5 +1308,6 @@ inputField: {
     lineHeight: '1.5',
   }
 };
+
 
 
