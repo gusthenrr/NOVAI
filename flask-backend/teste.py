@@ -1245,7 +1245,6 @@ def fetch_messages_with_context(usuario_id: int) -> List[Dict[str, Any]]:
       AND m.type = %s
     ORDER BY m.pack_id, m.date_created;
     """
-    from your_project.db import get_db_connection  # ajuste
 
     rows: List[Dict[str, Any]] = []
     with get_db_connection() as conn, conn.cursor() as cur:
@@ -1426,7 +1425,6 @@ def train_openai_finetune(
 
 # ====== TESTE DE GERAÇÃO (OpenAI) ======
 def sample_random_item_and_order(usuario_id: int) -> Optional[Dict[str, Any]]:
-    from your_project.db import get_db_connection  # ajuste
     sql_item = """
     SELECT i.item_id, i.nome_item, i.categoria, i.preco, i.preco_original
     FROM itens i
@@ -5753,4 +5751,5 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
