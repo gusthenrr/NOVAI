@@ -36,7 +36,7 @@ from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
 from langchain.prompts.few_shot import FewShotPromptTemplate
 from langchain.prompts.prompt import PromptTemplate
-from typing import Optional, List, Any, Dict, Literal
+from typing import Optional, List, Any, Dict, Literal,Tuple
 
 DB_HOST = "localhost"
 DB_PORT = "5432"
@@ -5753,3 +5753,4 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
