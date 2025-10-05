@@ -12,6 +12,7 @@ import base64
 import os
 import re
 import random
+from collections import defaultdict
 from langchain_core.runnables import RunnableLambda
 import threading
 from flask_socketio import SocketIO,emit, join_room
@@ -5751,5 +5752,6 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
