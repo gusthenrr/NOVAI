@@ -10,6 +10,8 @@ from uuid import UUID
 import hashlib
 import base64
 import os
+import re
+import random
 from langchain_core.runnables import RunnableLambda
 import threading
 from flask_socketio import SocketIO,emit, join_room
@@ -953,11 +955,12 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
             print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         m = response.json()
-        id_ml=472633863
+        id_ml = data.get('user_id')
         conn= get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT usuario_id FROM contas_mercado_livre WHERE id_ml=%s",(id_ml,))
-        user_id = cur.fetchone()
+        user_id_dict = cur.fetchone()
+        user_id=user_id_dict['usuario_id']
         print('order_data:', m)
         cur.execute("UPDATE notification SET dados_retornados_api = %s WHERE notificacao = %s", (json.dumps(m),data_ant,))
         if isinstance(m.get('messages'), list):
@@ -987,7 +990,7 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
                 message_moderation = i.get('message_moderation', {})
                 status = message_moderation.get('status')
                 is_first_message = i.get('conversation_first_message', False)
-                cur.execute("SELECT message,item_id,date_created FROM messages WHERE usuario_id_messages=%s AND client_name=%s AND pack_id=%s",(user_id['usuario_id'],cliente_nome,pack_id,))
+                cur.execute("SELECT message,item_id,date_created FROM messages WHERE usuario_id_messages=%s AND client_name=%s AND pack_id=%s",(user_id,cliente_nome,pack_id,))
                 mensagem_existente = set()
                 data_envio_existente = set()
                 for row in cur.fetchall():
@@ -1019,7 +1022,7 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
                 print("data de envio:", data_envio)
                 read_existe = message_date.get('read', False)
                 read = True if read_existe else False
-            cur.execute('INSERT INTO messages (usuario_id_messages,client_name,message,date_created,author,type,read,pack_id,is_first_message, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(user_id['usuario_id'],cliente_nome,mensagem,data_envio,autor,tipo,read,pack_id,is_first_message, status))
+            cur.execute('INSERT INTO messages (usuario_id_messages,client_name,message,date_created,author,type,read,pack_id,is_first_message, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(user_id,cliente_nome,mensagem,data_envio,autor,tipo,read,pack_id,is_first_message, status))
             print("mensagem:", mensagem)
             print("data de envio:", data_envio)
             print("autor:", autor)
@@ -1167,6 +1170,379 @@ def itens_notifications(data,acess_token_data):
         if 'conn' in locals():
             conn.close()
 
+# ================== CÓDIGO PARA RESPOSTAS AUTOMÁTICAS COM CHATGPT ==================
+
+AUTHOR_CLIENT = "client"     # ajuste para "cliente" se for o caso
+AUTHOR_SELLER = "seller"     # ajuste para "vendedor" se for o caso
+MESSAGE_TYPE = "post_sale"   # filtramos só pós-venda
+
+SYSTEM_PROMPT = (
+    "Você é um atendente do(a) <LOJA>, cordial e objetivo, falando PT-BR.\n"
+    "Regras:\n"
+    "- Use somente os fatos do contexto; não invente prazos/políticas.\n"
+    "- Se faltar dado, peça educadamente as informações necessárias.\n"
+    "- 1–3 parágrafos curtos; emoji só se o cliente usar primeiro.\n"
+)
+
+# ====== UTIL: Anonimização simples (LGPD) ======
+PHONE = re.compile(r'\b\+?\d{10,15}\b')
+EMAIL = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+')
+
+def anonymize(text: Optional[str]) -> str:
+    s = text or ""
+    s = PHONE.sub("<PHONE>", s)
+    s = EMAIL.sub("<EMAIL>", s)
+    return s.strip()
+
+# ====== DB: BUSCA DAS MENSAGENS COM CONTEXTO ======
+def fetch_messages_with_context(usuario_id: int) -> List[Dict[str, Any]]:
+    """
+    Retorna linhas ordenadas por conversa (pack_id) e tempo, com join em pedido e item.
+    """
+    sql = """
+    SELECT
+        m.pack_id,
+        m.client_name,
+        m.message,
+        m.date_created,
+        m.author,
+        m.type,
+        m.read,
+        m.is_first_message,
+        m.usuario_id_messages,
+        m.item_id AS msg_item_id,
+
+        -- Pedido relacionado ao pack
+        p.id_order,
+        p.status            AS pedido_status,
+        p.date_created      AS pedido_date_created,
+        p.last_updated      AS pedido_last_updated,
+        p.paid_amount,
+        p.total_amount,
+        p.shipping_cost,
+        p.quantity,
+        p.nome_item         AS pedido_nome_item,
+        p.item_id           AS pedido_item_id,
+        p.category_name,
+        p.pack_id           AS pedido_pack_id,
+
+        -- Item detalhado (preferir item_id da mensagem; senão, do pedido)
+        i.nome_item         AS item_nome,
+        i.preco             AS item_preco,
+        i.preco_original    AS item_preco_original,
+        i.preco_base        AS item_preco_base,
+        i.disponivel        AS item_disponivel,
+        i.categoria         AS item_categoria,
+        i.status            AS item_status
+    FROM messages m
+    LEFT JOIN pedidos_resumo p
+           ON p.pack_id = m.pack_id
+          AND p.usuario_id_pedidos_resumo = m.usuario_id_messages
+    LEFT JOIN itens i
+           ON i.item_id = COALESCE(m.item_id, p.item_id)
+          AND i.usuario_id_item = m.usuario_id_messages
+    WHERE m.usuario_id_messages = %s
+      AND m.type = %s
+    ORDER BY m.pack_id, m.date_created;
+    """
+    from your_project.db import get_db_connection  # ajuste
+
+    rows: List[Dict[str, Any]] = []
+    with get_db_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (usuario_id, MESSAGE_TYPE))
+        for r in cur.fetchall():
+            rows.append(dict(r))
+    return rows
+
+def compact_context(row: Dict[str, Any]) -> str:
+    blocos = []
+    if row.get("id_order") or row.get("pedido_status"):
+        linhas = []
+        if row.get("id_order"): linhas.append(f"Pedido: {row['id_order']}")
+        if row.get("pedido_status"): linhas.append(f"Status: {row['pedido_status']}")
+        if row.get("paid_amount") is not None and row.get("total_amount") is not None:
+            linhas.append(f"Pago/Total: {row['paid_amount']}/{row['total_amount']}")
+        if row.get("shipping_cost") is not None:
+            linhas.append(f"Frete: {row['shipping_cost']}")
+        if row.get("quantity") is not None:
+            linhas.append(f"Quantidade: {row['quantity']}")
+        if linhas: blocos.append(" | ".join(linhas))
+    if row.get("item_nome") or row.get("pedido_nome_item"):
+        nome_item = row.get("item_nome") or row.get("pedido_nome_item")
+        linhas = [f"Item: {nome_item}"]
+        if row.get("item_preco") is not None: linhas.append(f"Preço atual: {row['item_preco']}")
+        if row.get("item_preco_original") is not None: linhas.append(f"Preço original: {row['item_preco_original']}")
+        if row.get("item_categoria"): linhas.append(f"Categoria: {row['item_categoria']}")
+        blocos.append(" | ".join(linhas))
+    return "\n".join(blocos) if blocos else "Sem contexto adicional."
+
+def build_sft_examples(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Agrega blocos 1..N mensagens do cliente seguidas da PRIMEIRA resposta do vendedor.
+    Cria 1 exemplo por pareamento, no formato de chat (messages[]).
+    """
+    by_pack: Dict[Any, List[Dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        by_pack[r["pack_id"]].append(r)
+
+    examples: List[Dict[str, Any]] = []
+    for pack_id, msgs in by_pack.items():
+        buffer_cliente: List[str] = []
+        contexto_pack: Optional[str] = None
+
+        for row in msgs:
+            if contexto_pack is None:
+                contexto_pack = compact_context(row)
+
+            author = (row.get("author") or "").lower()
+            if author == AUTHOR_CLIENT:
+                buffer_cliente.append(anonymize(row.get("message")))
+            elif author == AUTHOR_SELLER:
+                if buffer_cliente:
+                    user_content = (
+                        f"[CONTEXT]\n{contexto_pack or 'Sem contexto adicional.'}\n\n"
+                        f"[MENSAGEM_CLIENTE]\n" + "\n---\n".join(buffer_cliente)
+                    )
+                    assistant_content = anonymize(row.get("message"))
+                    ex = {
+                        "messages": [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": user_content},
+                            {"role": "assistant", "content": assistant_content},
+                        ],
+                        "metadata": {
+                            "pack_id": pack_id,
+                            "id_order": row.get("id_order"),
+                            "msg_item_id": row.get("msg_item_id"),
+                        }
+                    }
+                    examples.append(ex)
+                    buffer_cliente = []
+            else:
+                pass
+    return examples
+
+def split_and_save_jsonl(examples: List[Dict[str, Any]], out_dir: str, seed: int = 42) -> Tuple[str, str, str]:
+    import os
+    os.makedirs(out_dir, exist_ok=True)
+    random.Random(seed).shuffle(examples)
+
+    packs = defaultdict(list)
+    for ex in examples:
+        packs[ex["metadata"]["pack_id"]].append(ex)
+    pack_ids = list(packs.keys())
+    random.Random(seed).shuffle(pack_ids)
+
+    n = len(pack_ids)
+    n_train = int(0.8 * n)
+    n_val = int(0.1 * n)
+    train_ids = set(pack_ids[:n_train])
+    val_ids = set(pack_ids[n_train:n_train + n_val])
+
+    splits = {"train": [], "val": [], "test": []}
+    for pid, items in packs.items():
+        if pid in train_ids: splits["train"].extend(items)
+        elif pid in val_ids: splits["val"].extend(items)
+        else: splits["test"].extend(items)
+
+    paths = {}
+    for split, data in splits.items():
+        path = os.path.join(out_dir, f"{split}.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            for ex in data:
+                f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+        paths[split] = path
+    return paths["train"], paths["val"], paths["test"]
+
+# ====== FINE-TUNING (OpenAI) ======
+def _upload_jsonl_to_openai(client, path: str) -> str:
+    """
+    Faz upload do arquivo JSONL e retorna o file_id.
+    Usa Files/Uploads API (qualquer uma serve para obter file_id).
+    """
+    # Opção A (Files API clássica)
+    try:
+        with open(path, "rb") as f:
+            file_obj = client.files.create(file=f, purpose="fine-tune")
+        return file_obj.id
+    except Exception:
+        # Opção B (Uploads API nova)
+        up = client.uploads.create(
+            purpose="fine-tune",
+            file={"path": path}
+        )
+        # Espera o processamento de upload concluir e pegar o file_id final
+        while up.status in ("pending", "processing"):
+            time.sleep(2)
+            up = client.uploads.retrieve(up.id)
+        if up.status != "completed" or not up.file:
+            raise RuntimeError(f"Falha no upload de {path}: status={up.status}")
+        return up.file.id
+
+def train_openai_finetune(
+    data_dir: str,
+    base_model: str = "gpt-4.1-mini",  # recomendado p/ custo/latência
+    n_epochs: int = 2,
+    suffix: Optional[str] = None,
+    metadata: Optional[Dict[str, str]] = None,
+) -> str:
+    """
+    Cria um job de fine-tuning na OpenAI e retorna o nome do modelo fine-tunado.
+    """
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    train_file_id = _upload_jsonl_to_openai(client, os.path.join(data_dir, "train.jsonl"))
+    val_file_path = os.path.join(data_dir, "val.jsonl")
+    val_file_id = _upload_jsonl_to_openai(client, val_file_path) if os.path.exists(val_file_path) else None
+
+    # Hiperparâmetros simples (auto batching é comum). Campos suportados podem evoluir no tempo.
+    hyper = {"n_epochs": n_epochs}
+
+    job = client.fine_tuning.jobs.create(
+        model=base_model,
+        training_file=train_file_id,
+        validation_file=val_file_id,
+        hyperparameters=hyper,
+        suffix=suffix or "novai-ft",
+        metadata=metadata or {}
+    )
+
+    # Polling básico até concluir
+    jid = job.id
+    status = job.status
+    while status in ("validating_files", "queued", "running"):
+        time.sleep(10)
+        job = client.fine_tuning.jobs.retrieve(jid)
+        status = job.status
+
+    if status != "succeeded":
+        raise RuntimeError(f"Fine-tuning falhou: status={status}, job_id={jid}")
+
+    ft_model = job.fine_tuned_model
+    if not ft_model:
+        raise RuntimeError("Job finalizado sem 'fine_tuned_model'.")
+    return ft_model
+
+# ====== TESTE DE GERAÇÃO (OpenAI) ======
+def sample_random_item_and_order(usuario_id: int) -> Optional[Dict[str, Any]]:
+    from your_project.db import get_db_connection  # ajuste
+    sql_item = """
+    SELECT i.item_id, i.nome_item, i.categoria, i.preco, i.preco_original
+    FROM itens i
+    WHERE i.usuario_id_item = %s
+    ORDER BY random()
+    LIMIT 1;
+    """
+    sql_order = """
+    SELECT p.id_order, p.pack_id, p.status, p.total_amount, p.paid_amount
+    FROM pedidos_resumo p
+    WHERE p.usuario_id_pedidos_resumo = %s
+      AND p.item_id = %s
+    ORDER BY random()
+    LIMIT 1;
+    """
+    with get_db_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql_item, (usuario_id,))
+        item = cur.fetchone()
+        if not item:
+            return None
+        item = dict(item)
+        cur.execute(sql_order, (usuario_id, item["item_id"]))
+        order = cur.fetchone()
+        order = dict(order) if order else {}
+    return {"item": item, "order": order}
+
+def synth_customer_message(sample: Dict[str, Any]) -> str:
+    nome_item = sample["item"].get("nome_item") or "<item>"
+    id_order = sample["order"].get("id_order")
+    templates = [
+        f"Oi, tudo bem? Comprei o {nome_item} e ele chegou com um defeito. Como faço a troca? Pedido {id_order}.",
+        f"Olá! Meu {nome_item} ainda não chegou. Consegue verificar o status, por favor? Pedido {id_order}.",
+        f"Boa tarde! Recebi o {nome_item}, mas veio faltando uma peça. Como podemos resolver? Pedido {id_order}.",
+        f"Oi, o {nome_item} está diferente do anúncio. Posso devolver? Pedido {id_order}."
+    ]
+    return random.choice(templates)
+
+def build_context_from_sample(sample: Dict[str, Any]) -> str:
+    blocos = []
+    item = sample.get("item") or {}
+    order = sample.get("order") or {}
+    if order:
+        linhas = [f"Pedido: {order.get('id_order')}", f"Status: {order.get('status')}"]
+        if order.get("paid_amount") is not None and order.get("total_amount") is not None:
+            linhas.append(f"Pago/Total: {order['paid_amount']}/{order['total_amount']}")
+        blocos.append(" | ".join([s for s in linhas if s and s != "None"]))
+    if item:
+        linhas = [f"Item: {item.get('nome_item')}"]
+        if item.get("preco") is not None: linhas.append(f"Preço atual: {item['preco']}")
+        if item.get("preco_original") is not None: linhas.append(f"Preço original: {item['preco_original']}")
+        if item.get("categoria"): linhas.append(f"Categoria: {item['categoria']}")
+        blocos.append(" | ".join([s for s in linhas if s and s != "None"]))
+    return "\n".join(blocos) if blocos else "Sem contexto adicional."
+
+def test_model_generation_openai(
+    usuario_id: int,
+    model_id: str,  # pode ser o ft_model retornado acima
+    temperature: float = 0.3,
+    top_p: float = 0.9,
+    max_tokens: int = 256
+) -> Optional[str]:
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    sample = sample_random_item_and_order(usuario_id)
+    if not sample:
+        print("[WARN] Não foi possível amostrar item/pedido para teste.")
+        return None
+
+    user_text = f"[CONTEXT]\n{build_context_from_sample(sample)}\n\n[MENSAGEM_CLIENTE]\n{synth_customer_message(sample)}"
+    msgs = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_text},
+    ]
+    # Chat Completions com o modelo FT
+    resp = client.chat.completions.create(
+        model=model_id,
+        messages=msgs,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+# ====== ORQUESTRADOR ======
+def run_pipeline_openai(usuario_id: int, data_out_dir: str = "./data-ft", base_model: str = "gpt-4.1-mini"):
+    rows = fetch_messages_with_context(usuario_id)
+    if not rows:
+        print("[ERRO] Nenhuma mensagem encontrada para este usuário.")
+        return
+
+    examples = build_sft_examples(rows)
+    if not examples:
+        print("[ERRO] Não foi possível formar pares cliente→vendedor.")
+        return
+
+    train_path, val_path, test_path = split_and_save_jsonl(examples, data_out_dir)
+    print(f"[OK] Salvos:\n- {train_path}\n- {val_path}\n- {test_path}")
+
+    # Cria o FT job (você pode usar um sufixo com o usuário, apenas como rótulo)
+    ft_model = train_openai_finetune(
+        data_dir=data_out_dir,
+        base_model=base_model,
+        n_epochs=2,
+        suffix=f"novai-u{usuario_id}",
+        metadata={"usuario_id": str(usuario_id), "projeto": "NOVAI"}
+    )
+    print(f"[OK] Modelo fine-tunado: {ft_model}")
+
+    # Teste rápido
+    resposta = test_model_generation_openai(usuario_id, model_id=ft_model)
+    if resposta:
+        print("\n=== RESPOSTA DO MODELO (teste sintético) ===\n")
+        print(resposta)
+    else:
+        print("[WARN] Teste não executado (sem item/pedido amostrado).")
 
 
 def pegar_anuncio_novo(item_id, acess_token,user_id,type):
@@ -1580,6 +1956,8 @@ def mudar_modo_automatico(modo):
 
         conn.close()
         print(access_token)
+
+        run_pipeline_openai('1')
 
         #t = threading.Thread(target=listar_todos_itens, args=(user_id,seller_id,access_token))
         #t.start()
@@ -5375,13 +5753,3 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
-
-
-
-
-
-
-
-
-
-
