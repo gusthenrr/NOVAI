@@ -694,7 +694,6 @@ def scraping():
 
             # opcional: restringe ao <main> pra facilitar debug
             main_html = _extract_main(html) or html
-            print('main: ',main_html)
             # print(main_html)  # cuidado com logs grandes
 
             sold = _get_sold_from_html(main_html)  # sua função sem bs4
@@ -703,7 +702,7 @@ def scraping():
                 "sold": sold or 0,
                 "url": url
             }
-
+        print('FIM------------------------------------------------------------FIM')
         return jsonify(result_map), 200
     except Exception as e:
         print('Erro /scraping:', str(e))
@@ -5877,6 +5876,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
