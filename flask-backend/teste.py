@@ -10,7 +10,7 @@ from uuid import UUID
 import hashlib
 import base64
 import os
-import re
+import re, unicodedata, requests
 import random
 from collections import defaultdict
 from langchain_core.runnables import RunnableLambda
@@ -585,103 +585,122 @@ def public_offers_notifications(data, acess_token_data):
         if 'conn' in locals():
             conn.close()
 
-# requirements:
-# pip install beautifulsoup4
 
-
-from bs4 import BeautifulSoup
+import re, unicodedata, requests
+from flask import jsonify, request
 
 UA_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36",
+    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-# mesma ideia do content.js (regex + sufixos)
-_SOLD_RE = re.compile(
-    r'(?:mais\s+de\s+)?\+?\s*([\d.,]+)\s*'
-    r'(mil(?:h(?:ão|oes))?|milhões?|k|m)?\s*vendid[oa]s',
-    re.IGNORECASE
-)
+def _normalize(s: str) -> str:
+    if not s: return ""
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    s = s.lower()
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 def _parse_sold_from_text(s: str):
-    if not s:
-        return None
-    m = _SOLD_RE.search(s)
-    if not m:
-        return None
-
-    base = m.group(1).replace('.', '').replace(',', '.')
+    if not s: return None
+    # mesma regex do front, tolerando "mais de", "+", mil/milhão, k/m etc.
+    m = re.search(r'(?:mais\s+de\s+)?\+?\s*([\d.,]+)\s*(mil(?:h(?:ão|oes))?|milhões?|k|m)?\s*vendid[oa]s', s, re.I)
+    if not m: return None
+    base = m.group(1).replace(".", "").replace(",", ".")
     try:
         num = float(base)
     except ValueError:
         return None
-
-    suf = (m.group(2) or '').lower()
-    if suf.startswith('milh') or suf == 'm':
+    suf = (m.group(2) or "").lower()
+    if suf.startswith("milh") or suf == "m":
         num *= 1_000_000
-    elif suf.startswith('mil') or suf == 'k':
+    elif suf.startswith("mil") or suf == "k":
         num *= 1_000
-
     return int(round(num))
 
-def _get_sold_from_html(html: str):
-    soup = BeautifulSoup(html, 'html.parser')
+def _extract_main(html: str) -> str | None:
+    """Pega o bloco <main>…</main> se existir; senão None."""
+    m = re.search(r"<main\b[^>]*>(.*?)</main>", html, re.I | re.S)
+    return m.group(0) if m else None
 
-    # 1) onde costuma estar: subtítulo/aria-label
-    for el in soup.select('.ui-pdp-header__subtitle .ui-pdp-subtitle, .ui-pdp-header__subtitle, .ui-pdp-subtitle'):
-        aria = el.get('aria-label') or ''
-        n = _parse_sold_from_text(aria) or _parse_sold_from_text(el.get_text(' ', strip=True))
-        if n:
+def _get_sold_from_html(html: str) -> int:
+    """
+    Procura primeiro o aria-label do .ui-pdp-subtitle,
+    depois o texto interno, por fim um fallback procurando
+    qualquer trecho com 'vendid'.
+    """
+    if not html: return 0
+
+    # 1) aria-label no .ui-pdp-subtitle (ordem de atributos pode variar)
+    patterns = [
+        r'<[^>]*class="[^"]*ui-pdp-subtitle[^"]*"[^>]*aria-label="([^"]+)"',
+        r'<[^>]*aria-label="([^"]+)"[^>]*class="[^"]*ui-pdp-subtitle[^"]*"',
+        r"<[^>]*class='[^']*ui-pdp-subtitle[^']*'[^>]*aria-label='([^']+)'",
+        r"<[^>]*aria-label='([^']+)'[^>]*class='[^']*ui-pdp-subtitle[^']*'",
+    ]
+    for pat in patterns:
+        m = re.search(pat, html, re.I | re.S)
+        if m:
+            n = _parse_sold_from_text(m.group(1))
+            if isinstance(n, int) and n >= 0:
+                return n
+
+    # 2) texto interno do .ui-pdp-subtitle
+    m = re.search(r'<span[^>]*class="[^"]*ui-pdp-subtitle[^"]*"[^>]*>(.*?)</span>', html, re.I | re.S)
+    if not m:
+        m = re.search(r"<span[^>]*class='[^']*ui-pdp-subtitle[^']*'[^>]*>(.*?)</span>", html, re.I | re.S)
+    if m:
+        inner = re.sub(r"<[^>]+>", " ", m.group(1) or "")
+        n = _parse_sold_from_text(inner)
+        if isinstance(n, int) and n >= 0:
             return n
 
-    # 2) varredura por elementos comuns
-    for el in soup.select('span, small, div, p'):
-        n = _parse_sold_from_text(el.get_text(' ', strip=True))
-        if n:
+    # 3) fallback: qualquer trecho contendo 'vendid'
+    for chunk in re.findall(r">([^<]{0,160}vendid[^<]{0,160})<", html, re.I):
+        n = _parse_sold_from_text(chunk)
+        if isinstance(n, int) and n >= 0:
             return n
 
-    # 3) fallback: texto inteiro
-    return _parse_sold_from_text(soup.get_text(' ', strip=True))
-
+    return 0
 
 @app.route('/scraping', methods=['POST'])
 def scraping():
     try:
-        print('entrou no scraping')
+        print('entrou no /scraping')
         data = request.get_json(force=True) or {}
-        items = data.get('items') or []  # [{ item_id, url }]
+        items = data.get('items') or []   # [{ item_id, url }]
         result_map = {}
 
         for it in items:
-            item_id = (it.get('item_id') or it.get('itemId') or '').strip()
-            url = (it.get('url') or '').strip()
+            item_id = str(it.get('item_id') or it.get('itemId') or '').strip()
+            url     = (it.get('url') or '').strip()
             if not item_id or not url:
                 continue
 
-            # baixa a página do item (HTML SSR)
-            resp = requests.get(url, headers=UA_HEADERS, timeout=12)
+            resp = requests.get(url, headers=UA_HEADERS, timeout=15, allow_redirects=True)
             resp.raise_for_status()
+            html = resp.text
 
-            sold = _get_sold_from_html(resp.text)
+            main_html = _extract_main(html) or html
+
+            # === DEBUG: printa HTML inteiro (ou só o <main>) ===
+            print(f"\n==== [{item_id}] {url} — status {resp.status_code} ====")
+            print(f"html_len={len(html)} main_len={len(main_html)}")
+            print(main_html)  # -> imprime tudo; se quiser truncar, troque por: print(main_html[:4000])
+
+            sold = _get_sold_from_html(main_html)
+
             result_map[item_id] = {
                 "sold": sold if isinstance(sold, int) and sold >= 0 else 0,
                 "url": url,
             }
-        print('resultado final: ',result_map)
-        # formato compatível com o que já combinamos no front: map por item_id
+
+        print('resultado final:', result_map)
         return jsonify(result_map), 200
 
     except Exception as e:
         print('Erro /scraping:', str(e))
-        return jsonify({"error": str(e)}), 500
-
-
-    except Exception as e:
-        print('Erro /classifyAds:', str(e))
         return jsonify({"error": str(e)}), 500
 
 
@@ -5852,6 +5871,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
