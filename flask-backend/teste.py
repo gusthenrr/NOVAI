@@ -673,7 +673,7 @@ def scraping():
 
         # pega cookies do header enviado pela extensão
         cookie_header = request.headers.get('Cookie', '')
-
+        print('cookies: ',cookie_header)
         for it in items:
             item_id = (it.get('item_id') or '').strip()
             url = (it.get('url') or '').strip()
@@ -5872,6 +5872,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
