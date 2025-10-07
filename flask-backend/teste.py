@@ -651,6 +651,7 @@ def _get_sold_from_html(html: str):
 @app.route('/scraping', methods=['POST'])
 def scraping():
     try:
+        print('entrou no scraping')
         data = request.get_json(force=True) or {}
         items = data.get('items') or []  # [{ item_id, url }]
         result_map = {}
@@ -5851,6 +5852,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
