@@ -694,9 +694,9 @@ def scraping():
             # aqui você já tem o HTML da página real (contanto que os cookies funcionem)
             # pode extrair o <main> ou o <span class="ui-pdp-subtitle"...>
             sold = _get_sold_from_html(html)  # implemente essa função
-            price = _get_price_from_html(html) # opcional, implemente
+            #price = _get_price_from_html(html) # opcional, implemente
 
-            result_map[item_id] = {"sold": sold or 0, "price": price or 0, "url": url}
+            result_map[item_id] = {"sold": sold or 0,"url": url}
 
         return jsonify(result_map), 200
 
@@ -5872,6 +5872,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
