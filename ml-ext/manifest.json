@@ -19,7 +19,7 @@
   ],
 
   "permissions": [
-    "storage",
+    "storage"
   ],
 
   "host_permissions": [

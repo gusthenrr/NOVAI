@@ -247,3 +247,39 @@
   font-weight: 700;
   transform: translateY(-1px);
 }
+/* ===== Strip de métricas no topo do card ===== */
+.novai-metrics-strip{
+  position:absolute; top:0; left:0; right:0;
+  display:flex; gap:10px; align-items:center; justify-content:flex-start;
+  background:#111; color:#fff; border-bottom:1px solid var(--novai-ml-yellow,#ffe600);
+  padding:6px 8px; z-index:10; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto;
+}
+.novai-metrics-strip b{
+  color: var(--novai-ml-yellow,#ffe600);
+  font-weight:900;
+}
+
+/* ===== Barra de carregamento ===== */
+#novai-loading{
+  margin: 6px 0 10px 0;
+}
+#novai-loading .novai-loading-wrap{
+  display:flex; align-items:center; gap:10px;
+}
+#novai-loading .novai-loading-text{
+  color:#fff; background:#111; border:1px solid #fff;
+  padding:6px 10px; border-radius:9999px; font-weight:700; font-size:12px;
+}
+#novai-loading .novai-loading-bar{
+  position:relative; width:220px; height:8px;
+  background:#222; border:1px solid var(--novai-ml-yellow,#ffe600); border-radius:9999px; overflow:hidden;
+}
+#novai-loading .novai-loading-bar-inner{
+  position:absolute; left:0; top:0; bottom:0; width:40%;
+  background: var(--novai-ml-yellow,#ffe600); opacity:.9;
+  animation: novai-bar-move 1.2s linear infinite;
+}
+@keyframes novai-bar-move {
+  0% { transform: translateX(-40%); }
+  100% { transform: translateX(220px); }
+}
