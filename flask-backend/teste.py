@@ -669,37 +669,42 @@ def scraping():
     try:
         data = request.get_json(force=True) or {}
         items = data.get('items') or []
-        result_map = {}
+        cookie_header = (data.get('cookie') or "")  # << pegue do body
 
-        # pega cookies do header enviado pela extensão
-        cookie_header = request.headers.get('Cookie', '')
-        print('cookies: ',cookie_header)
+        print("cookies len:", len(cookie_header))
+
+        result_map = {}
         for it in items:
-            item_id = (it.get('item_id') or '').strip()
-            url = (it.get('url') or '').strip()
+            item_id = (it.get('item_id') or it.get('itemId') or '').strip()
+            url     = (it.get('url') or '').strip()
             if not item_id or not url:
                 continue
 
             headers = {
-                "User-Agent": "Mozilla/5.0 (compatible)",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
             }
             if cookie_header:
-                headers['Cookie'] = cookie_header
+                headers["Cookie"] = cookie_header   # <-- agora sim
 
             resp = requests.get(url, headers=headers, timeout=12)
             resp.raise_for_status()
             html = resp.text
-            main_html=_extract_main(html)
-            print('main: ',main_html)
-            # aqui você já tem o HTML da página real (contanto que os cookies funcionem)
-            # pode extrair o <main> ou o <span class="ui-pdp-subtitle"...>
-            sold = _get_sold_from_html(html)  # implemente essa função
-            #price = _get_price_from_html(html) # opcional, implemente
 
-            result_map[item_id] = {"sold": sold or 0,"url": url}
+            # opcional: restringe ao <main> pra facilitar debug
+            main_html = _extract_main(html) or html
+            print('main: ',main_html)
+            # print(main_html)  # cuidado com logs grandes
+
+            sold = _get_sold_from_html(main_html)  # sua função sem bs4
+
+            result_map[item_id] = {
+                "sold": sold or 0,
+                "url": url
+            }
 
         return jsonify(result_map), 200
-
     except Exception as e:
         print('Erro /scraping:', str(e))
         return jsonify({"error": str(e)}), 500
@@ -5872,6 +5877,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
