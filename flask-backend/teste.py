@@ -585,7 +585,7 @@ def public_offers_notifications(data, acess_token_data):
         if 'conn' in locals():
             conn.close()
 
-@app.route('classifyAds',methods=['POST'])
+@app.route('/classifyAds', methods=['POST'])
 def classifyAds():
     try:
         data = request.get_json()
@@ -5765,6 +5765,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
