@@ -586,16 +586,40 @@ def public_offers_notifications(data, acess_token_data):
             conn.close()
 
 @app.route('/classifyAds', methods=['POST'])
-def classifyAds():
+def classify_ads():
     try:
-        data = request.get_json()
-        itens=data.get('items')
-        todos_itens_id=data.get('item_ids')
-        print('itens: ',itens)
-        print('itens_id: ',todos_itens_id)
-        return
+        data = request.get_json(silent=True) or {}
+        # aceitamos tanto "items" (com objetos) quanto "item_ids" (strings)
+        items = data.get('items') or []
+        item_ids = data.get('item_ids') or [it.get('item_id') for it in items if it.get('item_id')]
+
+        if not item_ids:
+            return jsonify({"error": "item_ids vazio"}), 400
+
+        # pega access_token
+        with get_db_connection() as conn, conn.cursor() as cur:
+            cur.execute('SELECT acess_token FROM contas_mercado_livre LIMIT 1')
+            row = cur.fetchone()
+            if not row or not row.get('acess_token'):
+                return jsonify({"error": "access_token não encontrado"}), 500
+            access_token = row['acess_token']
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        result_map = {}
+
+        for i in item_ids:
+            url = f'https://api.mercadolibre.com/items/{i}'
+            resp = requests.get(url, headers=headers, timeout=10)
+            body = resp.json() if resp.ok else {}
+            listing_type = (body or {}).get('listing_type_id')
+            # gold_pro / gold_special → patrocinado, o resto → orgânico
+            result_map[i] = {"ads": listing_type in ('gold_pro', 'gold_special')}
+
+        return jsonify(result_map), 200
+
     except Exception as e:
-        print('Erro: ', str(e))
+        print('Erro /classifyAds:', str(e))
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/visitsItems', methods=['POST'])
@@ -5765,6 +5789,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
