@@ -619,7 +619,7 @@ def _parse_sold_from_text(s: str):
         num *= 1_000
     return int(round(num))
 
-def _extract_main(html: str) -> str | None:
+def _extract_main(html: str) -> Optional[str]:
     """Pega o bloco <main>…</main> se existir; senão None."""
     m = re.search(r"<main\b[^>]*>(.*?)</main>", html, re.I | re.S)
     return m.group(0) if m else None
@@ -5871,6 +5871,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
