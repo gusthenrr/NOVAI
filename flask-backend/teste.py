@@ -588,7 +588,6 @@ def public_offers_notifications(data, acess_token_data):
 @app.route('/classifyAds', methods=['POST'])
 def classify_ads():
     try:
-        print('entrou aqui')
         data = request.get_json(silent=True) or {}
         # aceitamos tanto "items" (com objetos) quanto "item_ids" (strings)
         items = data.get('items') or []
@@ -613,6 +612,7 @@ def classify_ads():
             resp = requests.get(url, headers=headers, timeout=10)
             body = resp.json() if resp.ok else {}
             listing_type = (body or {}).get('listing_type_id')
+            print('tipo ad: ', listing_type)
             # gold_pro / gold_special → patrocinado, o resto → orgânico
             result_map[i] = {"ads": listing_type in ('gold_pro', 'gold_special')}
         print('retornando: ',result_map)
@@ -5790,6 +5790,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
