@@ -585,38 +585,99 @@ def public_offers_notifications(data, acess_token_data):
         if 'conn' in locals():
             conn.close()
 
-@app.route('/classifyAds', methods=['POST'])
-def classify_ads():
+# requirements:
+# pip install beautifulsoup4
+
+
+from bs4 import BeautifulSoup
+
+UA_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+}
+
+# mesma ideia do content.js (regex + sufixos)
+_SOLD_RE = re.compile(
+    r'(?:mais\s+de\s+)?\+?\s*([\d.,]+)\s*'
+    r'(mil(?:h(?:ão|oes))?|milhões?|k|m)?\s*vendid[oa]s',
+    re.IGNORECASE
+)
+
+def _parse_sold_from_text(s: str):
+    if not s:
+        return None
+    m = _SOLD_RE.search(s)
+    if not m:
+        return None
+
+    base = m.group(1).replace('.', '').replace(',', '.')
     try:
-        data = request.get_json(silent=True) or {}
-        # aceitamos tanto "items" (com objetos) quanto "item_ids" (strings)
-        items = data.get('items') or []
-        item_ids = data.get('item_ids') or [it.get('item_id') for it in items if it.get('item_id')]
+        num = float(base)
+    except ValueError:
+        return None
 
-        if not item_ids:
-            return jsonify({"error": "item_ids vazio"}), 400
+    suf = (m.group(2) or '').lower()
+    if suf.startswith('milh') or suf == 'm':
+        num *= 1_000_000
+    elif suf.startswith('mil') or suf == 'k':
+        num *= 1_000
 
-        # pega access_token
-        with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute('SELECT acess_token FROM contas_mercado_livre LIMIT 1')
-            row = cur.fetchone()
-            if not row or not row.get('acess_token'):
-                return jsonify({"error": "access_token não encontrado"}), 500
-            access_token = row['acess_token']
+    return int(round(num))
 
-        headers = {"Authorization": f"Bearer {access_token}"}
+def _get_sold_from_html(html: str):
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # 1) onde costuma estar: subtítulo/aria-label
+    for el in soup.select('.ui-pdp-header__subtitle .ui-pdp-subtitle, .ui-pdp-header__subtitle, .ui-pdp-subtitle'):
+        aria = el.get('aria-label') or ''
+        n = _parse_sold_from_text(aria) or _parse_sold_from_text(el.get_text(' ', strip=True))
+        if n:
+            return n
+
+    # 2) varredura por elementos comuns
+    for el in soup.select('span, small, div, p'):
+        n = _parse_sold_from_text(el.get_text(' ', strip=True))
+        if n:
+            return n
+
+    # 3) fallback: texto inteiro
+    return _parse_sold_from_text(soup.get_text(' ', strip=True))
+
+
+@app.route('/scraping', methods=['POST'])
+def scraping():
+    try:
+        data = request.get_json(force=True) or {}
+        items = data.get('items') or []  # [{ item_id, url }]
         result_map = {}
 
-        for i in item_ids:
-            url = f'https://api.mercadolibre.com/items/{i}'
-            resp = requests.get(url, headers=headers, timeout=10)
-            body = resp.json() if resp.ok else {}
-            listing_type = (body or {}).get('listing_type_id')
-            print('tipo ad: ', listing_type)
-            # gold_pro / gold_special → patrocinado, o resto → orgânico
-            result_map[i] = {"ads": listing_type in ('gold_pro', 'gold_special')}
-        print('retornando: ',result_map)
+        for it in items:
+            item_id = (it.get('item_id') or it.get('itemId') or '').strip()
+            url = (it.get('url') or '').strip()
+            if not item_id or not url:
+                continue
+
+            # baixa a página do item (HTML SSR)
+            resp = requests.get(url, headers=UA_HEADERS, timeout=12)
+            resp.raise_for_status()
+
+            sold = _get_sold_from_html(resp.text)
+            result_map[item_id] = {
+                "sold": sold if isinstance(sold, int) and sold >= 0 else 0,
+                "url": url,
+            }
+        print('resultado final: ',result_map)
+        # formato compatível com o que já combinamos no front: map por item_id
         return jsonify(result_map), 200
+
+    except Exception as e:
+        print('Erro /scraping:', str(e))
+        return jsonify({"error": str(e)}), 500
+
 
     except Exception as e:
         print('Erro /classifyAds:', str(e))
@@ -5790,6 +5851,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
