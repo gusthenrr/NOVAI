@@ -909,7 +909,7 @@ def scraping():
 
             # Monta resposta do item (de preferência com a URL realmente utilizada)
             result_map[item_id] = {
-                "url": final_url,
+                "url": url,
                 "subtitle": subtitle_text,  # ex: "Novo · +1000 vendidos"
                 "sold": sold                # inteiro já normalizado ou None
             }
@@ -6091,6 +6091,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
