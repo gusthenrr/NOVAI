@@ -612,9 +612,13 @@ SESSION.mount("http://",  HTTPAdapter(max_retries=_retries, pool_connections=20,
 
 # ----------------- Utils -----------------
 SOLD_RE = re.compile(
-    r'(?:mais\s+de\s+)?\+?\s*([\d.,]+)\s*(mil(?:h(?:ão|oes))?|milhões?|mil|k|m)?\s*vendid[oa]s',
+    r'(?:mais\s+de\s+)?\+?\s*'          # "Mais de " e/ou "+"
+    r'([\d.,]+)\s*'                     # número (1.234, 1,2, etc.)
+    r'(milh(?:ão|oes)|milhões|mil|k|m)?' # sufixo opcional
+    r'\s*(?:vendi(?:do|da)s?|vendas?)',  # vendidos / vendidas / vendas
     re.I
 )
+
 CLS_SUBTITLE = re.compile(r"(?:^|\s)ui-pdp-subtitle(?:\s|$)", re.I)
 
 from urllib.parse import urlparse, parse_qs
@@ -767,44 +771,35 @@ def _parse_sold_from_text(txt: str) -> Optional[int]:
     return int(round(num))
 
 def _extract_subtitle_and_sold(html: str) -> Tuple[str, int]:
-    """
-    Retorna (subtitle_text, sold_int).
-    - Tenta aria-label do span.ui-pdp-subtitle
-    - Cai para texto interno
-    - Fallback: qualquer trecho contendo 'vendid'
-    """
     if not html:
         return ("", 0)
 
-    # parse somente <span class="ui-pdp-subtitle"> para ser rápido
-    only_subtitle_spans = SoupStrainer("span", class_=CLS_SUBTITLE)
-    soup = BeautifulSoup(html, "lxml", parse_only=only_subtitle_spans)
+    soup = BeautifulSoup(html, "lxml")
 
-    subtitle_el = soup.find("span", class_=CLS_SUBTITLE)
+    # pega qualquer tag cujo class contenha 'ui-pdp-subtitle' (inclusive variantes)
+    el = (soup.select_one('[class*="ui-pdp-subtitle"]')
+          or soup.select_one('[class*="ui-pdp-header__subtitle"]')
+          or soup.select_one('[data-testid*="subtitle"]'))
+
     subtitle_text = ""
-
-    if subtitle_el:
-        subtitle_text = (subtitle_el.get("aria-label") or
-                         subtitle_el.get_text(" ", strip=True) or "").strip()
+    if el:
+        subtitle_text = (el.get("aria-label") or el.get_text(" ", strip=True) or "").strip()
 
     sold = _parse_sold_from_text(subtitle_text)
 
-    # Fallback 1: se não veio no aria-label, tenta o próprio texto interno
-    if sold is None and subtitle_el:
-        inner = subtitle_el.get_text(" ", strip=True)
-        sold = _parse_sold_from_text(inner)
-
-    # Fallback 2: varre um pouco do HTML procurando 'vendid'
+    # fallback: procura trechos com 'vendi' ou 'venda' no DOM inteiro
     if sold is None:
-        any_text = BeautifulSoup(html, "lxml").get_text(" ", strip=True)
-        chunk = None
-        m = re.search(r"(.{0,60}vendid.{0,60})", any_text, flags=re.I)
-        if m:
-            chunk = m.group(1)
-        if chunk:
-            sold = _parse_sold_from_text(chunk)
+        # tenta primeiro um recorte razoável do DOM (economiza CPU e evita lixo)
+        candidates = soup.find_all(string=re.compile(r'vendi|venda', re.I), limit=50)
+        blob = " ".join([c.strip() for c in candidates if c and c.strip()])[:8000]
+        sold = _parse_sold_from_text(blob)
+
+    # último recurso: texto plano inteiro
+    if sold is None:
+        sold = _parse_sold_from_text(soup.get_text(" ", strip=True))
 
     return (subtitle_text, int(sold or 0))
+
 
 def _slugify_keep_letters(name: str) -> str:
     """
@@ -912,7 +907,7 @@ def scraping():
             result_map[item_id] = {
                 "url": url,
                 "subtitle": subtitle_text,  # ex: "Novo · +1000 vendidos"
-                "sold": sold                # inteiro já normalizado ou None
+                "sold": int(sold or 0)               # inteiro já normalizado ou None
             }
 
         print('result_map: ', result_map)
@@ -6091,6 +6086,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
