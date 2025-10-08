@@ -617,6 +617,55 @@ SOLD_RE = re.compile(
 )
 CLS_SUBTITLE = re.compile(r"(?:^|\s)ui-pdp-subtitle(?:\s|$)", re.I)
 
+from urllib.parse import urlparse, parse_qs
+
+def _resolve_meli_url(url: str, headers: dict) -> str:
+    """
+    Resolve links de rastreamento do Mercado Livre para a URL final do produto.
+    1) Se for click1/mclics, tenta seguir o redirect com Referer.
+    2) Se 403/bloqueado, usa o 'wid' para obter o permalink pela API pública.
+    3) Caso contrário, retorna a própria URL.
+    """
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        path = (parsed.path or "")
+
+        is_click = host.startswith("click") and "/mclics/clicks/external" in path
+        if not is_click:
+            return url
+
+        # 1) Tenta seguir o redirect com Referer (mesmos cookies/UA)
+        h = headers.copy()
+        h.setdefault("Referer", "https://www.mercadolivre.com.br/")  # referer genérico suficiente
+        try:
+            r = SESSION.get(url, headers=h, timeout=10, allow_redirects=True)
+            # Se conseguiu sair do domínio click1 para um PDP, usamos r.url
+            if r.ok and "mclics" not in r.url and "click" not in urlparse(r.url).hostname.lower():
+                return r.url
+        except requests.RequestException:
+            pass
+
+        # 2) Fallback: usar WID -> permalink
+        q = parse_qs(parsed.query)
+        wid = (q.get("wid") or [None])[0]
+        if wid:
+            try:
+                jr = SESSION.get(f"https://api.mercadolibre.com/items/{wid}", timeout=8)
+                if jr.ok:
+                    j = jr.json()
+                    permalink = j.get("permalink")
+                    if permalink:
+                        return permalink
+            except requests.RequestException:
+                pass
+
+        # Se nada deu certo, retorna original (provável 403 ao tentar scrapear)
+        return url
+    except Exception:
+        return url
+
+
 def _normalize(s: str) -> str:
     if not s:
         return ""
@@ -709,6 +758,8 @@ def scraping():
             if not item_id or not url:
                 continue
 
+            final_url = _resolve_meli_url(url, base_headers)
+            
             resp = SESSION.get(url, headers=base_headers, timeout=12)
             resp.raise_for_status()
             html = resp.text
@@ -5895,6 +5946,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
