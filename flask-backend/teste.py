@@ -619,49 +619,80 @@ CLS_SUBTITLE = re.compile(r"(?:^|\s)ui-pdp-subtitle(?:\s|$)", re.I)
 
 from urllib.parse import urlparse, parse_qs
 
-def _resolve_meli_url(url: str, headers: dict) -> str:
+MLB8_RE  = re.compile(r"\bMLB(\d{8})\b")
+MLB10_RE = re.compile(r"\bMLB(\d{10})\b")
+
+def _slugify_item_name(name: str) -> str:
     """
-    Resolve links de rastreamento do Mercado Livre para a URL final do produto.
-    1) Se for click1/mclics, tenta seguir o redirect com Referer.
-    2) Se 403/bloqueado, usa o 'wid' para obter o permalink pela API pública.
-    3) Caso contrário, retorna a própria URL.
+    Converte o nome do item em slug:
+    - Remove completamente letras acentuadas (ex: 'á' → '').
+    - Remove qualquer caractere não alfanumérico (., -, _, +, =, etc).
+    - Tudo minúsculo.
+    - Junta blocos válidos com hífen.
+    Exemplo:
+      "Kit 2câmera Ip Icsee Prova D'água Infravermelho Externa Wifi - HW"
+      -> "kit-2cmera-ip-icsee-prova-dagua-infravermelho-externa-wifi-hw"
+    """
+    if not name:
+        return ""
+
+    # normaliza e remove acentos
+    name = unicodedata.normalize("NFD", name)
+    # remove caracteres com marca diacrítica (acentos)
+    name = "".join(ch for ch in name if unicodedata.category(ch) != "Mn")
+
+    # remove TUDO que não for letra ou número
+    name = re.sub(r"[^a-zA-Z0-9\s]", " ", name)
+
+    # deixa minúsculo
+    name = name.lower().strip()
+
+    # troca qualquer sequência de espaços por hífen
+    slug = re.sub(r"\s+", "-", name)
+
+    return slug
+
+def _resolve_meli_url(url: str, item_name: str) -> str:
+    """
+    Transforma tracking-links 'click*.mercadolivre.com.br/mclics/clicks/external/...'
+    no permalink PDP no formato:
+      https://www.mercadolivre.com.br/{slug}/p/MLB########?pdp_filters=item_id:MLB##########
+    Onde:
+      - MLB########   => MLB + 8 dígitos (ex.: searchVariation=MLB46836439)
+      - MLB########## => MLB + 10 dígitos (ex.: wid=MLB5309063322)
+    Se não for tracking-link OU não encontrar os dois IDs, retorna a url original.
     """
     try:
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
-        path = (parsed.path or "")
+        path = parsed.path or ""
 
-        is_click = host.startswith("click") and "/mclics/clicks/external" in path
-        if not is_click:
+        # só processa se for tracking dos cliques
+        if not (host.startswith("click") and "/mclics/clicks/external/" in path):
             return url
 
-        # 1) Tenta seguir o redirect com Referer (mesmos cookies/UA)
-        h = headers.copy()
-        h.setdefault("Referer", "https://www.mercadolivre.com.br/")  # referer genérico suficiente
-        try:
-            r = SESSION.get(url, headers=h, timeout=10, allow_redirects=True)
-            # Se conseguiu sair do domínio click1 para um PDP, usamos r.url
-            if r.ok and "mclics" not in r.url and "click" not in urlparse(r.url).hostname.lower():
-                return r.url
-        except requests.RequestException:
-            pass
+        # procure MLB de 8 e 10 dígitos em toda a URL (path + query + fragment)
+        haystack = f"{parsed.path}?{parsed.query}#{parsed.fragment}"
 
-        # 2) Fallback: usar WID -> permalink
-        q = parse_qs(parsed.query)
-        wid = (q.get("wid") or [None])[0]
-        if wid:
-            try:
-                jr = SESSION.get(f"https://api.mercadolibre.com/items/{wid}", timeout=8)
-                if jr.ok:
-                    j = jr.json()
-                    permalink = j.get("permalink")
-                    if permalink:
-                        return permalink
-            except requests.RequestException:
-                pass
+        m8  = MLB8_RE.search(haystack)
+        m10 = MLB10_RE.search(haystack)
 
-        # Se nada deu certo, retorna original (provável 403 ao tentar scrapear)
-        return url
+        if not (m8 and m10):
+            # se não achou ambos, não arrisca – mantém original
+            return url
+
+        mlb8  = f"MLB{m8.group(1)}"
+        mlb10 = f"MLB{m10.group(1)}"
+
+        slug = _slugify_item_name(item_name)
+
+        # monta o permalink final
+        final_url = (
+            f"https://www.mercadolivre.com.br/{slug}/p/{mlb8}"
+            f"?pdp_filters=item_id:{mlb10}"
+        )
+        return final_url
+
     except Exception:
         return url
 
@@ -755,10 +786,11 @@ def scraping():
         for it in items:
             item_id = (it.get("item_id") or it.get("itemId") or "").strip()
             url = (it.get("url") or "").strip()
+            item_name = (it.get("item_name") or "")
             if not item_id or not url:
                 continue
 
-            final_url = _resolve_meli_url(url, base_headers)
+            final_url = _resolve_meli_url(url, item_name)
             
             resp = SESSION.get(url, headers=base_headers, timeout=12)
             resp.raise_for_status()
@@ -5946,6 +5978,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
