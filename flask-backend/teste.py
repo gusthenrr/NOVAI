@@ -763,9 +763,21 @@ def _extract_subtitle_and_sold(html: str) -> Tuple[str, int]:
 
     return (subtitle_text, int(sold or 0))
 
-# ----------------- Flask endpoint -----------------
-from flask import Flask
-app = Flask(__name__)
+def _slugify_keep_letters(name: str) -> str:
+    """
+    Variante 'soft' do slugify: mantém as letras com acentos,
+    apenas removendo o acento e caracteres especiais.
+    """
+    if not name:
+        return ""
+
+    name = unicodedata.normalize("NFD", name)
+    name = "".join(ch for ch in name if unicodedata.category(ch) != "Mn")  # tira acento
+    name = re.sub(r"[^a-zA-Z0-9\s]", " ", name)  # remove especiais, mantém letras
+    name = name.lower().strip()
+    slug = re.sub(r"\s+", "-", name)
+    return slug
+
 
 @app.route("/scraping", methods=["POST"])
 def scraping():
@@ -797,6 +809,20 @@ def scraping():
             html = resp.text
 
             subtitle_text, sold = _extract_subtitle_and_sold(html)
+            if not subtitle_text:
+                alt_slug = _slugify_keep_letters(item_name)
+                final_url2 = _resolve_meli_url(url, alt_slug)
+                if final_url2 != final_url:
+                    print(f"[Fallback slug soft] Tentando novamente com: {final_url2}")
+                    try:
+                        resp2 = SESSION.get(final_url2, headers=base_headers, timeout=12)
+                        resp2.raise_for_status()
+                        html2 = resp2.text
+                        subtitle_text2, sold2 = _extract_subtitle_and_sold(html2)
+                        if subtitle_text2:
+                            subtitle_text, sold, final_url = subtitle_text2, sold2, final_url2
+                    except Exception as e:
+                        print(f"[Erro fallback soft] {final_url2}: {e}")
 
             result_map[item_id] = {
                 "url": url,
@@ -5978,6 +6004,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
