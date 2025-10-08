@@ -586,27 +586,51 @@ def public_offers_notifications(data, acess_token_data):
             conn.close()
 
 
-import re, unicodedata, requests
-from flask import jsonify, request
+
+import unicodedata
+from bs4 import BeautifulSoup, SoupStrainer
+
+# ----------------- HTTP (pooling + retries) -----------------
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 UA_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/126 Safari/537.36",
     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+SESSION = requests.Session()
+_retries = Retry(
+    total=3, backoff_factor=0.5,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=("GET", "HEAD", "OPTIONS"),
+)
+SESSION.mount("https://", HTTPAdapter(max_retries=_retries, pool_connections=20, pool_maxsize=50))
+SESSION.mount("http://",  HTTPAdapter(max_retries=_retries, pool_connections=20, pool_maxsize=50))
+
+# ----------------- Utils -----------------
+SOLD_RE = re.compile(
+    r'(?:mais\s+de\s+)?\+?\s*([\d.,]+)\s*(mil(?:h(?:ão|oes))?|milhões?|mil|k|m)?\s*vendid[oa]s',
+    re.I
+)
+CLS_SUBTITLE = re.compile(r"(?:^|\s)ui-pdp-subtitle(?:\s|$)", re.I)
+
 def _normalize(s: str) -> str:
-    if not s: return ""
+    if not s:
+        return ""
     s = unicodedata.normalize("NFD", s)
     s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    s = s.lower()
-    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"\s+", " ", s.lower()).strip()
     return s
 
-def _parse_sold_from_text(s: str):
-    if not s: return None
-    # mesma regex do front, tolerando "mais de", "+", mil/milhão, k/m etc.
-    m = re.search(r'(?:mais\s+de\s+)?\+?\s*([\d.,]+)\s*(mil(?:h(?:ão|oes))?|milhões?|k|m)?\s*vendid[oa]s', s, re.I)
-    if not m: return None
+def _parse_sold_from_text(txt: str) -> Optional[int]:
+    if not txt:
+        return None
+    m = SOLD_RE.search(txt)
+    if not m:
+        return None
     base = m.group(1).replace(".", "").replace(",", ".")
     try:
         num = float(base)
@@ -619,93 +643,86 @@ def _parse_sold_from_text(s: str):
         num *= 1_000
     return int(round(num))
 
-def _extract_main(html: str) -> Optional[str]:
-    """Pega o bloco <main>…</main> se existir; senão None."""
-    m = re.search(r"<main\b[^>]*>(.*?)</main>", html, re.I | re.S)
-    return m.group(0) if m else None
-
-def _get_sold_from_html(html: str) -> int:
+def _extract_subtitle_and_sold(html: str) -> Tuple[str, int]:
     """
-    Procura primeiro o aria-label do .ui-pdp-subtitle,
-    depois o texto interno, por fim um fallback procurando
-    qualquer trecho com 'vendid'.
+    Retorna (subtitle_text, sold_int).
+    - Tenta aria-label do span.ui-pdp-subtitle
+    - Cai para texto interno
+    - Fallback: qualquer trecho contendo 'vendid'
     """
-    if not html: return 0
+    if not html:
+        return ("", 0)
 
-    # 1) aria-label no .ui-pdp-subtitle (ordem de atributos pode variar)
-    patterns = [
-        r'<[^>]*class="[^"]*ui-pdp-subtitle[^"]*"[^>]*aria-label="([^"]+)"',
-        r'<[^>]*aria-label="([^"]+)"[^>]*class="[^"]*ui-pdp-subtitle[^"]*"',
-        r"<[^>]*class='[^']*ui-pdp-subtitle[^']*'[^>]*aria-label='([^']+)'",
-        r"<[^>]*aria-label='([^']+)'[^>]*class='[^']*ui-pdp-subtitle[^']*'",
-    ]
-    for pat in patterns:
-        m = re.search(pat, html, re.I | re.S)
+    # parse somente <span class="ui-pdp-subtitle"> para ser rápido
+    only_subtitle_spans = SoupStrainer("span", class_=CLS_SUBTITLE)
+    soup = BeautifulSoup(html, "lxml", parse_only=only_subtitle_spans)
+
+    subtitle_el = soup.find("span", class_=CLS_SUBTITLE)
+    subtitle_text = ""
+
+    if subtitle_el:
+        subtitle_text = (subtitle_el.get("aria-label") or
+                         subtitle_el.get_text(" ", strip=True) or "").strip()
+
+    sold = _parse_sold_from_text(subtitle_text)
+
+    # Fallback 1: se não veio no aria-label, tenta o próprio texto interno
+    if sold is None and subtitle_el:
+        inner = subtitle_el.get_text(" ", strip=True)
+        sold = _parse_sold_from_text(inner)
+
+    # Fallback 2: varre um pouco do HTML procurando 'vendid'
+    if sold is None:
+        any_text = BeautifulSoup(html, "lxml").get_text(" ", strip=True)
+        chunk = None
+        m = re.search(r"(.{0,60}vendid.{0,60})", any_text, flags=re.I)
         if m:
-            n = _parse_sold_from_text(m.group(1))
-            if isinstance(n, int) and n >= 0:
-                return n
+            chunk = m.group(1)
+        if chunk:
+            sold = _parse_sold_from_text(chunk)
 
-    # 2) texto interno do .ui-pdp-subtitle
-    m = re.search(r'<span[^>]*class="[^"]*ui-pdp-subtitle[^"]*"[^>]*>(.*?)</span>', html, re.I | re.S)
-    if not m:
-        m = re.search(r"<span[^>]*class='[^']*ui-pdp-subtitle[^']*'[^>]*>(.*?)</span>", html, re.I | re.S)
-    if m:
-        inner = re.sub(r"<[^>]+>", " ", m.group(1) or "")
-        n = _parse_sold_from_text(inner)
-        if isinstance(n, int) and n >= 0:
-            return n
+    return (subtitle_text, int(sold or 0))
 
-    # 3) fallback: qualquer trecho contendo 'vendid'
-    for chunk in re.findall(r">([^<]{0,160}vendid[^<]{0,160})<", html, re.I):
-        n = _parse_sold_from_text(chunk)
-        if isinstance(n, int) and n >= 0:
-            return n
+# ----------------- Flask endpoint -----------------
+from flask import Flask
+app = Flask(__name__)
 
-    return 0
-
-@app.route('/scraping', methods=['POST'])
+@app.route("/scraping", methods=["POST"])
 def scraping():
     try:
         data = request.get_json(force=True) or {}
-        items = data.get('items') or []
-        cookie_header = (data.get('cookie') or "")  # << pegue do body
+        items: List[Dict[str, Any]] = data.get("items") or []
+        cookie_header: str = data.get("cookie") or ""  # cookies do body (string "k=v; k2=v2")
 
-        print("cookies len:", len(cookie_header))
+        result_map: Dict[str, Any] = {}
 
-        result_map = {}
+        # headers base (permite Cookie por request)
+        base_headers = UA_HEADERS.copy()
+        if cookie_header:
+            base_headers["Cookie"] = cookie_header  # mantém cookies
+
         for it in items:
-            item_id = (it.get('item_id') or it.get('itemId') or '').strip()
-            url     = (it.get('url') or '').strip()
+            item_id = (it.get("item_id") or it.get("itemId") or "").strip()
+            url = (it.get("url") or "").strip()
             if not item_id or not url:
                 continue
 
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-            }
-            if cookie_header:
-                headers["Cookie"] = cookie_header   # <-- agora sim
-
-            resp = requests.get(url, headers=headers, timeout=12)
+            resp = SESSION.get(url, headers=base_headers, timeout=12)
             resp.raise_for_status()
             html = resp.text
 
-            # opcional: restringe ao <main> pra facilitar debug
-            main_html = _extract_main(html) or html
-            # print(main_html)  # cuidado com logs grandes
-
-            sold = _get_sold_from_html(main_html)  # sua função sem bs4
+            subtitle_text, sold = _extract_subtitle_and_sold(html)
 
             result_map[item_id] = {
-                "sold": sold or 0,
-                "url": url
+                "url": url,
+                "subtitle": subtitle_text,  # ex: "Novo · +1000 vendidos"
+                "sold": sold                # inteiro já normalizado
             }
-        print('FIM------------------------------------------------------------FIM')
+        print('result_map: ',result_map)
         return jsonify(result_map), 200
+
     except Exception as e:
-        print('Erro /scraping:', str(e))
+        print("Erro /scraping:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
@@ -5876,6 +5893,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
