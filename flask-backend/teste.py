@@ -830,7 +830,7 @@ def scraping():
         print('items: ', items)
         print('tamanho da lista: ', len(items))
         cookie_header: str = data.get("cookie") or ""  # cookies do body (string "k=v; k2=v2")
-
+        print('cookie: ',cookie_header)
         result_map: Dict[str, Any] = {}
 
         # headers base (permite Cookie por request)
@@ -6091,6 +6091,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
