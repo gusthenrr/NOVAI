@@ -828,13 +828,14 @@ def scraping():
         items: List[Dict[str, Any]] = data.get("items") or []
         print('items: ', items)
         print('tamanho da lista: ', len(items))
-        cookie_header: str = data.get("cookie") or ""
+        cookie_header: str = data.get("cookie") or ""  # cookies do body (string "k=v; k2=v2")
 
         result_map: Dict[str, Any] = {}
 
+        # headers base (permite Cookie por request)
         base_headers = UA_HEADERS.copy()
         if cookie_header:
-            base_headers["Cookie"] = cookie_header
+            base_headers["Cookie"] = cookie_header  # mantém cookies
 
         for it in items:
             item_id = (it.get("item_id") or it.get("itemId") or "").strip()
@@ -843,10 +844,10 @@ def scraping():
             if not item_id or not url:
                 continue
 
+            # Valores default seguros
             final_url = _resolve_meli_url(url, item_name)
             subtitle_text, sold = "", None
 
-            # tentativa primária
             try:
                 resp = SESSION.get(final_url, headers=base_headers, timeout=12)
                 resp.raise_for_status()
@@ -860,7 +861,7 @@ def scraping():
                 alt_slug = _slugify_keep_letters(item_name)
                 final_url2 = _resolve_meli_url(url, alt_slug)
                 if final_url2 != final_url:
-                    print(f"[Fallback slug soft] Tentando: {final_url2}")
+                    print(f"[Fallback slug soft] Tentando novamente com: {final_url2}")
                     try:
                         resp2 = SESSION.get(final_url2, headers=base_headers, timeout=12)
                         resp2.raise_for_status()
@@ -868,6 +869,8 @@ def scraping():
                         subtitle_text2, sold2 = _extract_subtitle_and_sold(html2)
                         if subtitle_text2:
                             subtitle_text, sold, final_url = subtitle_text2, sold2, final_url2
+                        else:
+                            print(f"[Fallback slug soft] Ainda sem subtítulo em {final_url2}")
                     except Exception as e:
                         print(f"[Erro fallback soft] {final_url2}: {e}")
 
@@ -882,6 +885,8 @@ def scraping():
                     subtitle_text3, sold3 = _extract_subtitle_and_sold(html3)
                     if subtitle_text3:
                         subtitle_text, sold, final_url = subtitle_text3, sold3, final_url3
+                    else:
+                        print(f"[Fallback up 1] Ainda sem subtítulo em {final_url3}")
                 except Exception as e:
                     print(f"[Erro fallback up 1] {e}")
 
@@ -897,12 +902,25 @@ def scraping():
                     subtitle_text4, sold4 = _extract_subtitle_and_sold(html4)
                     if subtitle_text4:
                         subtitle_text, sold, final_url = subtitle_text4, sold4, final_url4
+                    else:
+                        print(f"[Fallback up 2] Ainda sem subtítulo em {final_url4}")
                 except Exception as e:
                     print(f"[Erro fallback up 2] {e}")
 
+            # Monta resposta do item (de preferência com a URL realmente utilizada)
             result_map[item_id] = {
-                "url": final_url,          # devolve a URL que realmente funcionou
-                "subtitle": subtitle_text, # ex: "Novo · +100
+                "url": final_url,
+                "subtitle": subtitle_text,  # ex: "Novo · +1000 vendidos"
+                "sold": sold                # inteiro já normalizado ou None
+            }
+
+        print('result_map: ', result_map)
+        return jsonify(result_map), 200
+
+    except Exception as e:
+        print("Erro /scraping:", str(e))
+        return jsonify({"error": str(e)}), 500
+
 
 
 
@@ -6073,6 +6091,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
