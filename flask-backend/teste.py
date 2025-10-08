@@ -792,7 +792,7 @@ def scraping():
 
             final_url = _resolve_meli_url(url, item_name)
             
-            resp = SESSION.get(url, headers=base_headers, timeout=12)
+            resp = SESSION.get(final_url, headers=base_headers, timeout=12)
             resp.raise_for_status()
             html = resp.text
 
@@ -5978,6 +5978,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
