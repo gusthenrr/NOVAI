@@ -696,6 +696,49 @@ def _resolve_meli_url(url: str, item_name: str) -> str:
     except Exception:
         return url
 
+def _resolve_meli_url_up(url: str, item_name: str) -> str:
+    """
+    Transforma tracking-links 'click*.mercadolivre.com.br/mclics/clicks/external/...'
+    no permalink PDP no formato:
+      https://www.mercadolivre.com.br/{slug}/p/MLB########?pdp_filters=item_id:MLB##########
+    Onde:
+      - MLB########   => MLB + 8 dígitos (ex.: searchVariation=MLB46836439)
+      - MLB########## => MLB + 10 dígitos (ex.: wid=MLB5309063322)
+    Se não for tracking-link OU não encontrar os dois IDs, retorna a url original.
+    """
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path or ""
+
+        # só processa se for tracking dos cliques
+        if not (host.startswith("click") and "/mclics/clicks/external/" in path):
+            return url
+
+        # procure MLB de 8 e 10 dígitos em toda a URL (path + query + fragment)
+        haystack = f"{parsed.path}?{parsed.query}#{parsed.fragment}"
+
+        m8  = MLB8_RE.search(haystack)
+        m10 = MLB10_RE.search(haystack)
+
+        if not (m8 and m10):
+            # se não achou ambos, não arrisca – mantém original
+            return url
+
+        mlb8  = f"MLB{m8.group(1)}"
+        mlb10 = f"MLB{m10.group(1)}"
+
+        slug = _slugify_item_name(item_name)
+
+        # monta o permalink final
+        final_url = (
+            f"https://www.mercadolivre.com.br/{slug}/up/{mlb8}"
+            f"?pdp_filters=item_id:{mlb10}"
+        )
+        return final_url
+
+    except Exception:
+        return url
 
 def _normalize(s: str) -> str:
     if not s:
@@ -785,14 +828,13 @@ def scraping():
         items: List[Dict[str, Any]] = data.get("items") or []
         print('items: ', items)
         print('tamanho da lista: ', len(items))
-        cookie_header: str = data.get("cookie") or ""  # cookies do body (string "k=v; k2=v2")
+        cookie_header: str = data.get("cookie") or ""
 
         result_map: Dict[str, Any] = {}
 
-        # headers base (permite Cookie por request)
         base_headers = UA_HEADERS.copy()
         if cookie_header:
-            base_headers["Cookie"] = cookie_header  # mantém cookies
+            base_headers["Cookie"] = cookie_header
 
         for it in items:
             item_id = (it.get("item_id") or it.get("itemId") or "").strip()
@@ -802,17 +844,23 @@ def scraping():
                 continue
 
             final_url = _resolve_meli_url(url, item_name)
+            subtitle_text, sold = "", None
 
-            resp = SESSION.get(final_url, headers=base_headers, timeout=12)
-            resp.raise_for_status()
-            html = resp.text
+            # tentativa primária
+            try:
+                resp = SESSION.get(final_url, headers=base_headers, timeout=12)
+                resp.raise_for_status()
+                html = resp.text
+                subtitle_text, sold = _extract_subtitle_and_sold(html)
+            except Exception as e:
+                print(f"[Erro primário] {final_url}: {e}")
 
-            subtitle_text, sold = _extract_subtitle_and_sold(html)
+            # Fallback 1: slug "soft"
             if not subtitle_text:
                 alt_slug = _slugify_keep_letters(item_name)
                 final_url2 = _resolve_meli_url(url, alt_slug)
                 if final_url2 != final_url:
-                    print(f"[Fallback slug soft] Tentando novamente com: {final_url2}")
+                    print(f"[Fallback slug soft] Tentando: {final_url2}")
                     try:
                         resp2 = SESSION.get(final_url2, headers=base_headers, timeout=12)
                         resp2.raise_for_status()
@@ -823,17 +871,39 @@ def scraping():
                     except Exception as e:
                         print(f"[Erro fallback soft] {final_url2}: {e}")
 
-            result_map[item_id] = {
-                "url": url,
-                "subtitle": subtitle_text,  # ex: "Novo · +1000 vendidos"
-                "sold": sold                # inteiro já normalizado
-            }
-        print('result_map: ',result_map)
-        return jsonify(result_map), 200
+            # Fallback 2: _resolve_meli_url_up com item_name
+            if not subtitle_text:
+                try:
+                    final_url3 = _resolve_meli_url_up(url, item_name)
+                    print(f"[Fallback up 1] Tentando: {final_url3}")
+                    resp3 = SESSION.get(final_url3, headers=base_headers, timeout=12)
+                    resp3.raise_for_status()
+                    html3 = resp3.text
+                    subtitle_text3, sold3 = _extract_subtitle_and_sold(html3)
+                    if subtitle_text3:
+                        subtitle_text, sold, final_url = subtitle_text3, sold3, final_url3
+                except Exception as e:
+                    print(f"[Erro fallback up 1] {e}")
 
-    except Exception as e:
-        print("Erro /scraping:", str(e))
-        return jsonify({"error": str(e)}), 500
+            # Fallback 3: _resolve_meli_url_up com slug
+            if not subtitle_text:
+                try:
+                    alt_slug4 = _slugify_keep_letters(item_name)
+                    final_url4 = _resolve_meli_url_up(url, alt_slug4)
+                    print(f"[Fallback up 2] Tentando: {final_url4}")
+                    resp4 = SESSION.get(final_url4, headers=base_headers, timeout=12)
+                    resp4.raise_for_status()
+                    html4 = resp4.text
+                    subtitle_text4, sold4 = _extract_subtitle_and_sold(html4)
+                    if subtitle_text4:
+                        subtitle_text, sold, final_url = subtitle_text4, sold4, final_url4
+                except Exception as e:
+                    print(f"[Erro fallback up 2] {e}")
+
+            result_map[item_id] = {
+                "url": final_url,          # devolve a URL que realmente funcionou
+                "subtitle": subtitle_text, # ex: "Novo · +100
+
 
 
 @app.route('/visitsItems', methods=['POST'])
@@ -6003,6 +6073,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
