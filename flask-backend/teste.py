@@ -841,7 +841,7 @@ def scraping():
         for it in items:
             item_id = (it.get("item_id") or it.get("itemId") or "").strip()
             url = (it.get("url") or "").strip()
-            item_name = (it.get("item_name") or "").strip()
+            item_name = (it.get("item_name") or "")
             if not item_id or not url:
                 continue
 
@@ -6091,6 +6091,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
