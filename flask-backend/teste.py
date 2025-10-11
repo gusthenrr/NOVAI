@@ -6108,18 +6108,35 @@ def is_allowed(target: str) -> bool:
     except Exception:
         return False
 
-def add_cors(resp: Response):
+def add_cors(resp: Response, allow_credentials=False):
     origin = request.headers.get("Origin")
-    # Se não precisa enviar cookies, '*' é suficiente e mais simples
-    resp.headers["Access-Control-Allow-Origin"] = origin or "*"
-    resp.headers["Vary"] = "Origin"
-    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = (
-        "Content-Type, Authorization, If-None-Match, If-Modified-Since, Range"
-    )
+    if allow_credentials and origin:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        vary = "Origin"
+    else:
+        resp.headers["Access-Control-Allow-Origin"] = origin or "*"
+        vary = "Origin"
+
+    # Métodos
+    req_method = request.headers.get("Access-Control-Request-Method")
+    resp.headers["Access-Control-Allow-Methods"] = req_method or "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS"
+
+    # Headers solicitados no preflight (ecoar é o mais robusto)
+    req_headers = request.headers.get("Access-Control-Request-Headers")
+    allow_headers = req_headers or "Content-Type, Authorization, If-None-Match, If-Modified-Since, Range, Cache-Control, Pragma"
+    resp.headers["Access-Control-Allow-Headers"] = allow_headers
+
+    # Expose o que você precisa ler no JS
     resp.headers["Access-Control-Expose-Headers"] = (
-        "Content-Type, ETag, Cache-Control, Last-Modified, Location, Content-Range"
+        "Content-Type, ETag, Cache-Control, Last-Modified, Location, Content-Range, Content-Length"
     )
+
+    # Cache do preflight
+    resp.headers["Access-Control-Max-Age"] = "86400"
+
+    # Garanta variação correta em caches
+    resp.headers["Vary"] = f"{vary}, Access-Control-Request-Headers, Access-Control-Request-Method"
     return resp
 
 # ---- Sessão HTTP com retries e pool ----
@@ -6211,6 +6228,7 @@ def proxy(raw: str):
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
