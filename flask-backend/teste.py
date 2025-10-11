@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, redirect, session, make_response
+from flask import Flask, request, jsonify, redirect, session, make_response,Response, stream_with_context
 from flask_cors import CORS, cross_origin
 import requests
 import eventlet
@@ -6088,9 +6088,130 @@ para que uma segunda IA faça os cálculos.
 
     return dados
 
+ALLOWED_EXACT = {
+    "api.mercadolibre.com",
+}
+ALLOWED_SUFFIXES = (
+    ".mercadolivre.com.br",
+    ".mercadolibre.com",
+)
+
+def is_allowed(target: str) -> bool:
+    try:
+        u = urlparse(target)
+        if u.scheme not in ("http", "https"):
+            return False
+        host = (u.hostname or "").lower()
+        if host in ALLOWED_EXACT:
+            return True
+        return any(host.endswith(suf) for suf in ALLOWED_SUFFIXES)
+    except Exception:
+        return False
+
+def add_cors(resp: Response):
+    origin = request.headers.get("Origin")
+    # Se não precisa enviar cookies, '*' é suficiente e mais simples
+    resp.headers["Access-Control-Allow-Origin"] = origin or "*"
+    resp.headers["Vary"] = "Origin"
+    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = (
+        "Content-Type, Authorization, If-None-Match, If-Modified-Since, Range"
+    )
+    resp.headers["Access-Control-Expose-Headers"] = (
+        "Content-Type, ETag, Cache-Control, Last-Modified, Location, Content-Range"
+    )
+    return resp
+
+# ---- Sessão HTTP com retries e pool ----
+session = requests.Session()
+retry = Retry(total=2, backoff_factor=0.2, status_forcelist=[429, 500, 502, 503, 504])
+adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+
+# -------- OPTIONS (pré-flight) em qualquer caminho --------
+@app.route("/", defaults={"raw": ""}, methods=["OPTIONS"])
+@app.route("/<path:raw>", methods=["OPTIONS"])
+def _opts(raw):
+    return add_cors(Response(status=204))
+
+# -------- Proxy estilo PREFIXO: https://SEU_BACKEND/https://alvo... --------
+@app.route("/", defaults={"raw": ""}, methods=["GET","POST","PUT","PATCH","DELETE","HEAD"])
+@app.route("/<path:raw>", methods=["GET","POST","PUT","PATCH","DELETE","HEAD"])
+def proxy(raw: str):
+    # 'raw' vem como 'https://api.mercadolibre.com/users/me'
+    if not raw:
+        return add_cors(Response("Target URL ausente", status=400))
+
+    target = raw
+
+    # Se a requisição ao proxy veio com query (?x=1), ela deve ser repassada ao destino:
+    # Ex.: /https://api.../items?ids=MLB123 => '?ids=MLB123' precisa ir para o destino.
+    q = request.query_string.decode("utf-8")
+    if q:
+        target = f"{target}{'&' if '?' in target else '?'}{q}"
+
+    if not is_allowed(target):
+        return add_cors(Response("Host não permitido", status=400))
+
+    method = request.method
+
+    # Encaminha apenas alguns headers úteis
+    forward_headers = {}
+    for k in ("Authorization", "Content-Type", "Accept", "Accept-Language",
+              "User-Agent", "Range", "If-None-Match", "If-Modified-Since"):
+        v = request.headers.get(k)
+        if v:
+            forward_headers[k] = v
+
+    # Corpo apenas para métodos com payload
+    data = request.get_data() if method in ("POST", "PUT", "PATCH") else None
+
+    try:
+        # allow_redirects=False -> deixa a extensão decidir redirecionamento se quiser
+        r = session.request(
+            method=method,
+            url=target,
+            headers=forward_headers,
+            data=data,
+            stream=True,
+            allow_redirects=False,
+            timeout=(5, 30),   # (connect, read)
+        )
+    except requests.RequestException as e:
+        return add_cors(Response(f"Erro ao contatar destino: {e}", status=502))
+
+    # Stream dos bytes da resposta
+    def generate():
+        try:
+            for chunk in r.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            r.close()
+
+    resp = Response(stream_with_context(generate()), status=r.status_code)
+
+    # Propaga cabeçalhos úteis (evita hop-by-hop)
+    hop_by_hop = {
+        "transfer-encoding", "connection", "keep-alive", "proxy-authenticate",
+        "proxy-authorization", "te", "trailers", "upgrade"
+    }
+    for k, v in r.headers.items():
+        lk = k.lower()
+        if lk in hop_by_hop:
+            continue
+        if lk in (
+            "content-type", "cache-control", "etag", "last-modified",
+            "content-range", "accept-ranges", "location"
+        ):
+            resp.headers[k] = v
+
+    return add_cors(resp)
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
