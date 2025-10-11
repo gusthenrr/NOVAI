@@ -6175,7 +6175,7 @@ def proxy(raw: str):
             headers=forward_headers,
             data=data,
             stream=True,
-            allow_redirects=False,
+            allow_redirects=True,
             timeout=(5, 30),   # (connect, read)
         )
     except requests.RequestException as e:
@@ -6211,6 +6211,7 @@ def proxy(raw: str):
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
