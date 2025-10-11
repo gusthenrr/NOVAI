@@ -6234,7 +6234,6 @@ def proxy(raw: str):
             method=method,
             url=target,
             headers=forward_headers,
-            data=data,
             allow_redirects=True,
             timeout=(5, 30),
             stream=False,             # precisamos do corpo para inspecionar meta refresh
@@ -6276,6 +6275,7 @@ def proxy(raw: str):
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
