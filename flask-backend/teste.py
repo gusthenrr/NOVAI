@@ -617,7 +617,7 @@ SOLD_RE = re.compile(
 )
 CLS_SUBTITLE = re.compile(r"(?:^|\s)ui-pdp-subtitle(?:\s|$)", re.I)
 
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs,urljoin
 
 MLB8_RE  = re.compile(r"\bMLB(\d{8})\b")
 MLB10_RE = re.compile(r"\bMLB(\d{10})\b")
@@ -6095,6 +6095,20 @@ ALLOWED_SUFFIXES = (
     ".mercadolivre.com.br",
     ".mercadolibre.com",
 )
+session = requests.Session()
+retry = Retry(total=2, backoff_factor=0.2, status_forcelist=[429, 500, 502, 503, 504])
+adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+DEFAULT_OUT_HEADERS = {
+    "User-Agent":  ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"),
+    "Accept":       "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "no-cache",
+    "Pragma":        "no-cache",
+    # Accept-Encoding é gerenciado pelo requests; não precisa setar manualmente
+}
 
 def is_allowed(target: str) -> bool:
     try:
@@ -6108,6 +6122,54 @@ def is_allowed(target: str) -> bool:
     except Exception:
         return False
 
+
+_META_RE = re.compile(
+    r'<meta\s+http-equiv=["\']refresh["\']\s+content=["\']\s*\d+\s*;\s*url=([^"\']+)["\']',
+    re.IGNORECASE
+)
+def _maybe_follow_meta_refresh(first_resp, *, max_hops=3):
+    """
+    Se o HTML tiver <meta http-equiv="refresh" content="0;URL=...">,
+    segue esse URL no servidor usando a mesma session (cookies persistem).
+    Retorna (resp_final, redirect_count_adicional).
+    """
+    resp = first_resp
+    extra_hops = 0
+
+    while extra_hops < max_hops and resp.headers.get("Content-Type", "").lower().startswith("text/html"):
+        try:
+            html = resp.text  # decodifica usando encoding detectada
+        except Exception:
+            break
+
+        m = _META_RE.search(html)
+        if not m:
+            break
+
+        raw = m.group(1).strip()
+        # Trata URLs do tipo //www.mercadolivre.com.br/...
+        if raw.startswith("//"):
+            target = "https:" + raw
+        else:
+            target = urljoin(resp.url, raw)
+
+        # Apenas por segurança, respeita sua allowlist:
+        if not is_allowed(target):
+            break
+
+        # Segue o meta-refresh (GET), com allow_redirects=True
+        resp.close()
+        resp = session.request(
+            method="GET",
+            url=target,
+            headers=DEFAULT_OUT_HEADERS,
+            allow_redirects=True,
+            timeout=(5, 30),
+        )
+        extra_hops += 1
+
+    return resp, extra_hops
+
 def add_cors(resp: Response, allow_credentials=False):
     origin = request.headers.get("Origin")
     if allow_credentials and origin:
@@ -6118,33 +6180,22 @@ def add_cors(resp: Response, allow_credentials=False):
         resp.headers["Access-Control-Allow-Origin"] = origin or "*"
         vary = "Origin"
 
-    # Métodos
+    # Ecoa o método/headers pedidos no preflight
     req_method = request.headers.get("Access-Control-Request-Method")
-    resp.headers["Access-Control-Allow-Methods"] = req_method or "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS"
-
-    # Headers solicitados no preflight (ecoar é o mais robusto)
     req_headers = request.headers.get("Access-Control-Request-Headers")
+    resp.headers["Access-Control-Allow-Methods"] = req_method or "GET,HEAD,OPTIONS"
+    # Inclui Cache-Control/Pragma e o que mais pedirem
     allow_headers = req_headers or "Content-Type, Authorization, If-None-Match, If-Modified-Since, Range, Cache-Control, Pragma"
     resp.headers["Access-Control-Allow-Headers"] = allow_headers
 
-    # Expose o que você precisa ler no JS
     resp.headers["Access-Control-Expose-Headers"] = (
-        "Content-Type, ETag, Cache-Control, Last-Modified, Location, Content-Range, Content-Length"
+        "Content-Type, ETag, Cache-Control, Last-Modified, Location, Content-Range, Content-Length, X-Proxy-Final-Url, X-Proxy-Redirect-Count"
     )
-
-    # Cache do preflight
     resp.headers["Access-Control-Max-Age"] = "86400"
-
-    # Garanta variação correta em caches
     resp.headers["Vary"] = f"{vary}, Access-Control-Request-Headers, Access-Control-Request-Method"
     return resp
-
 # ---- Sessão HTTP com retries e pool ----
-session = requests.Session()
-retry = Retry(total=2, backoff_factor=0.2, status_forcelist=[429, 500, 502, 503, 504])
-adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
-session.mount("https://", adapter)
-session.mount("http://", adapter)
+
 
 # -------- OPTIONS (pré-flight) em qualquer caminho --------
 @app.route("/", defaults={"raw": ""}, methods=["OPTIONS"])
@@ -6153,17 +6204,13 @@ def _opts(raw):
     return add_cors(Response(status=204))
 
 # -------- Proxy estilo PREFIXO: https://SEU_BACKEND/https://alvo... --------
-@app.route("/", defaults={"raw": ""}, methods=["GET","POST","PUT","PATCH","DELETE","HEAD"])
-@app.route("/<path:raw>", methods=["GET","POST","PUT","PATCH","DELETE","HEAD"])
+@app.route("/", defaults={"raw": ""}, methods=["GET"])
+@app.route("/<path:raw>", methods=["GET"])
 def proxy(raw: str):
-    # 'raw' vem como 'https://api.mercadolibre.com/users/me'
     if not raw:
         return add_cors(Response("Target URL ausente", status=400))
 
     target = raw
-
-    # Se a requisição ao proxy veio com query (?x=1), ela deve ser repassada ao destino:
-    # Ex.: /https://api.../items?ids=MLB123 => '?ids=MLB123' precisa ir para o destino.
     q = request.query_string.decode("utf-8")
     if q:
         target = f"{target}{'&' if '?' in target else '?'}{q}"
@@ -6173,61 +6220,63 @@ def proxy(raw: str):
 
     method = request.method
 
-    # Encaminha apenas alguns headers úteis
-    forward_headers = {}
+    # Encaminhe alguns headers do cliente e complete com os defaults “de navegador”
+    forward_headers = dict(DEFAULT_OUT_HEADERS)
     for k in ("Authorization", "Content-Type", "Accept", "Accept-Language",
-              "User-Agent", "Range", "If-None-Match", "If-Modified-Since"):
+              "User-Agent", "Range", "If-None-Match", "If-Modified-Since", "Referer"):
         v = request.headers.get(k)
         if v:
             forward_headers[k] = v
 
-    # Corpo apenas para métodos com payload
-    data = request.get_data() if method in ("POST", "PUT", "PATCH") else None
-
     try:
-        # allow_redirects=False -> deixa a extensão decidir redirecionamento se quiser
+        # 1) Segue redirects HTTP normais no servidor
         r = session.request(
             method=method,
             url=target,
             headers=forward_headers,
             data=data,
-            stream=True,
             allow_redirects=True,
-            timeout=(5, 30),   # (connect, read)
+            timeout=(5, 30),
+            stream=False,             # precisamos do corpo para inspecionar meta refresh
         )
+
+        # 2) Se for HTML com <meta http-equiv="refresh" ...>, segue também esse “redirect” de HTML
+        final_r, meta_hops = _maybe_follow_meta_refresh(r, max_hops=3)
+
     except requests.RequestException as e:
         return add_cors(Response(f"Erro ao contatar destino: {e}", status=502))
 
-    # Stream dos bytes da resposta
-    def generate():
-        try:
-            for chunk in r.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            r.close()
+    # Monta a resposta final
+    resp = Response(final_r.content, status=final_r.status_code)
 
-    resp = Response(stream_with_context(generate()), status=r.status_code)
-
-    # Propaga cabeçalhos úteis (evita hop-by-hop)
+    # Propaga alguns headers úteis
     hop_by_hop = {
         "transfer-encoding", "connection", "keep-alive", "proxy-authenticate",
         "proxy-authorization", "te", "trailers", "upgrade"
     }
-    for k, v in r.headers.items():
+    for k, v in final_r.headers.items():
         lk = k.lower()
         if lk in hop_by_hop:
             continue
-        if lk in (
-            "content-type", "cache-control", "etag", "last-modified",
-            "content-range", "accept-ranges", "location"
-        ):
+        if lk in ("content-type", "cache-control", "etag", "last-modified",
+                  "content-range", "accept-ranges", "location"):
             resp.headers[k] = v
 
+    # Headers de diagnóstico (ajudam você a ver no DevTools se funcionou)
+    try:
+        http_hops = len(final_r.history)
+        resp.headers["X-Proxy-Final-Url"] = final_r.url
+        resp.headers["X-Proxy-Redirect-Count"] = str(http_hops + meta_hops)
+    except Exception:
+        pass
+
     return add_cors(resp)
+
+
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
