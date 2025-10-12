@@ -6089,9 +6089,10 @@ para que uma segunda IA faça os cálculos.
 
     return dados
 
+# ===================== utilitários de cookies (mantidos, mas NÃO usados pelo proxy) =====================
+
 def _persist_cookies():
     try:
-        # sincroniza session → arquivo
         tmp = MozillaCookieJar(COOKIEJAR_PATH + ".tmp")
         for c in session.cookies:
             morsel = requests.cookies.create_cookie(
@@ -6104,6 +6105,7 @@ def _persist_cookies():
         os.replace(COOKIEJAR_PATH + ".tmp", COOKIEJAR_PATH)
     except Exception:
         pass
+
 def _is_gate(resp) -> bool:
     try:
         u = (resp.url or "").lower()
@@ -6115,24 +6117,25 @@ def _is_gate(resp) -> bool:
     except Exception:
         pass
     return False
+
 def ensure_device_cookie(go_url: str = "https://www.mercadolivre.com.br/") -> bool:
     """
-    Abre Chromium headless, visita o gate (webdevice/config?go=...), deixa o JS rodar,
-    coleta cookies e injeta na requests.Session(). Retorna True se obteve algum cookie útil.
+    Mantido para uso futuro (NÃO chamado pelo proxy).
+    Se precisar ativar no futuro, esta função abre Chromium headless,
+    passa pelo gate e injeta cookies na session.
     """
     global _last_device_cookie_refresh
 
     now = time.time()
     if now - _last_device_cookie_refresh < COOKIE_REFRESH_COOLDOWN_S:
-        return False  # dentro do cooldown, evita tempestade
+        return False
 
     if not _device_cookie_lock.acquire(blocking=False):
-        return False  # alguém já está rodando o bootstrap
+        return False
 
     try:
         from playwright.sync_api import sync_playwright
 
-        # monta URL do gate com go=
         gate_url = f"https://www.mercadolivre.com.br/gz/webdevice/config?go={quote(go_url, safe='')}&noscript=false"
 
         with sync_playwright() as p:
@@ -6147,34 +6150,24 @@ def ensure_device_cookie(go_url: str = "https://www.mercadolivre.com.br/") -> bo
             )
 
             page = context.new_page()
-            # navega para o gate
             page.goto(gate_url, wait_until="domcontentloaded", timeout=30000)
-
-            # dá tempo pro JS do ML setar cookies; pode ajustar se necessário
             page.wait_for_timeout(2000)
-
-            # algumas páginas redirecionam sozinhas — espera rede estabilizar um pouco
             try:
                 page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
                 pass
 
-            # coleta cookies do contexto
             pw_cookies = context.cookies()
-            # filtra os do domínio alvo
             useful = [c for c in pw_cookies if "mercadolivre.com.br" in (c.get("domain") or "")]
-            if useful:
+            ok = bool(useful)
+            if ok:
                 _merge_playwright_cookies_into_session(useful)
                 _last_device_cookie_refresh = time.time()
-                ok = True
-            else:
-                ok = False
 
             context.close()
             browser.close()
         return ok
     except Exception:
-        # log se quiser
         return False
     finally:
         try:
@@ -6183,9 +6176,7 @@ def ensure_device_cookie(go_url: str = "https://www.mercadolivre.com.br/") -> bo
             pass
 
 def _merge_playwright_cookies_into_session(pw_cookies):
-    # pw_cookies: lista de dicts {'name','value','domain','path','expires','secure', ...}
     for c in pw_cookies:
-        # Apenas cookies do domínio ML
         dom = c.get("domain") or ""
         if ".mercadolivre.com.br" not in dom and "mercadolivre.com.br" not in dom:
             continue
@@ -6198,9 +6189,9 @@ def _merge_playwright_cookies_into_session(pw_cookies):
             expires=int(c.get("expires")) if c.get("expires") else None,
         )
         session.cookies.set_cookie(morsel)
-    # persistir no disco
     _persist_cookies()
 
+# ===================== allowlist / sessão / headers =====================
 
 ALLOWED_EXACT = {
     "api.mercadolibre.com",
@@ -6209,27 +6200,27 @@ ALLOWED_SUFFIXES = (
     ".mercadolivre.com.br",
     ".mercadolibre.com",
 )
+
 session = requests.Session()
+
 COOKIEJAR_PATH = os.environ.get("ML_COOKIEJAR_PATH", "/tmp/ml_cookies.jar")
-COOKIE_REFRESH_COOLDOWN_S = int(os.environ.get("ML_COOKIE_REFRESH_COOLDOWN_S", "900"))  # 15 min
+COOKIE_REFRESH_COOLDOWN_S = int(os.environ.get("ML_COOKIE_REFRESH_COOLDOWN_S", "900"))
 _device_cookie_lock = threading.Lock()
 _last_device_cookie_refresh = 0
 
-# cookie jar compartilhado com a session
 server_cookiejar = MozillaCookieJar(COOKIEJAR_PATH)
 if os.path.exists(COOKIEJAR_PATH):
     try:
         server_cookiejar.load(ignore_discard=True, ignore_expires=False)
     except Exception:
         pass
-
-# sua session global já existe:
-# session = requests.Session()
 session.cookies.update(server_cookiejar)
+
 retry = Retry(total=2, backoff_factor=0.2, status_forcelist=[429, 500, 502, 503, 504])
 adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
 session.mount("https://", adapter)
 session.mount("http://", adapter)
+
 DEFAULT_OUT_HEADERS = {
     "User-Agent":  ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"),
@@ -6237,7 +6228,6 @@ DEFAULT_OUT_HEADERS = {
     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
     "Cache-Control": "no-cache",
     "Pragma":        "no-cache",
-    # Accept-Encoding é gerenciado pelo requests; não precisa setar manualmente
 }
 
 def is_allowed(target: str) -> bool:
@@ -6252,54 +6242,6 @@ def is_allowed(target: str) -> bool:
     except Exception:
         return False
 
-
-_META_RE = re.compile(
-    r'<meta\s+http-equiv=["\']refresh["\']\s+content=["\']\s*\d+\s*;\s*url=([^"\']+)["\']',
-    re.IGNORECASE
-)
-def _maybe_follow_meta_refresh(first_resp, *, max_hops=3):
-    """
-    Se o HTML tiver <meta http-equiv="refresh" content="0;URL=...">,
-    segue esse URL no servidor usando a mesma session (cookies persistem).
-    Retorna (resp_final, redirect_count_adicional).
-    """
-    resp = first_resp
-    extra_hops = 0
-
-    while extra_hops < max_hops and resp.headers.get("Content-Type", "").lower().startswith("text/html"):
-        try:
-            html = resp.text  # decodifica usando encoding detectada
-        except Exception:
-            break
-
-        m = _META_RE.search(html)
-        if not m:
-            break
-
-        raw = m.group(1).strip()
-        # Trata URLs do tipo //www.mercadolivre.com.br/...
-        if raw.startswith("//"):
-            target = "https:" + raw
-        else:
-            target = urljoin(resp.url, raw)
-
-        # Apenas por segurança, respeita sua allowlist:
-        if not is_allowed(target):
-            break
-
-        # Segue o meta-refresh (GET), com allow_redirects=True
-        resp.close()
-        resp = session.request(
-            method="GET",
-            url=target,
-            headers=DEFAULT_OUT_HEADERS,
-            allow_redirects=True,
-            timeout=(5, 30),
-        )
-        extra_hops += 1
-
-    return resp, extra_hops
-
 def add_cors(resp: Response, allow_credentials=False):
     origin = request.headers.get("Origin")
     if allow_credentials and origin:
@@ -6310,30 +6252,27 @@ def add_cors(resp: Response, allow_credentials=False):
         resp.headers["Access-Control-Allow-Origin"] = origin or "*"
         vary = "Origin"
 
-    # Ecoa o método/headers pedidos no preflight
     req_method = request.headers.get("Access-Control-Request-Method")
     req_headers = request.headers.get("Access-Control-Request-Headers")
     resp.headers["Access-Control-Allow-Methods"] = req_method or "GET,HEAD,OPTIONS"
-    # Inclui Cache-Control/Pragma e o que mais pedirem
-    allow_headers = req_headers or "Content-Type, Authorization, If-None-Match, If-Modified-Since, Range, Cache-Control, Pragma"
-    resp.headers["Access-Control-Allow-Headers"] = allow_headers
-
+    resp.headers["Access-Control-Allow-Headers"] = req_headers or (
+        "Content-Type, Authorization, If-None-Match, If-Modified-Since, Range, Cache-Control, Pragma"
+    )
     resp.headers["Access-Control-Expose-Headers"] = (
-        "Content-Type, ETag, Cache-Control, Last-Modified, Location, Content-Range, Content-Length, X-Proxy-Final-Url, X-Proxy-Redirect-Count"
+        "Content-Type, ETag, Cache-Control, Last-Modified, Location, Content-Range, Content-Length, "
+        "X-Proxy-Final-Url, X-Proxy-Redirect-Count, X-Proxy-Gate"
     )
     resp.headers["Access-Control-Max-Age"] = "86400"
     resp.headers["Vary"] = f"{vary}, Access-Control-Request-Headers, Access-Control-Request-Method"
     return resp
-# ---- Sessão HTTP com retries e pool ----
 
+# ===================== rotas =====================
 
-# -------- OPTIONS (pré-flight) em qualquer caminho --------
 @app.route("/", defaults={"raw": ""}, methods=["OPTIONS"])
 @app.route("/<path:raw>", methods=["OPTIONS"])
 def _opts(raw):
     return add_cors(Response(status=204))
 
-# -------- Proxy estilo PREFIXO: https://SEU_BACKEND/https://alvo... --------
 @app.route("/", defaults={"raw": ""}, methods=["GET"])
 @app.route("/<path:raw>", methods=["GET"])
 def proxy(raw: str):
@@ -6350,7 +6289,6 @@ def proxy(raw: str):
 
     method = request.method
 
-    # Encaminhe alguns headers do cliente e complete com os defaults “de navegador”
     forward_headers = dict(DEFAULT_OUT_HEADERS)
     for k in ("Authorization", "Content-Type", "Accept", "Accept-Language",
               "User-Agent", "Range", "If-None-Match", "If-Modified-Since", "Referer"):
@@ -6359,35 +6297,24 @@ def proxy(raw: str):
             forward_headers[k] = v
 
     try:
-        # 1) Segue redirects HTTP normais no servidor
+        # SEGUE APENAS REDIRECTS HTTP (301/302). NÃO segue meta-refresh.
         r = session.request(
             method=method,
             url=target,
             headers=forward_headers,
             allow_redirects=True,
             timeout=(5, 30),
-            stream=False,             # precisamos do corpo para inspecionar meta refresh
+            stream=False,
         )
 
-        # 2) Se for HTML com <meta http-equiv="refresh" ...>, segue também esse “redirect” de HTML
-        final_r, meta_hops = _maybe_follow_meta_refresh(r, max_hops=3)
-        is_gate = _is_gate(final_r)
-        if is_gate:
-            # tenta obter/renovar cookie de device via headless
-            go = target if target.startswith("http") else f"https://www.mercadolivre.com.br/"
-            if ensure_device_cookie(go_url=go):
-                # retry da requisição original com cookies agora presentes
-                final_r = session.get(target, headers=forward_headers, allow_redirects=True, timeout=(5,30))
-                final_r, mh2 = _maybe_follow_meta_refresh(final_r, max_hops=3)
-                meta_hops += mh2
+        final_r = r
+        meta_hops = 0  # diagnóstico compatível com cabeçalho
 
     except requests.RequestException as e:
         return add_cors(Response(f"Erro ao contatar destino: {e}", status=502))
 
-    # Monta a resposta final
     resp = Response(final_r.content, status=final_r.status_code)
 
-    # Propaga alguns headers úteis
     hop_by_hop = {
         "transfer-encoding", "connection", "keep-alive", "proxy-authenticate",
         "proxy-authorization", "te", "trailers", "upgrade"
@@ -6400,20 +6327,22 @@ def proxy(raw: str):
                   "content-range", "accept-ranges", "location"):
             resp.headers[k] = v
 
-    # Headers de diagnóstico (ajudam você a ver no DevTools se funcionou)
     try:
         http_hops = len(final_r.history)
         resp.headers["X-Proxy-Final-Url"] = final_r.url
         resp.headers["X-Proxy-Redirect-Count"] = str(http_hops + meta_hops)
+        resp.headers["X-Proxy-Gate"] = "1" if _is_gate(final_r) else "0"
     except Exception:
         pass
 
     return add_cors(resp)
 
 
+
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
