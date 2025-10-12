@@ -9,7 +9,7 @@ import uuid
 from uuid import UUID
 import hashlib
 import base64
-import os
+import os,time, threading, json
 import re, unicodedata, requests
 import random
 from collections import defaultdict
@@ -64,6 +64,7 @@ app.config['SESSION_COOKIE_SAMESITE'] = "None"
 #Config do jwt
 app.config["JWT_SECRET_KEY"] = "aquiumachavebemsegura"
 jwt = JWTManager(app)
+from http.cookiejar import MozillaCookieJar
 
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": [ALLOWED_ORIGIN]}})
@@ -617,7 +618,7 @@ SOLD_RE = re.compile(
 )
 CLS_SUBTITLE = re.compile(r"(?:^|\s)ui-pdp-subtitle(?:\s|$)", re.I)
 
-from urllib.parse import urlparse, parse_qs,urljoin
+from urllib.parse import urlparse, parse_qs,urljoin,urlencode, quote
 
 MLB8_RE  = re.compile(r"\bMLB(\d{8})\b")
 MLB10_RE = re.compile(r"\bMLB(\d{10})\b")
@@ -6088,6 +6089,119 @@ para que uma segunda IA faça os cálculos.
 
     return dados
 
+def _persist_cookies():
+    try:
+        # sincroniza session → arquivo
+        tmp = MozillaCookieJar(COOKIEJAR_PATH + ".tmp")
+        for c in session.cookies:
+            morsel = requests.cookies.create_cookie(
+                name=c.name, value=c.value,
+                domain=c.domain, path=c.path or "/",
+                secure=c.secure, expires=c.expires
+            )
+            tmp.set_cookie(morsel)
+        tmp.save(COOKIEJAR_PATH, ignore_discard=True, ignore_expires=True)
+        os.replace(COOKIEJAR_PATH + ".tmp", COOKIEJAR_PATH)
+    except Exception:
+        pass
+def _is_gate(resp) -> bool:
+    try:
+        u = (resp.url or "").lower()
+        if "gz/webdevice/config" in u or "gz/account-verification" in u:
+            return True
+        peek = resp.content[:4096] if resp.content else b""
+        if b"webdevice/config" in peek or b"account-verification" in peek:
+            return True
+    except Exception:
+        pass
+    return False
+def ensure_device_cookie(go_url: str = "https://www.mercadolivre.com.br/") -> bool:
+    """
+    Abre Chromium headless, visita o gate (webdevice/config?go=...), deixa o JS rodar,
+    coleta cookies e injeta na requests.Session(). Retorna True se obteve algum cookie útil.
+    """
+    global _last_device_cookie_refresh
+
+    now = time.time()
+    if now - _last_device_cookie_refresh < COOKIE_REFRESH_COOLDOWN_S:
+        return False  # dentro do cooldown, evita tempestade
+
+    if not _device_cookie_lock.acquire(blocking=False):
+        return False  # alguém já está rodando o bootstrap
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        # monta URL do gate com go=
+        gate_url = f"https://www.mercadolivre.com.br/gz/webdevice/config?go={quote(go_url, safe='')}&noscript=false"
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=[
+                "--no-sandbox", "--disable-dev-shm-usage",
+                "--disable-gpu", "--disable-web-security",
+            ])
+            context = browser.new_context(
+                user_agent=DEFAULT_OUT_HEADERS["User-Agent"],
+                locale="pt-BR",
+                viewport={"width": 1280, "height": 800},
+            )
+
+            page = context.new_page()
+            # navega para o gate
+            page.goto(gate_url, wait_until="domcontentloaded", timeout=30000)
+
+            # dá tempo pro JS do ML setar cookies; pode ajustar se necessário
+            page.wait_for_timeout(2000)
+
+            # algumas páginas redirecionam sozinhas — espera rede estabilizar um pouco
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+
+            # coleta cookies do contexto
+            pw_cookies = context.cookies()
+            # filtra os do domínio alvo
+            useful = [c for c in pw_cookies if "mercadolivre.com.br" in (c.get("domain") or "")]
+            if useful:
+                _merge_playwright_cookies_into_session(useful)
+                _last_device_cookie_refresh = time.time()
+                ok = True
+            else:
+                ok = False
+
+            context.close()
+            browser.close()
+        return ok
+    except Exception:
+        # log se quiser
+        return False
+    finally:
+        try:
+            _device_cookie_lock.release()
+        except Exception:
+            pass
+
+def _merge_playwright_cookies_into_session(pw_cookies):
+    # pw_cookies: lista de dicts {'name','value','domain','path','expires','secure', ...}
+    for c in pw_cookies:
+        # Apenas cookies do domínio ML
+        dom = c.get("domain") or ""
+        if ".mercadolivre.com.br" not in dom and "mercadolivre.com.br" not in dom:
+            continue
+        morsel = requests.cookies.create_cookie(
+            name=c["name"],
+            value=c["value"],
+            domain=dom if dom.startswith(".") or dom.startswith("www.") else "." + dom,
+            path=c.get("path") or "/",
+            secure=bool(c.get("secure")),
+            expires=int(c.get("expires")) if c.get("expires") else None,
+        )
+        session.cookies.set_cookie(morsel)
+    # persistir no disco
+    _persist_cookies()
+
+
 ALLOWED_EXACT = {
     "api.mercadolibre.com",
 }
@@ -6096,6 +6210,22 @@ ALLOWED_SUFFIXES = (
     ".mercadolibre.com",
 )
 session = requests.Session()
+COOKIEJAR_PATH = os.environ.get("ML_COOKIEJAR_PATH", "/tmp/ml_cookies.jar")
+COOKIE_REFRESH_COOLDOWN_S = int(os.environ.get("ML_COOKIE_REFRESH_COOLDOWN_S", "900"))  # 15 min
+_device_cookie_lock = threading.Lock()
+_last_device_cookie_refresh = 0
+
+# cookie jar compartilhado com a session
+server_cookiejar = MozillaCookieJar(COOKIEJAR_PATH)
+if os.path.exists(COOKIEJAR_PATH):
+    try:
+        server_cookiejar.load(ignore_discard=True, ignore_expires=False)
+    except Exception:
+        pass
+
+# sua session global já existe:
+# session = requests.Session()
+session.cookies.update(server_cookiejar)
 retry = Retry(total=2, backoff_factor=0.2, status_forcelist=[429, 500, 502, 503, 504])
 adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
 session.mount("https://", adapter)
@@ -6241,6 +6371,15 @@ def proxy(raw: str):
 
         # 2) Se for HTML com <meta http-equiv="refresh" ...>, segue também esse “redirect” de HTML
         final_r, meta_hops = _maybe_follow_meta_refresh(r, max_hops=3)
+        is_gate = _is_gate(final_r)
+        if is_gate:
+            # tenta obter/renovar cookie de device via headless
+            go = target if target.startswith("http") else f"https://www.mercadolivre.com.br/"
+            if ensure_device_cookie(go_url=go):
+                # retry da requisição original com cookies agora presentes
+                final_r = session.get(target, headers=forward_headers, allow_redirects=True, timeout=(5,30))
+                final_r, mh2 = _maybe_follow_meta_refresh(final_r, max_hops=3)
+                meta_hops += mh2
 
     except requests.RequestException as e:
         return add_cors(Response(f"Erro ao contatar destino: {e}", status=502))
@@ -6275,6 +6414,7 @@ def proxy(raw: str):
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
