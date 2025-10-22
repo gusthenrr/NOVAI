@@ -3091,18 +3091,14 @@ def token_access():
                     cur.execute("""
                         SELECT access_token, refresh_token
                         FROM contas_mercado_livre
-                        WHERE seller_id = %s
-                        ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
-                    """, (seller_id,))
+                    """)
                 else:
                     cur.execute("""
                         SELECT access_token, refresh_token
                         FROM contas_mercado_livre
-                        WHERE seller_nickname = %s OR seller_name = %s
-                        ORDER BY updated_at DESC NULLS LAST
                         LIMIT 1
-                    """, (seller_name, seller_name))
+                    """)
 
                 row = cur.fetchone()
 
@@ -6159,6 +6155,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
