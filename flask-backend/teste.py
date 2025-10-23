@@ -548,8 +548,11 @@ def public_offers_notifications(data, acess_token_data):
             min_discounted_price= result.get('min_discounted_price', None)
             max_discounted_price= result.get('max_discounted_price', None)
             suggested_discounted_price= result.get('suggested_discounted_price', None)
-            start_date= result.get('start_date', None)
+            start_date2= result.get('start_date', None)
             end_date = result.get('end_date', None)
+            if not start_date2 or not end_date:
+                start_date2=start_date
+                end_date=finish_date
             sub_type = result.get('sub_type', None)
             offer_id = result.get('offer_id', None)
             meli_percentage = result.get('meli_percentage', None)
@@ -565,16 +568,16 @@ def public_offers_notifications(data, acess_token_data):
                 cur.execute("""UPDATE ponte_item_promotions SET status = %s,price = %s,original_price = %s,min_discounted_price = %s,max_discounted_price = %s,
                 suggested_discounted_price = %s,start_date = %s,end_date = %s,sub_type = %s,offer_id = %s,meli_percentage = %s,seller_percentage = %s,
                 buy_quantity = %s,pay_quantity = %s,allow_combination = %s,fixed_amount = %s,fixed_percentage = %s,top_deal_price = %s,
-                discount_percentage = %s,nome_item=%s, auto=%s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
-                min_discounted_price,max_discounted_price,suggested_discounted_price,start_date,end_date,sub_type,offer_id,meli_percentage,seller_percentage,
-                buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,nome_item,False,id_promotion_item,item_id,user_id))
+                discount_percentage = %s,nome_item=%s WHERE id_promotion = %s AND item_id = %s AND usuario_id_ponte_item_promotions = %s""",(status,price,original_price,
+                min_discounted_price,max_discounted_price,suggested_discounted_price,start_date2,end_date,sub_type,offer_id,meli_percentage,seller_percentage,
+                buy_quantity,pay_quantity,allow_combination,fixed_amount,fixed_percentage,top_deal_price,discount_percentage,nome_item,id_promotion_item,item_id,user_id))
     
             else:
                 cur.execute("""INSERT INTO ponte_item_promotions (id_promotion, item_id, status, price, original_price, 
                                     min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
                                     seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
                                     discount_percentage,nome_item, usuario_id_ponte_item_promotions,auto) VALUES (%s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
-                                    min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
+                                    min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date2, end_date,sub_type, offer_id, meli_percentage, 
                                     seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
                                     discount_percentage, nome_item, user_id,False))
     except Exception as e:
@@ -3990,8 +3993,11 @@ def promocoes(user_id, access_token,id_ml):
                     min_discounted_price= result.get('min_discounted_price', None)
                     max_discounted_price= result.get('max_discounted_price', None)
                     suggested_discounted_price= result.get('suggested_discounted_price', None)
-                    start_date= result.get('start_date', None)
+                    start_date2= result.get('start_date', None)
                     end_date = result.get('end_date', None)
+                    if not start_date2 or not end_date:
+                        start_date2=start_date
+                        end_date=finish_date
                     sub_type = result.get('sub_type', None)
                     offer_id = result.get('offer_id', None)
     
@@ -4008,7 +4014,7 @@ def promocoes(user_id, access_token,id_ml):
                                 min_discounted_price,max_discounted_price, suggested_discounted_price, start_date, end_date, sub_type, offer_id, meli_percentage, 
                                 seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
                                 discount_percentage, usuario_id_ponte_item_promotions, auto) VALUES (%s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s, %s, %s, %s,%s,%s)""",(id_promotion_item, item_id, status, price, original_price, 
-                                min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date, end_date,sub_type, offer_id, meli_percentage, 
+                                min_discounted_price,max_discounted_price ,suggested_discounted_price, start_date2, end_date,sub_type, offer_id, meli_percentage, 
                                 seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
                                 discount_percentage, user_id,False))
     
@@ -6155,6 +6161,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
