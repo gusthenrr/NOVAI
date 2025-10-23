@@ -3058,6 +3058,7 @@ def get_promotions_and_items():
 
 @app.route("/token_access", methods=["POST"])
 def token_access():
+    print('entrou token_access')
     data = request.get_json(silent=True) or {}
     refresh_token = data.get("refresh_token")
     seller_id = data.get("seller_id")
@@ -3092,13 +3093,13 @@ def token_access():
             with conn.cursor() as cur:
                 if seller_id:
                     cur.execute("""
-                        SELECT access_token, refresh_token
+                        SELECT acess_token, refresh_token
                         FROM contas_mercado_livre
                         LIMIT 1
                     """)
                 else:
                     cur.execute("""
-                        SELECT access_token, refresh_token
+                        SELECT acess_token, refresh_token
                         FROM contas_mercado_livre
                         LIMIT 1
                     """)
@@ -3110,9 +3111,10 @@ def token_access():
 
         # Se o cursor não for dict-like, adapte:
         # access_token = row["access_token"] ou row[0]
-        access_token = row["access_token"] if isinstance(row, dict) else row[0]
+        access_token = row["acess_token"] if isinstance(row, dict) else row[0]
         refresh_token = row["refresh_token"] if isinstance(row, dict) else row[1]
-
+        print('retornando do token_access: ', access_token)
+        print('refresh_token:', refresh_token)
         return jsonify({
             "access_token": access_token,
             "refresh_token": refresh_token
@@ -6161,6 +6163,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
