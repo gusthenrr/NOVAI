@@ -3073,7 +3073,7 @@ def login_extension():
         token_access=dict['token_acess']
         refresh_token=dict['refresh_token']
         return jsonify({'access_token':token_access, 'refresh_token':refresh_token}), 200
-    except Exception as e;
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route("/token_access", methods=["POST"])
@@ -6139,6 +6139,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
