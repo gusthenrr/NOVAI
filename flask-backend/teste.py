@@ -3081,16 +3081,13 @@ def token_access():
     print('entrou token_access')
     data = request.get_json(silent=True) or {}
     refresh_token = data.get("refresh_token")
-    seller_id = data.get("seller_id")
-    seller_name = data.get("seller_name")
-
     # 1) Fluxo: renovar via refresh_token (frente chama getnewToken)
     if refresh_token:
         try:
             data_t = renovar_access_token(refresh_token)
             # padronize as chaves do retorno de renovar_access_token
             new_access = data_t.get("access_token")
-            new_refresh = data_t.get("refresh_token") or data_t.get("novo_refresh_token")
+            new_refresh = data_t.get("refresh_token")
 
             if not new_access:
                 return jsonify({"error": "refresh_failed"}), 400
@@ -3101,47 +3098,6 @@ def token_access():
             }), 200
         except Exception as e:
             return jsonify({"error": "refresh_exception", "message": str(e)}), 400
-
-    # 2) Fluxo: identificar por seller_id/seller_name (frente chama findPermission)
-    if not seller_id and not seller_name:
-        return jsonify({"error": "missing_parameters"}), 400
-
-    try:
-        with get_db_connection() as conn:
-            # Ajuste o cursor conforme seu driver.
-            # Ex.: psycopg2 -> RealDictCursor; sqlite3 -> conn.row_factory = sqlite3.Row
-            with conn.cursor() as cur:
-                if seller_id:
-                    cur.execute("""
-                        SELECT acess_token, refresh_token
-                        FROM contas_mercado_livre
-                        LIMIT 1
-                    """)
-                else:
-                    cur.execute("""
-                        SELECT acess_token, refresh_token
-                        FROM contas_mercado_livre
-                        LIMIT 1
-                    """)
-
-                row = cur.fetchone()
-
-        if not row:
-            return jsonify({"error": "seller_not_found"}), 404
-
-        # Se o cursor não for dict-like, adapte:
-        # access_token = row["access_token"] ou row[0]
-        access_token = row["acess_token"] if isinstance(row, dict) else row[0]
-        refresh_token = row["refresh_token"] if isinstance(row, dict) else row[1]
-        print('retornando do token_access: ', access_token)
-        print('refresh_token:', refresh_token)
-        return jsonify({
-            "access_token": access_token,
-            "refresh_token": refresh_token
-        }), 200
-
-    except Exception as e:
-        return jsonify({"error": "db_exception", "message": str(e)}), 500
     
 def faturamento_por_pedidos(user_id, room):
     print("entrou no faturamento_por_pedidos")
@@ -6183,6 +6139,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
