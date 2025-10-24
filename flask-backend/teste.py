@@ -3062,13 +3062,13 @@ def login_extension():
         print('Entrou no login-extension')
         data = request.get_json(silent=True) or {}
         email=data.get('email')
-        senha=data.get('senha')
+        senha=data.get('password')
         with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
+            cur.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
             user = cur.fetchone()
             if user:
                 user_id=user['id']
-                cur.execute('SELECT token_acess, refresh_token FROM contas_mercado_livre WHERE usuario_id=%s', (user_id))
+                cur.execute('SELECT token_acess, refresh_token FROM contas_mercado_livre WHERE usuario_id=%s', (user_id,))
                 dict=cur.fetchone()
         token_access=dict['token_acess']
         refresh_token=dict['refresh_token']
@@ -6139,6 +6139,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
