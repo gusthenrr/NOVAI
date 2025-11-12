@@ -3072,7 +3072,8 @@ def login_extension():
                 dict=cur.fetchone()
         token_access=dict['acess_token']
         refresh_token=dict['refresh_token']
-        return jsonify({'access_token':token_access, 'refresh_token':refresh_token}), 200
+        token_user=gerar_token(user_id)
+        return jsonify({'access_token':token_access, 'refresh_token':refresh_token, 'token_user':token_user}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -6139,6 +6140,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
