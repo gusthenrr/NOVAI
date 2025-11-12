@@ -3082,21 +3082,35 @@ def token_access():
     print('entrou token_access')
     data = request.get_json(silent=True) or {}
     refresh_token = data.get("refresh_token")
+    token_user = data.get('token_user')
+    decoded_token=decode_token(token_user)
+    user_id=decoded_token.get("sub")
+    print('user_id: ', user_id)
     # 1) Fluxo: renovar via refresh_token (frente chama getnewToken)
-    if refresh_token:
+    if refresh_token and user_id:
         try:
-            data_t = renovar_access_token(refresh_token)
-            # padronize as chaves do retorno de renovar_access_token
-            new_access = data_t.get("access_token")
-            new_refresh = data_t.get("refresh_token")
-
-            if not new_access:
-                return jsonify({"error": "refresh_failed"}), 400
-
-            return jsonify({
-                "access_token": new_access,
-                "refresh_token": new_refresh or refresh_token
-            }), 200
+            with get_db_connection() as conn, conn.cursor() as cur:
+                cur.execute('SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s', user_id)
+                refresh_token_dict=cur.fetchone()
+                if refresh_token_dict['refresh_token']==refresh_token or refresh_token_dict: 
+                    data_t = renovar_access_token(refresh_token_dict['refresh_token'])
+                    # padronize as chaves do retorno de renovar_access_token
+                    new_access = data_t.get("access_token")
+                    new_refresh = data_t.get("novo_refresh_token")
+                    new_expiration = data_t.get('nova_expiracao')
+                    
+                    if not new_access:
+                        return jsonify({"error": "refresh_failed"}), 400
+                    cur.execute('UPDATE contas_mercado_livre SET acess_token = %s, refresh_token = %s, expiration_token = %s WHERE usuario_id=%s', new_access, new_refresh, new_expiration, user_id)
+                    conn.commit()
+                    token_user= gerar_token(user_id)
+                else:
+                    return jsonify({"error": "refresh_failed"}), 400
+                return jsonify({
+                    "access_token": new_access,
+                    "refresh_token": new_refresh or refresh_token,
+                    "token_user": token_user,
+                }), 200
         except Exception as e:
             return jsonify({"error": "refresh_exception", "message": str(e)}), 400
     
@@ -6140,6 +6154,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
