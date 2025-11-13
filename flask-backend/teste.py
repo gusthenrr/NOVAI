@@ -3063,15 +3063,24 @@ def login_extension():
         data = request.get_json(silent=True) or {}
         email=data.get('email')
         senha=data.get('password')
+        agora=datetime.now()
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
             user = cur.fetchone()
             if user:
                 user_id=user['id']
-                cur.execute('SELECT acess_token, refresh_token FROM contas_mercado_livre WHERE usuario_id=%s', (user_id,))
+                cur.execute('SELECT acess_token, refresh_token, expiracao_token FROM contas_mercado_livre WHERE usuario_id=%s', (user_id,))
                 dict=cur.fetchone()
-        token_access=dict['acess_token']
-        refresh_token=dict['refresh_token']
+            expiracao_token=dict['expiracao_token']
+            token_access=dict['acess_token']
+            refresh_token=dict['refresh_token']
+            if agora>expiracao_token:
+                data_t=renovar_access_token(refresh_token)
+                token_access=data_t['access_token']
+                refresh_token=['novo_refresh_token']
+                expiracao_token=['nova_expiracao']
+                cur.execute('UPDATE contas_mercado_livre SET acess_token = %s, refresh_token = %s, expiracao_token = %s WHERE usuario_id = %s', (user_id,))
+                cur.commit()
         token_user=gerar_token(user_id)
         return jsonify({'access_token':token_access, 'refresh_token':refresh_token, 'token_user':token_user}), 200
     except Exception as e:
@@ -3101,7 +3110,7 @@ def token_access():
                     
                     if not new_access:
                         return jsonify({"error": "refresh_failed"}), 400
-                    cur.execute('UPDATE contas_mercado_livre SET acess_token = %s, refresh_token = %s, expiration_token = %s WHERE usuario_id=%s', new_access, new_refresh, new_expiration, user_id)
+                    cur.execute('UPDATE contas_mercado_livre SET acess_token = %s, refresh_token = %s, expiracao_token = %s WHERE usuario_id=%s', new_access, new_refresh, new_expiration, user_id)
                     conn.commit()
                     token_user= gerar_token(user_id)
                 else:
@@ -6154,6 +6163,7 @@ para que uma segunda IA faça os cálculos.
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
 
 
 
