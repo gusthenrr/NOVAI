@@ -128,6 +128,35 @@ Quando o domínio estiver novamente registrado e com DNS ativo, adicione-o em
 `CNAME` e `TXT` informados pelo Railway. Depois atualize `PUBLIC_BASE_URL`,
 `MERCADO_LIVRE_REDIRECT_URI` e o domínio autorizado no Mercado Livre.
 
+## 9. Publicar o frontend Next.js
+
+Crie um segundo serviço no mesmo projeto Railway usando o mesmo repositório e
+a mesma branch do backend.
+
+No serviço do frontend:
+
+1. Em **Settings > Source**, selecione o repositório `gusthenrr/NOVAI`.
+2. Selecione a branch preparada para deploy.
+3. Configure **Root Directory** como `/next.js`.
+4. O Railway usará `next.js/Dockerfile` e `next.js/railway.json`.
+5. Em **Variables**, adicione a URL pública do backend:
+
+   ```text
+   NEXT_PUBLIC_API_URL=https://SEU-BACKEND.up.railway.app
+   ```
+
+6. Gere um domínio público para o frontend em **Settings > Networking**.
+7. No serviço do backend, atualize `ALLOWED_ORIGINS` com o domínio do frontend:
+
+   ```text
+   ALLOWED_ORIGINS=https://SEU-FRONTEND.up.railway.app
+   ```
+
+8. Faça redeploy dos dois serviços depois de salvar as variáveis.
+
+`NEXT_PUBLIC_API_URL` é incorporada ao JavaScript durante o build do Next.js.
+Sempre faça um novo deploy do frontend quando essa URL mudar.
+
 ## Comando de execução usado pela imagem
 
 ```text
