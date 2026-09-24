@@ -39,6 +39,7 @@ __pycache__/
 # ✅ Variáveis de ambiente ⚠️
 .env
 .env.*
+!.env.example
 next.js/.env.local
 
 # ✅ Logs e arquivos temporários
@@ -61,4 +62,3 @@ yarn-error.log*
 # Sessões Flask (temporárias)
 flask-backend/flask_session/
 flask-backend/flask_sessions/
-

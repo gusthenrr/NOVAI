@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+.env.*
+__pycache__
+*.py[cod]
+*.log
+flask-backend/flask_session
+flask-backend/flask_sessions
+next.js
+ml-ext

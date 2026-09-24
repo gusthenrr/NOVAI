@@ -16,27 +16,17 @@ from openai import OpenAI
 import datetime
 from dotenv import load_dotenv
 
+load_dotenv(".env.local")
 
-DB_HOST = "localhost"
-DB_PORT = "1737"
-DB_NAME = 'novai'
-DB_USER = 'postgres'
-DB_PASSWORD = 'S3t3mbro41'
 def get_db_connection():
-    conn = psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        cursor_factory=RealDictCursor  # Retorna resultados como dicionários
-    )
-    return conn
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL não definido")
+    return psycopg2.connect(database_url, cursor_factory=RealDictCursor)
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
-SECRET_KEY = os.urandom(24)
-app.secret_key = os.urandom(24)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
@@ -44,22 +34,21 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True  # Impede que scripts acessem os co
 app.config['SESSION_COOKIE_SECURE'] = True  # Se True, só permite cookies via HTTPS
 app.config['SESSION_COOKIE_SAMESITE'] = "None"
 #Config do jwt
-app.config["JWT_SECRET_KEY"] = "aquiumachavebemsegura"
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "dev-only-change-me")
 jwt = JWTManager(app)
 
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True)
 
-url_global="https://257d-2804-7f0-7b43-e6bc-216c-8de1-47e0-48ba.ngrok-free.app"
+url_global = os.getenv("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/")
 # 🔑 Suas credenciais do Mercado Livre
-CLIENT_ID = "3414621845496970"
-CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
+CLIENT_ID = os.getenv("MERCADO_LIVRE_CLIENT_ID", "")
+CLIENT_SECRET = os.getenv("MERCADO_LIVRE_CLIENT_SECRET", "")
 # 🌎 URL de redirecionamento configurada no painel do Mercado Livre
-REDIRECT_URI = f"{url_global}/callback"
+REDIRECT_URI = os.getenv("MERCADO_LIVRE_REDIRECT_URI", f"{url_global}/callback")
 
-load_dotenv(".env.local")
 api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=api_key) if api_key else None
 
 @app.route('/add-usuario', methods=['POST'])
 def add_usuario():

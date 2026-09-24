@@ -39,22 +39,42 @@ from langchain.prompts.few_shot import FewShotPromptTemplate
 from langchain.prompts.prompt import PromptTemplate
 from typing import Optional, List, Any, Dict, Literal,Tuple
 
-DB_HOST = "localhost"
-DB_PORT = "5432"
-DB_NAME = 'novai'
-DB_USER = 'postgres'
-DB_PASSWORD = 'S3t3mbro41'
+load_dotenv(".env.local")
+
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name, default=""):
+    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+def secret_setting(name):
+    value = os.getenv(name)
+    if value:
+        return value
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        raise RuntimeError(f"{name} não definido")
+    return "dev-only-change-me"
+
+
 def get_db_connection():
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL não definido")
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
     return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 app = Flask(__name__)
-ALLOWED_ORIGIN = "https://app.nossopoint-backend-flask-server.com"
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGIN, async_mode='eventlet', ping_interval=20, ping_timeout=120)
-load_dotenv(".env.local")
-app.secret_key = os.getenv("FLASK_SECRET_KEY") 
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/")
+ALLOWED_ORIGINS = env_list("ALLOWED_ORIGINS", "http://localhost:3000")
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='eventlet', ping_interval=20, ping_timeout=120)
+app.secret_key = secret_setting("FLASK_SECRET_KEY")
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
@@ -62,24 +82,25 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True  # Impede que scripts acessem os co
 app.config['SESSION_COOKIE_SECURE'] = True  # Se True, só permite cookies via HTTPS
 app.config['SESSION_COOKIE_SAMESITE'] = "None"
 #Config do jwt
-app.config["JWT_SECRET_KEY"] = "aquiumachavebemsegura"
+app.config["JWT_SECRET_KEY"] = secret_setting("JWT_SECRET_KEY")
 jwt = JWTManager(app)
 from http.cookiejar import MozillaCookieJar
 
 Session(app)  # Inicializa a sessão
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": [ALLOWED_ORIGIN]}})
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
-url_global="https://nossopoint-backend-flask-server.com"
+url_global = PUBLIC_BASE_URL
 # 🔑 Suas credenciais do Mercado Livre
-CLIENT_ID = "3414621845496970"
-CLIENT_SECRET = "Zn1vIKKBbucQvaR9BRxcg6ufGn39iW4h"
+CLIENT_ID = os.getenv("MERCADO_LIVRE_CLIENT_ID", "")
+CLIENT_SECRET = os.getenv("MERCADO_LIVRE_CLIENT_SECRET", "")
 # 🌎 URL de redirecionamento configurada no painel do Mercado Livre
-REDIRECT_URI = f"{url_global}/callback"
+REDIRECT_URI = os.getenv("MERCADO_LIVRE_REDIRECT_URI", f"{url_global}/callback")
 
 
 api_key = os.getenv("OPENAI_API_KEY")
-LangChainTracer(project_name="novo_projeto")
-client = OpenAI(api_key=api_key)
+if os.getenv("LANGCHAIN_API_KEY"):
+    LangChainTracer(project_name=os.getenv("LANGCHAIN_PROJECT", "novo_projeto"))
+client = OpenAI(api_key=api_key) if api_key else None
 
 COOKIE_NAME = "__Host-token"
 
@@ -196,7 +217,7 @@ def callback():
 
     if not state or not code:
         return "Parâmetros ausentes", 400
-    print("parametros recbidos: ", state, code)
+    print("Callback OAuth recebido")
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT user_id, code_verifier FROM verifier WHERE state = %s", (state,))
@@ -224,7 +245,7 @@ def callback():
 
     response = requests.post(token_url, data=payload)
     token_data = response.json()
-    print("token_data:",token_data)
+    print("Resposta OAuth recebida; access_token presente:", "access_token" in token_data)
     headers = {
     "Authorization": f"Bearer {token_data['access_token']}"
 }
@@ -3059,49 +3080,67 @@ def get_promotions_and_items():
 @app.route("/login-extension", methods=["POST"])
 def login_extension():
     try:
-        print('Entrou no login-extension')
         data = request.get_json(silent=True) or {}
-        email=data.get('email')
-        senha=data.get('password')
-        agora=datetime.now()
+        email = str(data.get('email') or '').strip().lower()
+        senha = str(data.get('password') or '')
+        if not email or not senha:
+            return jsonify({'error': 'email_password_required'}), 400
+
+        agora = datetime.now()
         with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
+            cur.execute("SELECT id, senha FROM usuarios WHERE LOWER(email) = %s", (email,))
             user = cur.fetchone()
-            if user:
-                user_id=user['id']
-                cur.execute('SELECT acess_token, refresh_token, expiracao_token FROM contas_mercado_livre WHERE usuario_id=%s', (user_id,))
-                dict=cur.fetchone()
-            expiracao_token=dict['expiracao_token']
-            token_access=dict['acess_token']
-            refresh_token=dict['refresh_token']
-            if agora>expiracao_token:
-                data_t=renovar_access_token(refresh_token)
-                token_access=data_t['access_token']
-                refresh_token=['novo_refresh_token']
-                expiracao_token=['nova_expiracao']
-                cur.execute('UPDATE contas_mercado_livre SET acess_token = %s, refresh_token = %s, expiracao_token = %s WHERE usuario_id = %s', (user_id,))
-                cur.commit()
-        token_user=gerar_token(user_id)
+            if not user or not bcrypt.checkpw(senha.encode('utf-8'), user['senha'].encode('utf-8')):
+                return jsonify({'error': 'invalid_credentials'}), 401
+
+            user_id = user['id']
+            cur.execute(
+                'SELECT acess_token, refresh_token, expiracao_token '
+                'FROM contas_mercado_livre WHERE usuario_id=%s',
+                (user_id,),
+            )
+            ml_account = cur.fetchone()
+            if not ml_account:
+                return jsonify({'error': 'mercado_livre_account_not_found'}), 404
+
+            expiracao_token = ml_account['expiracao_token']
+            token_access = ml_account['acess_token']
+            refresh_token = ml_account['refresh_token']
+            if expiracao_token and agora > expiracao_token:
+                data_t = renovar_access_token(refresh_token)
+                token_access = data_t['access_token']
+                refresh_token = data_t['novo_refresh_token']
+                expiracao_token = data_t['nova_expiracao']
+                cur.execute(
+                    'UPDATE contas_mercado_livre '
+                    'SET acess_token=%s, refresh_token=%s, expiracao_token=%s '
+                    'WHERE usuario_id=%s',
+                    (token_access, refresh_token, expiracao_token, user_id),
+                )
+                conn.commit()
+
+        token_user = gerar_token(user_id)
         return jsonify({'access_token':token_access, 'refresh_token':refresh_token, 'token_user':token_user}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        app.logger.exception('Falha no login da extensão')
+        return jsonify({'error': 'login_failed'}), 500
 
 @app.route("/token_access", methods=["POST"])
 def token_access():
-    print('entrou token_access')
     data = request.get_json(silent=True) or {}
     refresh_token = data.get("refresh_token")
     token_user = data.get('token_user')
+    if not refresh_token or not token_user:
+        return jsonify({"error": "refresh_token_and_token_user_required"}), 400
     decoded_token=decode_token(token_user)
     user_id=decoded_token.get("sub")
-    print('user_id: ', user_id)
     # 1) Fluxo: renovar via refresh_token (frente chama getnewToken)
     if refresh_token and user_id:
         try:
             with get_db_connection() as conn, conn.cursor() as cur:
-                cur.execute('SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s', user_id)
+                cur.execute('SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s', (user_id,))
                 refresh_token_dict=cur.fetchone()
-                if refresh_token_dict['refresh_token']==refresh_token or refresh_token_dict: 
+                if refresh_token_dict and refresh_token_dict['refresh_token'] == refresh_token:
                     data_t = renovar_access_token(refresh_token_dict['refresh_token'])
                     # padronize as chaves do retorno de renovar_access_token
                     new_access = data_t.get("access_token")
@@ -4055,14 +4094,15 @@ def listar_novas_conversas_pos_venda():
 def home():
     return 'Flask rodando! (Função periódica em background)'
 
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok'}), 200
+
+
 def minha_tarefa():
     print("Rodando tarefa de atualização diária às 00:00")
     pegar_anuncios_e_campanhas_diario()
-
-# Scheduler que roda todos os dias meia noite
-scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
-scheduler.add_job(minha_tarefa, CronTrigger(hour=0, minute=0, second=0))
-scheduler.start()
 
 def pegar_anuncios_e_campanhas_diario():
     print('Entrou em campanhas e anuncios diarios')
@@ -4381,7 +4421,6 @@ def gerar_token(user_id):
     token = create_access_token(identity=str(user_id), expires_delta=timedelta(hours=2))
     return token
 def renovar_access_token(refresh_token):
-    print("entrou no renovar_token")
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
         "grant_type": "refresh_token",
@@ -4389,16 +4428,14 @@ def renovar_access_token(refresh_token):
         "client_secret": CLIENT_SECRET,
         "refresh_token": refresh_token
     }
-    response = requests.post(url, data=payload)
+    response = requests.post(url, data=payload, timeout=30)
     token_data = response.json()
-    if 'access_token' in token_data:
-        print("encontrou o accesstoken:", token_data["access_token"])
-        novo_access_token=token_data["access_token"]
-        novo_refresh_token=token_data.get('refresh_token',refresh_token)
-        print('novo refresh :',novo_refresh_token)
-        expires_in=token_data['expires_in']
-        nova_expiracao=datetime.now()+timedelta(seconds=expires_in)
-    print("retornou")
+    if not response.ok or 'access_token' not in token_data:
+        raise RuntimeError(f"Falha ao renovar token do Mercado Livre: HTTP {response.status_code}")
+    novo_access_token=token_data["access_token"]
+    novo_refresh_token=token_data.get('refresh_token',refresh_token)
+    expires_in=token_data['expires_in']
+    nova_expiracao=datetime.now()+timedelta(seconds=expires_in)
     return {"access_token":novo_access_token,"novo_refresh_token":novo_refresh_token,"nova_expiracao":nova_expiracao}
 
 
@@ -6160,9 +6197,23 @@ para que uma segunda IA faça os cálculos.
         print('erro no final:', e)
 
     return dados
+# O scheduler fica desativado por padrão para não duplicar tarefas em deploys.
+scheduler = None
+if env_bool("ENABLE_SCHEDULER", False):
+    scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
+    scheduler.add_job(
+        minha_tarefa,
+        CronTrigger(hour=0, minute=0, second=0),
+        id="daily-sync",
+        replace_existing=True,
+    )
+    scheduler.start()
+
+
 # 🚀 Rodar o servidor
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    port = int(os.getenv("PORT", "8080"))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
 
 
 
