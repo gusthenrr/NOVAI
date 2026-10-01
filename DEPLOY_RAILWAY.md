@@ -24,7 +24,10 @@ de publicar novamente:
 ## 2. Criar o PostgreSQL no Railway
 
 No mesmo projeto, clique em **New > Database > PostgreSQL**. Para o modo atual,
-que guarda somente credenciais OAuth, aplique o esquema mínimo:
+que guarda somente credenciais OAuth, o backend aplica automaticamente o
+esquema mínimo a cada inicialização, antes do Gunicorn.
+
+Se preferir executar manualmente pela CLI, use:
 
 ```bash
 railway link
