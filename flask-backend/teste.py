@@ -72,7 +72,9 @@ def get_db_connection():
 
 app = Flask(__name__)
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 ALLOWED_ORIGINS = env_list("ALLOWED_ORIGINS", "http://localhost:3000")
+ENABLE_INITIAL_SYNC = env_bool("ENABLE_INITIAL_SYNC", False)
 socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='eventlet', ping_interval=20, ping_timeout=120)
 app.secret_key = secret_setting("FLASK_SECRET_KEY")
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -202,8 +204,7 @@ def login():
     conn.commit()
     cur.close()
     conn.close()
-    time.sleep(10) 
-    session['code_verifier'] = code_verifier 
+    session['code_verifier'] = code_verifier
     auth_url = f"https://auth.mercadolivre.com.br/authorization?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state={state}&code_challenge={code_challenge}&code_challenge_method=S256"
     return redirect(auth_url)
 
@@ -243,25 +244,16 @@ def callback():
         "code_verifier": code_verifier
     }
 
-    response = requests.post(token_url, data=payload)
+    response = requests.post(token_url, data=payload, timeout=30)
     token_data = response.json()
     print("Resposta OAuth recebida; access_token presente:", "access_token" in token_data)
-    headers = {
-    "Authorization": f"Bearer {token_data['access_token']}"
-}
-    response = requests.get('https://api.mercadolibre.com/users/me', headers=headers)
-    response_data = response.json()
-    id_ml = response_data.get('id')
+    if not response.ok or "access_token" not in token_data:
+        app.logger.warning("Falha na troca do código OAuth: HTTP %s", response.status_code)
+        return jsonify({"error": "oauth_token_exchange_failed"}), 400
 
-
-    if "access_token" not in token_data:
-        print('Erro ao obter o Access Token')
-        return "Erro ao obter o Access Token", 400
-    else:
-        print('users/me ',end=' ')
-        resp_user_me =requests.get('https://api.mercadolibre.com/users/me', headers=headers)
-        user_me = resp_user_me.json()
-        print(user_me)
+    # Modo token-only: não consulte /users/me nem qualquer endpoint de dados da
+    # conta durante cadastro/login. O user_id abaixo já vem na resposta OAuth.
+    id_ml = token_data.get("user_id")
 
     # Armazenando informações
 
@@ -271,9 +263,7 @@ def callback():
 
     # Verifica se o usuario_id foi recuperado e esta autenticado
     print("usuario_id: ", usuario_id)
-    print('token:',token_data["access_token"])
     print('expiracao:',expiracao_token)
-    print('refresh_token:',token_data.get("refresh_token", ""))
     if not usuario_id:
         print("usuario nao autenticado internamente")
         return jsonify({"error": "Usuário não autenticado internamente"}), 401
@@ -283,24 +273,37 @@ def callback():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Insere os dados na tabela contas_mercado_livre e retorna o id inserido
+        # Salva somente os tokens e os metadados entregues pelo próprio OAuth.
+        # Nenhuma coleta de anúncios, pedidos, mensagens ou perfil ocorre aqui.
         cur.execute(
-            """
-            INSERT INTO contas_mercado_livre 
-            (usuario_id, acess_token, refresh_token, expiracao_token,id_ml)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (
-                usuario_id,
-                token_data["access_token"],
-                token_data.get("refresh_token", ""),
-                expiracao_token,
-                id_ml,
-            )
+            "SELECT id FROM contas_mercado_livre WHERE usuario_id = %s",
+            (usuario_id,),
         )
+        conta_existente = cur.fetchone()
+        if conta_existente:
+            cur.execute(
+                """
+                UPDATE contas_mercado_livre
+                   SET acess_token=%s, refresh_token=%s,
+                       expiracao_token=%s, id_ml=%s
+                 WHERE usuario_id=%s
+                """,
+                (token_data["access_token"], token_data.get("refresh_token", ""),
+                 expiracao_token, id_ml, usuario_id),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO contas_mercado_livre
+                    (usuario_id, acess_token, refresh_token, expiracao_token, id_ml)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (usuario_id, token_data["access_token"],
+                 token_data.get("refresh_token", ""), expiracao_token, id_ml),
+            )
 
         # Deleta o registro da tabela verifier relacionado ao usuário
-        cur.execute("DELETE FROM verifier WHERE user_id = %s", (usuario_id,))
+        cur.execute("DELETE FROM verifier WHERE state = %s", (state,))
         if cur.rowcount == 0:
             print(f"Nenhum registro encontrado para o usuário {usuario_id} na tabela verifier")
 
@@ -314,7 +317,9 @@ def callback():
         conn.close()
         token_jwt=gerar_token(usuario_id)
     print('chegou aqui')
-    response = make_response(redirect("https://app.nossopoint-backend-flask-server.com/loading"))
+    # O antigo /loading iniciava uma sincronização completa da conta. No modo
+    # token-only seguimos direto ao painel depois de persistir os tokens.
+    response = make_response(redirect(f"{FRONTEND_URL}/conectado"))
     response = clear_legacy_cookies(response)     # 👈 limpa lixo
     response = set_auth_cookie(response, token_jwt)  # 👈 define só o __Host-token
     return response
@@ -2029,45 +2034,34 @@ def user_login():
         # Busca o usuário pelo e-mail no banco
         cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
         user = cur.fetchone()
+        if not user or not bcrypt.checkpw(password.encode('utf-8'), user['senha'].encode('utf-8')):
+            return jsonify({"message": "Credenciais inválidas", "status": "error"}), 401
         print(user['id'])
         cur.execute("SELECT expiracao_token FROM contas_mercado_livre WHERE usuario_id=%s",(user['id'],))
         expiracao=cur.fetchone()
         print("Valor de expiracao:", expiracao)
-        if user:
-            if agora>expiracao["expiracao_token"]:
-                print("verificou que o token expirou")
-                cur.execute("SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s",(user['id'],))
-                refresh=cur.fetchone()
-                dados=renovar_access_token(refresh["refresh_token"])
-                print("retornando os dados:", dados)
-                access_token=dados["access_token"]
-                print(access_token)
-                refresh=dados["novo_refresh_token"]
-                print(refresh)
-                expiracao=dados["nova_expiracao"]
-                print(expiracao)
-                cur.execute("UPDATE contas_mercado_livre SET acess_token=%s,refresh_token=%s,expiracao_token=%s WHERE usuario_id=%s",(access_token,refresh,expiracao,user["id"]))
+        if expiracao and expiracao["expiracao_token"] and agora > expiracao["expiracao_token"]:
+            print("verificou que o token expirou")
+            cur.execute("SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s", (user['id'],))
+            refresh = cur.fetchone()
+            if refresh and refresh["refresh_token"]:
+                dados = renovar_access_token(refresh["refresh_token"])
+                cur.execute(
+                    "UPDATE contas_mercado_livre SET acess_token=%s,refresh_token=%s,expiracao_token=%s WHERE usuario_id=%s",
+                    (dados["access_token"], dados["novo_refresh_token"], dados["nova_expiracao"], user["id"]),
+                )
                 conn.commit()
-            hashed_password = user['senha']
-            # Verifica se a senha fornecida bate com o hash armazenado
-            if bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8')):
-                session['user_id'] = user['id'] # Salva o ID do usuário na sessão
-                jwt_token=gerar_token(user['id'])
-                #getApiMercadoLivre(jwt_token)
-                cur.execute('SELECT status FROM first_sync WHERE usuario_id_first_sync = %s',(user['id'],))
-                status_dict=cur.fetchone()
-                if status_dict:
-                    status = status_dict['status']
-                else:
-                    status='sync_nao_iniciada'
-                print("retornando front end tudo ok")
-                resp=jsonify({
-                    "message": "Login bem-sucedido",
-                    "status": status,
-                    "user": {"id": user['id'], "email": user['email']},
-                    "token": jwt_token  # Aqui você pode implementar a geração de um token real
-                })
-                resp.set_cookie(
+
+        session['user_id'] = user['id']
+        jwt_token = gerar_token(user['id'])
+        # O login não inicia nem consulta a sincronização completa.
+        resp = jsonify({
+            "message": "Login bem-sucedido",
+            "status": "token_only",
+            "user": {"id": user['id'], "email": user['email']},
+            "token": jwt_token,
+        })
+        resp.set_cookie(
                 key=COOKIE_NAME,
                 value=jwt_token,
                 httponly=True,
@@ -2076,16 +2070,8 @@ def user_login():
                 path="/",          # obrigatório para __Host-
                 # sem Domain -> host-only
                 max_age=60*60*24,
-            )
-                cur.close()
-                conn.close()
-                return resp, 200
-            else:
-                print("retornando erro 1")
-                return jsonify({"message": "Credenciais inválidas", "status": "error"}), 401
-        else:
-            print('retornando erro 2')
-            return jsonify({"message": "Usuário não encontrado", "status": "error"}), 404
+        )
+        return resp, 200
 
 
     except Exception as e:
@@ -2502,6 +2488,14 @@ def verificar_status():
 @socketio.on('pegar_dados_iniciais')
 def pegar_dados_gerais():
     try:
+        # Proteção adicional: o frontend não emite mais este evento. Enquanto
+        # ENABLE_INITIAL_SYNC=false, nenhuma coleta ampla pode ser iniciada.
+        if not ENABLE_INITIAL_SYNC:
+            emit('status_loading', {
+                'message': 'Sincronização completa desativada; somente tokens são armazenados.',
+                'status': True,
+            })
+            return False
         print('pegar_dados_geraisF')
         token = request.cookies.get("__Host-token")
     

@@ -160,7 +160,10 @@ export default function App() {
       }
 
       if (resp?.status === 'sync_nao_iniciada') {
-        socket.emit('pegar_dados_iniciais');
+        // Modo token-only: não disparar a coleta de itens, pedidos, mensagens,
+        // campanhas, reclamações, promoções ou dados do vendedor.
+        window.location.replace('/conectado');
+        return;
       }
       else if(resp?.status === 'concluido'){
         window.location.replace('/Manager')

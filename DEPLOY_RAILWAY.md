@@ -21,36 +21,18 @@ de publicar novamente:
 
    Use um resultado em `FLASK_SECRET_KEY` e o outro em `JWT_SECRET_KEY`.
 
-## 2. Criar o PostgreSQL na AWS
+## 2. Criar o PostgreSQL no Railway
 
-Use Amazon RDS for PostgreSQL em vez de instalar o banco dentro de uma EC2.
-Crie uma instância PostgreSQL e anote:
+No mesmo projeto, clique em **New > Database > PostgreSQL**. Para o modo atual,
+que guarda somente credenciais OAuth, aplique o esquema mínimo:
 
-- endpoint;
-- porta (normalmente `5432`);
-- nome do banco;
-- usuário;
-- senha nova.
-
-Como o Railway está fora da VPC da AWS, a conexão exige uma destas opções:
-
-1. **Recomendado:** Railway Pro com Static Outbound IPs. Autorize apenas esses
-   endereços na regra de entrada `TCP 5432` do Security Group do RDS.
-2. Uma rede/túnel privado administrado separadamente.
-
-Evite liberar a porta `5432` para `0.0.0.0/0`. Se o RDS precisar ser público,
-ative `Publicly accessible`, restrinja o Security Group aos IPs do Railway e
-use TLS.
-
-A URL fica neste formato:
-
-```text
-postgresql://USUARIO:SENHA@ENDPOINT-RDS:5432/novai?sslmode=require
+```bash
+railway link
+railway connect Postgres < database/init_token_only.sql
 ```
 
-O banco novo estará vazio. O repositório antigo não contém migrations nem um
-dump SQL; o esquema precisa ser reconstruído antes de usar login, métricas e
-demais rotas. O endpoint `/health` funciona sem consultar o banco.
+O script cria somente `usuarios`, `verifier` e `contas_mercado_livre`. Ele não
+cria nem popula tabelas de anúncios, pedidos, mensagens, campanhas ou métricas.
 
 ## 3. Enviar estas mudanças ao GitHub
 
@@ -64,8 +46,6 @@ secretos. O arquivo `.env.example` contém apenas os nomes e formatos esperados.
 3. Selecione o repositório `gusthenrr/NOVAI` e a branch com estas mudanças.
 4. O Railway detectará automaticamente o `Dockerfile` da raiz.
 5. Em **Settings > Networking**, gere um domínio público.
-6. Em **Settings > Networking**, habilite Static Outbound IPs se o plano
-   permitir e copie os IPs para o Security Group do RDS.
 
 O `railway.json` já configura `/health` como health check. O processo escuta a
 variável `PORT` fornecida automaticamente pelo Railway.
@@ -75,8 +55,9 @@ variável `PORT` fornecida automaticamente pelo Railway.
 Na aba **Variables** do serviço, adicione:
 
 ```text
-DATABASE_URL=postgresql://USUARIO:SENHA@ENDPOINT-RDS:5432/novai?sslmode=require
+DATABASE_URL=${{Postgres.DATABASE_URL}}
 PUBLIC_BASE_URL=https://SEU-SERVICO.up.railway.app
+FRONTEND_URL=https://SEU-FRONTEND.up.railway.app
 ALLOWED_ORIGINS=https://URL-DO-SEU-FRONTEND
 FLASK_SECRET_KEY=VALOR-ALEATORIO-1
 JWT_SECRET_KEY=VALOR-ALEATORIO-2
@@ -85,6 +66,7 @@ MERCADO_LIVRE_CLIENT_SECRET=NOVO-CLIENT-SECRET
 MERCADO_LIVRE_REDIRECT_URI=https://SEU-SERVICO.up.railway.app/callback
 OPENAI_API_KEY=NOVA-CHAVE-OPENAI
 ENABLE_SCHEDULER=false
+ENABLE_INITIAL_SYNC=false
 ```
 
 `ALLOWED_ORIGINS` aceita várias URLs separadas por vírgula. Não crie a variável
@@ -118,8 +100,9 @@ Resposta esperada:
 {"status":"ok"}
 ```
 
-Em seguida, teste a conexão PostgreSQL a partir do serviço. As rotas que usam o
-banco falharão até que o esquema seja criado.
+Em seguida, teste cadastro, autorização do Mercado Livre e login. Com
+`ENABLE_INITIAL_SYNC=false`, o callback salva apenas `access_token`,
+`refresh_token`, `expiracao_token` e o `user_id` retornado pelo OAuth.
 
 ## 8. Domínio personalizado
 

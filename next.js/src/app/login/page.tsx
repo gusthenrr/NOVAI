@@ -24,12 +24,7 @@ export default function LoginPage() {
         console.log("token do login:",result.data.token)
         setToken(result.data.token)
         setUserValid(false)
-        if (result.data.status==='concluido'){
-        window.location.replace("/dashboard/inicio"); // Ou router.push('/prevend') se preferir a navegação do Next
-        }
-        else{
-        window.location.replace('/loading')
-        }
+        window.location.replace("/conectado");
         } else {
         setErrorMessage(result.message || "E-mail ou senha inválidos."); // Mensagem mais específica
       }
