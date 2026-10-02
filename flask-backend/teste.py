@@ -147,12 +147,27 @@ def add_usuario():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Verificar se o email já está cadastrado
-        cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
-        if cur.fetchone():
-            cur.close()
-            conn.close()
-            return jsonify({"error": "Usuário já cadastrado"}), 400
+        # Se uma tentativa anterior criou o usuário, mas o OAuth falhou antes
+        # de salvar os tokens, permita retomar a autorização com a mesma senha.
+        cur.execute("SELECT id, senha FROM usuarios WHERE LOWER(email) = LOWER(%s);", (email,))
+        usuario_existente = cur.fetchone()
+        if usuario_existente:
+            senha_valida = bcrypt.checkpw(
+                senha.encode('utf-8'),
+                usuario_existente['senha'].encode('utf-8'),
+            )
+            if not senha_valida:
+                return jsonify({"error": "Usuário já cadastrado"}), 400
+
+            cur.execute(
+                "SELECT id FROM contas_mercado_livre WHERE usuario_id = %s",
+                (usuario_existente['id'],),
+            )
+            if cur.fetchone():
+                return jsonify({"error": "Usuário já cadastrado e conectado"}), 400
+
+            session['novo_id'] = usuario_existente['id']
+            return redirect(f'{url_global}/login')
 
         #Inserir novo usuário no banco de dados
         cur.execute(
