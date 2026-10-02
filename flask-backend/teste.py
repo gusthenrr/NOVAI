@@ -3113,7 +3113,7 @@ def login_extension():
                 )
                 conn.commit()
 
-        token_user = gerar_token(user_id)
+        token_user = gerar_token_extensao(user_id)
         return jsonify({'access_token':token_access, 'refresh_token':refresh_token, 'token_user':token_user}), 200
     except Exception:
         app.logger.exception('Falha no login da extensão')
@@ -3143,9 +3143,12 @@ def token_access():
                     
                     if not new_access:
                         return jsonify({"error": "refresh_failed"}), 400
-                    cur.execute('UPDATE contas_mercado_livre SET acess_token = %s, refresh_token = %s, expiracao_token = %s WHERE usuario_id=%s', new_access, new_refresh, new_expiration, user_id)
+                    cur.execute(
+                        'UPDATE contas_mercado_livre SET acess_token = %s, refresh_token = %s, expiracao_token = %s WHERE usuario_id=%s',
+                        (new_access, new_refresh, new_expiration, user_id),
+                    )
                     conn.commit()
-                    token_user= gerar_token(user_id)
+                    token_user = gerar_token_extensao(user_id)
                 else:
                     return jsonify({"error": "refresh_failed"}), 400
                 return jsonify({
@@ -4414,6 +4417,11 @@ def gerar_token(user_id):
     print('entrou no gerar token')
     token = create_access_token(identity=str(user_id), expires_delta=timedelta(hours=2))
     return token
+
+
+def gerar_token_extensao(user_id):
+    """JWT auxiliar usado apenas para renovar os tokens salvos pela extensão."""
+    return create_access_token(identity=str(user_id), expires_delta=timedelta(days=30))
 def renovar_access_token(refresh_token):
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
