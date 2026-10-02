@@ -53,6 +53,13 @@ def env_list(name, default=""):
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
 
+def normalize_public_url(value):
+    value = (value or "").strip().rstrip("/")
+    if value and "://" not in value:
+        value = f"https://{value}"
+    return value
+
+
 def secret_setting(name):
     value = os.getenv(name)
     if value:
@@ -71,9 +78,12 @@ def get_db_connection():
     return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 app = Flask(__name__)
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-ALLOWED_ORIGINS = env_list("ALLOWED_ORIGINS", "http://localhost:3000")
+PUBLIC_BASE_URL = normalize_public_url(os.getenv("PUBLIC_BASE_URL", "http://localhost:8080"))
+FRONTEND_URL = normalize_public_url(os.getenv("FRONTEND_URL", "http://localhost:3000"))
+ALLOWED_ORIGINS = [
+    normalize_public_url(origin)
+    for origin in env_list("ALLOWED_ORIGINS", "http://localhost:3000")
+]
 ENABLE_INITIAL_SYNC = env_bool("ENABLE_INITIAL_SYNC", False)
 socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='eventlet', ping_interval=20, ping_timeout=120)
 app.secret_key = secret_setting("FLASK_SECRET_KEY")
@@ -334,7 +344,9 @@ def callback():
     print('chegou aqui')
     # O antigo /loading iniciava uma sincronização completa da conta. No modo
     # token-only seguimos direto ao painel depois de persistir os tokens.
-    response = make_response(redirect(f"{FRONTEND_URL}/conectado"))
+    redirect_target = f"{FRONTEND_URL}/conectado"
+    app.logger.info("OAuth concluído; redirecionando para %s", redirect_target)
+    response = make_response(redirect(redirect_target))
     response = clear_legacy_cookies(response)     # 👈 limpa lixo
     response = set_auth_cookie(response, token_jwt)  # 👈 define só o __Host-token
     return response
