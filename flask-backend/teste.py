@@ -211,7 +211,7 @@ def login():
 
 
 #CALLBACK ONDE AUTENTICAMOS COM SEGURANÇA UM ROTA ENTRE NOVAI E A CONTA DO MERCADO-LIVRE(USUARIO)
-@app.route('/callback', methods=['GET'])
+@app.route('/callback', methods=['GET'], strict_slashes=False)
 def callback():
     state = request.args.get('state')
     code = request.args.get('code')
