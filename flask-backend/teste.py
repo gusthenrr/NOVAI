@@ -78,6 +78,8 @@ def get_db_connection():
     return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 app = Flask(__name__)
+from item_dates import item_dates
+app.register_blueprint(item_dates)
 PUBLIC_BASE_URL = normalize_public_url(os.getenv("PUBLIC_BASE_URL", "http://localhost:8080"))
 FRONTEND_URL = normalize_public_url(os.getenv("FRONTEND_URL", "http://localhost:3000"))
 ALLOWED_ORIGINS = [
