@@ -88,7 +88,7 @@ def plan_for(cur, user_id):
     row = cur.fetchone()
     used = row['searches'] if row else 0
     return dict(tier=tier, status='trialing' if testing else 'active' if paid else 'free',
-        validUntil=end.isoformat() if end else None, trialAvailable=not trial['trial_started_at'],
+        validUntil=end.isoformat() if end else None, trialAvailable=not trial['trial_started_at'] and not paid,
         usage=dict(used=used,limit=10 if tier=='free' else None,remaining=max(0,10-used) if tier=='free' else None,resetsAt=reset),
         features=dict(insights=tier=='pro',comparisons=tier in ('plus','pro'),unlimitedSearches=tier!='free'))
 

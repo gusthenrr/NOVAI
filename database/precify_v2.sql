@@ -69,3 +69,14 @@ CREATE TABLE IF NOT EXISTS precify_auth_limits (
   key_hash TEXT NOT NULL, bucket TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY(key_hash,bucket)
 );
+
+-- Trial checkout uses an individual MP plan, whose hosted form collects the card.
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS provider_plan_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS precify_subscriptions_provider_plan_idx ON precify_subscriptions(provider_plan_id);
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS trial_days INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMPTZ;
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS provider_updated_at TIMESTAMPTZ;
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS provider_plan_closed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS billing_consent_version TEXT;
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS billing_consent_at TIMESTAMPTZ;
