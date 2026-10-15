@@ -106,6 +106,8 @@ from http.cookiejar import MozillaCookieJar
 
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
+from precify_api import register_precify
+register_precify(app)
 
 url_global = PUBLIC_BASE_URL
 # 🔑 Suas credenciais do Mercado Livre
@@ -244,6 +246,9 @@ def login():
 #CALLBACK ONDE AUTENTICAMOS COM SEGURANÇA UM ROTA ENTRE NOVAI E A CONTA DO MERCADO-LIVRE(USUARIO)
 @app.route('/callback', methods=['GET'], strict_slashes=False)
 def callback():
+    if request.args.get('state', '').startswith('precify_'):
+        from precify_api import oauth_callback
+        return oauth_callback()
     state = request.args.get('state')
     code = request.args.get('code')
 
