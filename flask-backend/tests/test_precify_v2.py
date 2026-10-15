@@ -18,6 +18,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import pytest
 from flask import Flask
+from flask_socketio import SocketIO
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from precify_api import register_precify, oauth_callback
@@ -36,8 +37,9 @@ def app():
             cur.execute('CREATE SCHEMA '+schema)
     def connect():
         return psycopg2.connect(DSN,options='-c search_path='+schema,cursor_factory=RealDictCursor)
-    app=Flask(__name__);app.config.update(TESTING=True,PRECIFY_DB_FACTORY=connect)
-    register_precify(app);app.add_url_rule('/callback','callback',oauth_callback)
+    app=Flask(__name__);app.config.update(TESTING=True,SECRET_KEY='isolated-test-only',PRECIFY_DB_FACTORY=connect)
+    socketio=SocketIO(app,async_mode='threading')
+    register_precify(app,socketio);app.add_url_rule('/callback','callback',oauth_callback)
     with app.app_context():
         with db() as cur:
             for _ in range(2): # Migration is safe on repeat deploys.
@@ -382,6 +384,76 @@ def test_cancel_unfinished_trial_closes_checkout_without_consuming_trial(app,cli
         assert post(client,app,'/billing/cancel',dict(subscriptionId=key)).status_code==200
         assert calls.call_args_list[0].args==('PUT','/preapproval_plan/'+authorization['preapproval_plan_id'],{'status':'cancelled'})
     assert plan(app)['tier']=='free' and plan(app)['trialAvailable']
+
+
+def socket_client(app,client,headers=None,**auth):
+    response=client.post('/api/precify/realtime/ticket',headers=headers or app.headers,json={})
+    assert response.status_code==200
+    return app.extensions['precify_realtime'].test_client(app,namespace='/precify',auth={**auth,'ticket':response.json['ticket']})
+
+
+def test_socket_tickets_require_session_are_hashed_expire_and_are_single_use(app,client):
+    sockets=app.extensions['precify_realtime']
+    assert client.post('/api/precify/realtime/ticket',json={}).status_code==401
+    assert not sockets.test_client(app,namespace='/precify',auth={'userId':app.test_user}).is_connected('/precify')
+    response=post(client,app,'/realtime/ticket');ticket=response.json['ticket']
+    assert response.json['expiresIn']==60
+    with app.app_context(),db() as cur:
+        cur.execute('SELECT ticket_hash FROM precify_socket_tickets')
+        assert cur.fetchone()['ticket_hash']==digest(ticket)
+    socket=sockets.test_client(app,namespace='/precify',auth={'ticket':ticket})
+    assert socket.is_connected('/precify')
+    assert not sockets.test_client(app,namespace='/precify',auth={'ticket':ticket}).is_connected('/precify')
+    expired=post(client,app,'/realtime/ticket').json['ticket']
+    with app.app_context(),db() as cur:
+        cur.execute("UPDATE precify_socket_tickets SET expires_at=NOW()-INTERVAL '1 second'")
+    assert not sockets.test_client(app,namespace='/precify',auth={'ticket':expired}).is_connected('/precify')
+    revoked=post(client,app,'/realtime/ticket').json['ticket']
+    assert post(client,app,'/auth/logout').status_code==200
+    assert not socket.is_connected('/precify')
+    assert not sockets.test_client(app,namespace='/precify',auth={'ticket':revoked}).is_connected('/precify')
+
+
+def test_verified_authorization_notifies_only_owner_after_commit_and_never_accepts_client_grants(app,client,monkeypatch):
+    with app.app_context(),db() as cur:
+        cur.execute("INSERT INTO usuarios(usuario,email,senha) VALUES('Outra','other@example.com','unused') RETURNING id")
+        other=cur.fetchone()['id'];other_token=new_session(cur,other)
+    owner=socket_client(app,client)
+    other_socket=socket_client(app,client,{'X-Precify-Session':other_token},userId=app.test_user)
+    key,authorization=trial_checkout(client,app,monkeypatch)
+    owner.emit('precify:plan-changed',{'tier':'pro','status':'authorized'},namespace='/precify')
+    client.get('/api/precify/billing/return?status=authorized')
+    assert plan(app)['tier']=='free' and not owner.get_received('/precify')
+    with patch('precify_billing.mp',return_value={**authorization,'status':'pending'}):
+        assert signed_event(client,'subscription_preapproval',authorization['id']).status_code==200
+    assert plan(app)['tier']=='free' and not owner.get_received('/precify')
+    sockets=app.extensions['precify_realtime'];original_emit=sockets.emit
+    def after_commit(*args,**kwargs):
+        assert plan(app)['status']=='trialing' # Separate DB connection sees committed entitlement.
+        return original_emit(*args,**kwargs)
+    with patch.object(sockets,'emit',side_effect=after_commit),patch('precify_billing.mp',side_effect=lambda method,path,*a,**kw: authorization if method=='GET' else {'status':'cancelled'}):
+        assert signed_event(client,'subscription_preapproval',authorization['id']).status_code==200
+        assert signed_event(client,'subscription_preapproval',authorization['id']).status_code==200
+    assert owner.get_received('/precify')==[{'name':'precify:plan-changed','args':[{}],'namespace':'/precify'}]
+    assert not other_socket.get_received('/precify')
+    assert client.get('/api/precify/session',headers=app.headers).json['plan']['status']=='trialing'
+    owner.disconnect(namespace='/precify');other_socket.disconnect(namespace='/precify')
+
+
+def test_socket_payment_refund_and_notification_outage_keep_database_authoritative(app,client):
+    socket=socket_client(app,client)
+    key,amount=subscription(app)
+    paid=payment(key,amount)
+    with app.app_context():record_payment(paid)
+    assert socket.get_received('/precify')[0]['name']=='precify:plan-changed'
+    assert plan(app)['status']=='active'
+    with app.app_context():record_payment({**paid,'status':'refunded','date_last_updated':(datetime.now(timezone.utc)+timedelta(seconds=1)).isoformat()})
+    assert socket.get_received('/precify')[0]['args']==[{}]
+    assert plan(app)['tier']=='free'
+    with app.app_context(),patch.object(app.extensions['precify_realtime'],'emit',side_effect=RuntimeError('offline')):
+        record_payment({**payment(key,amount),'id':456})
+    assert plan(app)['status']=='active'
+    socket.disconnect(namespace='/precify')
 
 
 def test_concurrent_trial_checkouts_reuse_one_provider_plan(app,client,monkeypatch):

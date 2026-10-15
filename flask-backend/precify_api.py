@@ -117,7 +117,15 @@ def logout():
     identity()
     with db() as cur:
         cur.execute('UPDATE precify_sessions SET revoked_at=NOW() WHERE token_hash=%s',(digest(request.headers['X-Precify-Session']),))
+    from precify_realtime import disconnect_session
+    disconnect_session(digest(request.headers['X-Precify-Session']))
     return jsonify(ok=True)
+
+
+@precify.post('/realtime/ticket')
+def realtime_ticket():
+    from precify_realtime import ticket
+    return jsonify(ticket())
 
 
 @precify.post('/auth/connect')
@@ -327,8 +335,12 @@ def comparison():
         margemContribuicao=money(margin),margemPct=money(margin/price*100),missing=[],source='user_costs')
 
 
-def register_precify(app):
+def register_precify(app,socketio=None):
     from precify_billing import billing
     app.register_blueprint(precify)
     app.register_blueprint(billing)
     app.add_url_rule('/auth/precify/connect','precify_oauth_start',oauth_start)
+
+    if socketio is not None:
+        from precify_realtime import register_realtime
+        register_realtime(app,socketio)

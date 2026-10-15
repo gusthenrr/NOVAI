@@ -68,6 +68,31 @@ PostgreSQL integration tests additionally require an explicitly isolated `PRECIF
 
 The Expo project runs typecheck, lint, Node tests and Android/iOS/web exports. No production account or payment is created by these tests.
 
+## Private plan updates
+
+After a verified subscription/payment update commits, NOVAI emits `precify:plan-changed`
+with an empty payload to that account's room on Socket.IO namespace `/precify`. The app's
+`socket.on` handler fetches `/api/precify/session`; socket payloads, pending checkouts and
+return URLs cannot grant benefits. Trial access starts only after verified payment-method
+authorization; paid access still requires an approved payment.
+
+`POST /api/precify/realtime/ticket` requires a valid device session. It returns a random
+60-second single-use connection ticket; only its hash is stored. The socket consumes the
+ticket atomically and derives the user/session rooms from the database. Client user IDs
+are ignored. Logout revokes the session and disconnects its sockets. Web obtains tickets
+through the existing same-origin HttpOnly-cookie relay, without exposing the device token.
+
+Each reconnect obtains a new ticket and refreshes the plan to recover missed events.
+Foreground refresh and the 60-second fallback cover disconnected clients and expiry.
+Keep exact web app origins in `ALLOWED_ORIGINS` (including the development Expo web URL
+when testing); never use a wildcard. Native clients authenticate with the same tickets.
+The deployment runs one eventlet worker. Multiple workers/replicas require a shared
+Socket.IO message queue and the provider's supported session routing before scaling.
+
+Tests cover unauthenticated/expired/reused/revoked tickets, account isolation, committed
+webhook notifications, pending/forged data, refunds and notification outages. No real card
+authorization or charge is made by these tests.
+
 ## Trial checkout implementation
 
 For an eligible trial, POST `/preapproval_plan` creates an individual hosted checkout with
