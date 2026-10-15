@@ -107,7 +107,7 @@ from http.cookiejar import MozillaCookieJar
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 from precify_api import register_precify
-register_precify(app)
+register_precify(app,socketio)
 
 url_global = PUBLIC_BASE_URL
 # 🔑 Suas credenciais do Mercado Livre

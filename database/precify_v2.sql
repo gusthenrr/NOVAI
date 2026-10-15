@@ -80,3 +80,11 @@ ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS provider_updated_at T
 ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS provider_plan_closed BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS billing_consent_version TEXT;
 ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS billing_consent_at TIMESTAMPTZ;
+
+-- Only hashed, short-lived, single-use Socket.IO connection tickets are stored.
+CREATE TABLE IF NOT EXISTS precify_socket_tickets (
+  ticket_hash TEXT PRIMARY KEY,
+  session_hash TEXT NOT NULL REFERENCES precify_sessions(token_hash) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS precify_socket_tickets_expiry_idx ON precify_socket_tickets(expires_at);

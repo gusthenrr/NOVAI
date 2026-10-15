@@ -14,6 +14,7 @@ from flask import Blueprint, jsonify, request
 import requests
 
 from precify_core import ApiError, db, identity, now, plan_for
+from precify_realtime import notify_plan_changed
 
 BILLING_TERMS_VERSION='2026-10-15-trial-payment'
 
@@ -213,6 +214,7 @@ def cancel():
             raise ApiError('cancellation_not_confirmed',502)
     with db() as cur:
         cur.execute("UPDATE precify_subscriptions SET status='cancelled',cancelled_at=COALESCE(cancelled_at,NOW()),updated_at=NOW() WHERE id=%s",(str(row['id']),))
+    notify_plan_changed(user['id'])
     return jsonify(ok=True)
 
 
@@ -235,6 +237,7 @@ def record_subscription(resource,result):
     plan_id=str(result.get('preapproval_plan_id') or '')
     cancel_extra=False
     close=None
+    changed=False
     with db() as cur:
         cur.execute('SELECT user_id FROM precify_subscriptions WHERE provider_id=%s OR provider_plan_id=%s',(resource,plan_id))
         owner=cur.fetchone()
@@ -288,11 +291,14 @@ def record_subscription(resource,result):
                     cur.execute('UPDATE precify_accounts SET trial_started_at=%s,trial_ends_at=%s WHERE user_id=%s',
                                 (start,end,sub['user_id']))
             if not cancel_extra:
+                changed=(sub['status']!=status or sub['trial_started_at']!=start or sub['next_payment_at']!=next_at)
                 cur.execute("""UPDATE precify_subscriptions SET provider_id=%s,status=%s,next_payment_at=%s,
                   provider_updated_at=%s,trial_started_at=%s,trial_ends_at=%s,updated_at=NOW(),
                   cancelled_at=CASE WHEN %s='cancelled' THEN COALESCE(cancelled_at,NOW()) ELSE cancelled_at END WHERE id=%s""",
                   (resource,status,next_at,updated,start,end,status,str(sub['id'])))
                 if sub['provider_plan_id'] and status=='authorized':close=sub
+    if changed:
+        notify_plan_changed(owner['user_id'])
     if cancel_extra:
         result=mp('PUT','/preapproval/'+resource,{'status':'cancelled'})
         if result.get('status') not in ('cancelled','canceled'):
@@ -387,6 +393,9 @@ def record_payment(payment,preapproval_id=None):
           paid_at=EXCLUDED.paid_at,period_end=EXCLUDED.period_end,provider_updated_at=EXCLUDED.provider_updated_at,updated_at=NOW()
           WHERE precify_payments.provider_updated_at<=EXCLUDED.provider_updated_at''',
           (identifier,str(sub['id']),sub['amount_cents'],status,paid,until,updated))
+        changed=bool(cur.rowcount)
+    if changed:
+        notify_plan_changed(sub['user_id'])
 
 
 @billing.post('/webhook')
