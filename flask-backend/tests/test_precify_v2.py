@@ -129,8 +129,11 @@ def test_free_protected_data_never_queries_ml(app,client):
         token.assert_not_called();upstream.assert_not_called()
 
 def test_trial_once_expiry_and_pro_only_insights(app,client):
-    assert post(client,app,'/trial').json['plan']['tier']=='pro'
-    assert post(client,app,'/trial').status_code==409
+    assert post(client,app,'/trial').json['error']=='payment_setup_required'
+    assert plan(app)['tier']=='free'
+    # A legacy trial already granted before payment registration was introduced is honored.
+    with app.app_context(),db() as cur:
+        cur.execute("UPDATE precify_accounts SET trial_started_at=NOW(),trial_ends_at=NOW()+INTERVAL '7 days'")
     with patch('precify_api.ml_token',return_value='test-token'),patch('precify_api.get_ml',side_effect=[{'id':'MLB6203834422','sold_quantity':13},{'date_created':'2026-01-27T23:33:16.887Z'}]) as get:
         response=client.get('/api/precify/items/MLB6203834422/insights',headers=app.headers)
         assert response.status_code==200 and response.json['sold']==13
@@ -240,3 +243,156 @@ def test_pricing_uses_server_ml_token_and_preserves_calculator_validation(app,cl
         response=post(client,app,'/pricing',dict(precoVenda=100,access_token='ignored-client-token'))
         assert response.status_code==200 and response.json['frete']==8
         assert b'server-only' not in response.data
+
+
+def trial_checkout(client,app,monkeypatch,cycle='monthly'):
+    from precify_billing import BILLING_TERMS_VERSION
+    monkeypatch.setenv('MERCADO_PAGO_ACCESS_TOKEN','test-provider-token')
+    monkeypatch.setenv('MERCADO_PAGO_WEBHOOK_SECRET','test-secret')
+    amount=3490 if cycle=='monthly' else 29990
+    provider_plan='plan_'+uuid4().hex
+    recurring=dict(frequency=1 if cycle=='monthly' else 12,frequency_type='months',currency_id='BRL',transaction_amount=amount/100,free_trial=dict(frequency=7,frequency_type='days'))
+    payload=dict(tier='pro',cycle=cycle,trial=True,billingTermsVersion=BILLING_TERMS_VERSION)
+    response=dict(id=provider_plan,status='active',auto_recurring=recurring,init_point='https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id='+provider_plan)
+    with patch('precify_billing.mp',return_value=response) as provider:
+        result=post(client,app,'/billing/checkout',payload)
+        assert result.status_code==200,result.json
+        sent=provider.call_args.args[2]
+        assert provider.call_args.args[:2]==('POST','/preapproval_plan')
+        assert sent['auto_recurring']==recurring and 'start_date' not in sent['auto_recurring']
+        assert post(client,app,'/billing/checkout',payload).json==result.json
+        assert provider.call_count==1
+    instant=datetime.now(timezone.utc)
+    authorization=dict(id='auth_'+uuid4().hex,preapproval_plan_id=provider_plan,status='authorized',auto_recurring=recurring,date_created=instant.isoformat(),last_modified=instant.isoformat(),next_payment_date=(instant+timedelta(days=7)).isoformat())
+    return result.json['subscriptionId'],authorization
+
+
+@pytest.mark.parametrize('cycle',['monthly','annual'])
+def test_trial_requires_payment_authorization_and_defers_seven_days(app,client,monkeypatch,cycle):
+    from precify_billing import record_subscription
+    key,authorization=trial_checkout(client,app,monkeypatch,cycle)
+    assert plan(app)['tier']=='free' and plan(app)['trialAvailable']
+    assert client.get('/api/precify/billing/return?status=authorized').status_code==200
+    assert plan(app)['tier']=='free'
+    with app.app_context(),patch('precify_billing.mp',return_value={'status':'cancelled'}) as provider:
+        record_subscription(authorization['id'],authorization)
+        record_subscription(authorization['id'],authorization)
+        # Close the one-account plan link, not the authorized subscription.
+        provider.assert_called_once_with('PUT','/preapproval_plan/'+authorization['preapproval_plan_id'],{'status':'cancelled'})
+    current=plan(app)
+    assert current['status']=='trialing' and current['tier']=='pro' and not current['trialAvailable']
+    assert datetime.fromisoformat(current['validUntil'])==datetime.fromisoformat(authorization['date_created'])+timedelta(days=7)
+    with app.app_context(),db() as cur:
+        cur.execute('SELECT COUNT(*) AS n FROM precify_payments');assert cur.fetchone()['n']==0
+        cur.execute('SELECT trial_days,billing_consent_at,provider_id FROM precify_subscriptions WHERE id=%s',(key,))
+        row=cur.fetchone();assert row['trial_days']==7 and row['billing_consent_at'] and row['provider_id']==authorization['id']
+    assert post(client,app,'/billing/checkout',dict(tier='pro',cycle=cycle,trial=True,billingTermsVersion='2026-10-15-trial-payment')).status_code==409
+
+
+def test_trial_checkout_requires_terms_and_verified_free_trial(app,client,monkeypatch):
+    monkeypatch.setenv('MERCADO_PAGO_ACCESS_TOKEN','test-provider-token');monkeypatch.setenv('MERCADO_PAGO_WEBHOOK_SECRET','test-secret')
+    data=dict(tier='pro',cycle='monthly',trial=True)
+    with patch('precify_billing.mp') as provider:
+        assert post(client,app,'/billing/checkout',data).json['error']=='billing_terms_required'
+        provider.assert_not_called()
+    with patch('precify_billing.mp',return_value=dict(id='bad',init_point='https://www.mercadopago.com.br/',auto_recurring=dict(frequency=1,frequency_type='months',currency_id='BRL',transaction_amount=34.9))) as provider:
+        response=post(client,app,'/billing/checkout',{**data,'billingTermsVersion':'2026-10-15-trial-payment'})
+        assert response.status_code==502 and response.json['error']=='trial_not_confirmed'
+    assert plan(app)['tier']=='free'
+
+
+def test_trial_sync_and_cancellation_preserve_trial_without_renewal(app,client,monkeypatch):
+    key,authorization=trial_checkout(client,app,monkeypatch)
+    def provider(method,path,payload=None,**kwargs):
+        if path.startswith('/preapproval/search?'):return {'results':[{'id':authorization['id']}]}
+        if method=='GET':return authorization
+        return {'status':'cancelled'}
+    with patch('precify_billing.mp',side_effect=provider) as calls:
+        response=post(client,app,'/billing/sync');assert response.status_code==200,response.json
+        assert response.json['plan']['status']=='trialing'
+        assert post(client,app,'/billing/cancel',dict(subscriptionId=key)).status_code==200
+        assert any(c.args==('PUT','/preapproval/'+authorization['id'],{'status':'cancelled'}) for c in calls.call_args_list)
+    assert plan(app)['status']=='trialing'
+    with app.app_context(),db() as cur:
+        cur.execute("UPDATE precify_accounts SET trial_ends_at=NOW()-INTERVAL '1 second'")
+    assert plan(app)['tier']=='free' and not plan(app)['trialAvailable']
+
+
+def test_trial_does_not_extend_from_duplicate_late_or_other_subscription(app,client,monkeypatch):
+    from precify_billing import record_subscription
+    key,authorization=trial_checkout(client,app,monkeypatch)
+    with app.app_context(),patch('precify_billing.mp',return_value={'status':'cancelled'}) as provider:
+        record_subscription(authorization['id'],authorization)
+        end=plan(app)['validUntil']
+        future={**authorization,'last_modified':(datetime.now(timezone.utc)+timedelta(minutes=1)).isoformat(),'next_payment_date':(datetime.now(timezone.utc)+timedelta(days=37)).isoformat()}
+        record_subscription(authorization['id'],future)
+        record_subscription(authorization['id'],authorization)
+        duplicate={**authorization,'id':'duplicate'}
+        record_subscription('duplicate',duplicate)
+        assert provider.call_args.args==('PUT','/preapproval/duplicate',{'status':'cancelled'})
+        assert plan(app)['validUntil']==end
+
+
+@pytest.mark.parametrize('field',['amount','cycle','plan','early_charge'])
+def test_trial_rejects_provider_mismatch(app,client,monkeypatch,field):
+    from precify_billing import record_subscription
+    key,authorization=trial_checkout(client,app,monkeypatch)
+    if field=='amount':authorization['auto_recurring']['transaction_amount']=.01
+    if field=='cycle':authorization['auto_recurring']['frequency']=12
+    if field=='plan':authorization['preapproval_plan_id']='unrelated-plan'
+    if field=='early_charge':authorization['next_payment_date']=datetime.now(timezone.utc).isoformat()
+    with app.app_context(),patch('precify_billing.mp',return_value={'status':'cancelled'}):
+        if field=='plan':record_subscription(authorization['id'],authorization)
+        else:
+            with pytest.raises(ApiError):record_subscription(authorization['id'],authorization)
+    assert plan(app)['tier']=='free'
+
+
+def signed_event(client,kind,resource):
+    timestamp=str(int(time.time()));request_id=uuid4().hex
+    signature=hmac.new(b'test-secret',f'id:{resource.lower()};request-id:{request_id};ts:{timestamp};'.encode(),hashlib.sha256).hexdigest()
+    return client.post('/api/precify/billing/webhook?data.id='+resource,headers={'x-request-id':request_id,'x-signature':f'ts={timestamp},v1={signature}'},json={'type':kind,'data':{'id':resource}})
+
+
+def test_trial_signed_webhook_invoice_payment_and_refund_without_reference(app,client,monkeypatch):
+    key,authorization=trial_checkout(client,app,monkeypatch)
+    with patch('precify_billing.mp',side_effect=lambda method,path,*args,**kw: authorization if method=='GET' else {'status':'cancelled'}):
+        assert signed_event(client,'subscription_preapproval',authorization['id']).status_code==200
+    assert plan(app)['status']=='trialing'
+    # Simulate the scheduled first payment after the trial (never a real transaction).
+    with app.app_context(),db() as cur:
+        cur.execute("UPDATE precify_accounts SET trial_ends_at=NOW()-INTERVAL '1 second'")
+    paid=payment(key,3490);paid.pop('external_reference')
+    def provider(method,path,*args,**kw):
+        if path.startswith('/authorized_payments/'):return dict(preapproval_id=authorization['id'],payment={'id':123})
+        if path.startswith('/preapproval/'):return authorization
+        return paid
+    with patch('precify_billing.mp',side_effect=provider):
+        assert signed_event(client,'subscription_authorized_payment','invoice_1').status_code==200
+    assert plan(app)['status']=='active'
+    refund={**paid,'status':'refunded','date_last_updated':(datetime.now(timezone.utc)+timedelta(seconds=1)).isoformat()}
+    with patch('precify_billing.mp',return_value=refund):
+        assert signed_event(client,'payment','123').status_code==200
+    assert plan(app)['tier']=='free'
+
+
+def test_cancel_unfinished_trial_closes_checkout_without_consuming_trial(app,client,monkeypatch):
+    key,authorization=trial_checkout(client,app,monkeypatch)
+    with patch('precify_billing.mp',side_effect=lambda method,path,*args,**kw: {'results':[]} if method=='GET' else {'status':'cancelled'}) as calls:
+        assert post(client,app,'/billing/cancel',dict(subscriptionId=key)).status_code==200
+        assert calls.call_args_list[0].args==('PUT','/preapproval_plan/'+authorization['preapproval_plan_id'],{'status':'cancelled'})
+    assert plan(app)['tier']=='free' and plan(app)['trialAvailable']
+
+
+def test_concurrent_trial_checkouts_reuse_one_provider_plan(app,client,monkeypatch):
+    from precify_billing import BILLING_TERMS_VERSION
+    monkeypatch.setenv('MERCADO_PAGO_ACCESS_TOKEN','test-provider-token');monkeypatch.setenv('MERCADO_PAGO_WEBHOOK_SECRET','test-secret')
+    recurring=dict(frequency=1,frequency_type='months',currency_id='BRL',transaction_amount=34.9,free_trial=dict(frequency=7,frequency_type='days'))
+    result=dict(id='one-plan',status='active',auto_recurring=recurring,init_point='https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=one-plan')
+    def attempt(_):
+        return post(app.test_client(),app,'/billing/checkout',dict(tier='pro',cycle='monthly',trial=True,billingTermsVersion=BILLING_TERMS_VERSION))
+    with patch('precify_billing.mp',return_value=result) as provider,ThreadPoolExecutor(max_workers=4) as pool:
+        responses=list(pool.map(attempt,range(4)))
+    assert all(r.status_code==200 for r in responses)
+    assert len({r.json['subscriptionId'] for r in responses})==1
+    assert provider.call_count==1

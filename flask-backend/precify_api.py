@@ -193,8 +193,9 @@ def terms():
         'A conexão com o Mercado Livre será autorizada separadamente na página oficial. '
         'As estimativas dependem dos dados disponíveis e dos custos que você informa. '
         'O plano grátis permite 10 buscas por mês, renovadas no primeiro dia do mês no horário de Brasília. '
-        'O teste Pro dura 7 dias, uma vez por conta, sem cobrança automática. '
-        'Uma assinatura paga só começa após sua confirmação no Mercado Pago. Versão '+TERMS_VERSION+'.')
+        'O teste Pro dura 7 dias, uma vez por conta, após cadastrar e autorizar o pagamento no Mercado Pago. '
+        'Após o teste, o plano escolhido é cobrado automaticamente, salvo cancelamento antes da primeira cobrança. '
+        'O valor e a periodicidade são apresentados antes da autorização. Versão '+TERMS_VERSION+'.')
 
 
 def ml_token(user_id):
@@ -296,15 +297,8 @@ def pricing():
 
 @precify.post('/trial')
 def trial():
-    user=identity()
-    with db() as cur:
-        account(cur,user['id'])
-        cur.execute('''UPDATE precify_accounts SET trial_started_at=NOW(),trial_ends_at=NOW()+INTERVAL '7 days'
-          WHERE user_id=%s AND trial_started_at IS NULL RETURNING user_id''',(user['id'],))
-        if not cur.fetchone():
-            raise ApiError('trial_already_used',409)
-        result=plan_for(cur,user['id'])
-    return jsonify(plan=result)
+    identity()
+    raise ApiError('payment_setup_required',409)
 
 
 @precify.post('/comparison')

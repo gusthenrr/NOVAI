@@ -11,7 +11,7 @@ This additive release preserves NOVAI accounts, Mercado Livre OAuth and the exis
 | Plus | R$ 31.90 | R$ 279.90 | Unlimited | Comparisons, including Classic/Premium |
 | Pro | R$ 34.90 | R$ 299.90 | Unlimited | Plus + listing insights when available |
 
-A Pro trial lasts seven days, once per NOVAI account, without automatic billing. Paid checkout is a separate, explicit action. The annual option charges the annual total, not twelve monthly instalments. Cancellation stops renewal; verified paid access lasts until the recorded end of its period. Refunds and chargebacks remove the associated paid entitlement.
+A Pro trial lasts seven days, once per NOVAI account, after the customer registers and authorizes a credit card in Mercado Pago. The selected monthly/annual amount renews automatically after the trial unless cancelled beforehand. The app discloses the amount and recurrence before opening checkout; the subscription stores the accepted billing terms version and timestamp. Legacy trials already activated remain valid. The annual option charges the annual total, not twelve monthly instalments. Cancellation stops renewal; verified paid access lasts until the recorded end of its period. Refunds and chargebacks remove the associated paid entitlement.
 
 The allowance resets on the first day of each calendar month in America/Sao_Paulo. Each authorized import attempt consumes one search; retries with the same request key and exact URL are idempotent. An account row lock enforces this across concurrent devices. Successful imports can be retried for 30 minutes using their account- and URL-bound permit. App storage cannot reset the allowance.
 
@@ -32,9 +32,10 @@ All authenticated routes require `X-Precify-Session` with the opaque NOVAI devic
 - `GET /api/precify/items/{MLB_ID}/insights`: Pro only; checks entitlement BEFORE any ML token lookup or upstream request. Uses `/items/{id}` and, for a missing date, `/items/{id}/description`. The latter is the description date and does not guarantee listing creation; `source` preserves that distinction.
 - `POST /api/precify/pricing`: calculator inputs; uses the existing official ML pricing handler with the logged-in seller's server-side token. `comparison: true` also requires Plus/Pro.
 - `POST /api/precify/comparison`: Plus/Pro. For Shopee/Amazon, uses the explicit commission, fixed fee and shipping supplied by the user. Never treats the HTML prototype's sample rates as verified marketplace prices.
-- `POST /api/precify/trial`: one-time seven-day Pro trial.
+- `POST /api/precify/trial`: retired; returns 409 payment_setup_required. It cannot grant access without payment authorization.
 - `GET /api/precify/billing/plans`: public catalog and paymentsEnabled.
-- `POST /api/precify/billing/checkout`: tier (plus/pro), cycle (monthly/annual). Amount/currency/recurrence come exclusively from server configuration.
+- `POST /api/precify/billing/checkout`: tier (plus/pro), cycle (monthly/annual), trial=true for an eligible Pro trial, billingTermsVersion from the catalog. Amount/currency/recurrence come exclusively from server configuration.
+- `POST /api/precify/billing/sync`: reconcile the current account’s subscription with Mercado Pago after returning from checkout; never trusts a browser return status.
 - `GET /api/precify/billing/history`: own subscriptions and payment records.
 - `POST /api/precify/billing/cancel`: subscriptionId owned by the account.
 
@@ -55,9 +56,9 @@ Register this Webhook in Mercado Pago integrations:
 
 Enable payment and subscription notifications (`payment`, `subscription_preapproval`, `subscription_authorized_payment`). The return URL is `/api/precify/billing/return`. The redirect does not grant access.
 
-Webhook processing verifies x-signature, x-request-id, resource ID and timestamp (10-minute tolerance), then independently retrieves the resource using the server credential. It verifies subscription reference, amount and currency, and records provider timestamps/idempotent payment IDs. Only approved payment records grant paid access. Replayed or older events cannot extend a period or replace a newer refund state. Subscription authorization alone is insufficient. Events, subscriptions, payments, billing dates, trial dates and consents have separate records; raw payment/card payloads are not stored.
+Webhook processing verifies x-signature, x-request-id, resource ID and timestamp (10-minute tolerance), then independently retrieves the resource using the server credential. It verifies subscription reference, amount and currency, and records provider timestamps/idempotent payment IDs. Only approved payment records grant paid access. Replayed or older events cannot extend a period or replace a newer refund state. Subscription authorization alone never grants paid entitlement. It can activate the single seven-day trial only when the provider plan, amount, recurrence, trial configuration and first debit date are verified. Events, subscriptions, payments, billing dates, trial dates and consents have separate records; raw payment/card payloads are not stored.
 
-Without the two Mercado Pago credentials, checkout returns payments_not_configured and the app shows “Pagamento em preparação”. Free use and the seven-day trial remain available. Real checkout/webhook verification must be exercised with Mercado Pago test accounts and the configured integration before accepting customer payments; local tests mock the provider and do not charge anyone.
+Without the two Mercado Pago credentials, checkout returns payments_not_configured and the app shows “Pagamento em preparação”. Free use remains available; new trials require payment configuration and authorization. Real checkout/webhook verification must be exercised with Mercado Pago test accounts and the configured integration before accepting customer payments; local tests mock the provider and do not charge anyone.
 
 ## Validation
 
@@ -66,3 +67,32 @@ Existing tests: `python -m pytest flask-backend/tests`.
 PostgreSQL integration tests additionally require an explicitly isolated `PRECIFY_TEST_DATABASE_URL`. The suite creates a random schema and removes it after each test; it never falls back to production DATABASE_URL. Coverage includes migrations, NOVAI signup/login, session revocation, one-use OAuth/PKCE, concurrent quota, Brasilia month boundaries, protected data denial before ML calls, trial expiry, server-owned prices, signed Webhooks, duplicate payments, refunds and ownership checks.
 
 The Expo project runs typecheck, lint, Node tests and Android/iOS/web exports. No production account or payment is created by these tests.
+
+## Trial checkout implementation
+
+For an eligible trial, POST `/preapproval_plan` creates an individual hosted checkout with
+`auto_recurring.free_trial = {"frequency":7,"frequency_type":"days"}` and credit-card payment.
+Monthly frequency is 1 month; annual frequency is 12 months and charges the full annual amount.
+No pro rata, fixed billing day or immediate charge is configured. We do not rely on a lone
+`start_date`: the provider documents that it is ignored without `end_date`.
+
+Each provider plan ID is unique to a local subscription/account. Only server-fetched resources
+can bind an authorized subscriber to that account. Trial dates are anchored to provider subscription
+creation and never extended by repeated notifications, synchronization or later invoice dates.
+Checkout creation/return/pending authorization do not activate access. The personal checkout plan
+is closed after authorization (Mercado Pago preserves existing subscribers), so the link cannot
+create more subscriptions. Duplicate/late subscriptions on that plan are cancelled, not granted another trial.
+Cancellation closes an unused plan link and the actual subscription, while preserving the remaining
+trial/paid period. Payment events and invoices still control paid access; refunds are mapped by the
+previously verified payment ID even if a hosted-plan payment has no external_reference.
+
+The change was validated with PostgreSQL integration tests using a mocked payment provider. A real,
+unsubscribed temporary MP plan returned HTTP 201 with `free_trial.frequency=7`, `frequency_type=days`,
+`first_invoice_offset=7`, and an `init_point`; it was then cancelled (HTTP 200, status cancelled).
+No card was registered and no charge was made. Card authorization, webhook delivery and the first
+scheduled debit still require an end-to-end test with Mercado Pago test accounts.
+
+References:
+- https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/create-preapproval-plan/post
+- https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/create-preapproval/post
+- https://www.mercadopago.com.br/developers/pt/docs/subscription-plans/manage-subscription-plan
