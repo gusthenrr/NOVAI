@@ -44,6 +44,7 @@ export default function PosVendaPage() {
   //useEffect: Envia o user_id para a rota /verificar_id no backend para validar o usuário
   const socket=io(process.env.NEXT_PUBLIC_API_URL!,{
     transports:['websocket'],
+    withCredentials: true,
     secure: true,
     reconnection: true,
     reconnectionAttempts: Infinity,

@@ -44,7 +44,7 @@ def account(cur, user_id):
     cur.execute('INSERT INTO precify_accounts(user_id) VALUES(%s) ON CONFLICT DO NOTHING', (user_id,))
 
 
-def identity():
+def identity(allow_incomplete=False):
     token = request.headers.get('X-Precify-Session', '')
     if not 32 <= len(token) <= 128 or any(c.isspace() for c in token):
         raise ApiError('session_required', 401)
@@ -54,6 +54,9 @@ def identity():
         user = cur.fetchone()
         if not user:
             raise ApiError('session_expired', 401)
+    if not allow_incomplete:
+        from security_auth import require_ready
+        require_ready(user['id'])
     return user
 
 
@@ -139,11 +142,11 @@ def check_import(user_id, import_id, url):
             raise ApiError('import_expired',403)
 
 
-def rate_limit(key):
+def rate_limit(key, limit=20):
     bucket=now().replace(minute=(now().minute//15)*15,second=0,microsecond=0)
     with db() as cur:
         cur.execute('''INSERT INTO precify_auth_limits(key_hash,bucket) VALUES(%s,%s)
           ON CONFLICT(key_hash,bucket) DO UPDATE SET attempts=precify_auth_limits.attempts+1 RETURNING attempts''',(digest(key),bucket))
         count=cur.fetchone()['attempts']
-    if count>20:
+    if count>limit:
         raise ApiError('too_many_attempts',429)

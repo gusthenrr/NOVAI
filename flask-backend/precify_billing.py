@@ -316,18 +316,65 @@ def sync_subscription(sub):
         result=mp('GET','/preapproval/search?'+query)
         for match in result.get('results',[]):
             identifier=provider_id(match.get('id'))
-            # Search results are a summary; validate the full provider resource.
             record_subscription(identifier,mp('GET','/preapproval/'+identifier))
+
+
+def reconcile_subscription(sub):
+    """Recover missed payment/refund webhooks using server-authenticated resources."""
+    deadline=time.monotonic()+45
+    def read(path):
+        if time.monotonic()>deadline: raise ApiError('incomplete_payment_reconciliation',502)
+        return mp('GET',path)
+    sync_subscription(sub)
+    with db() as cur:
+        cur.execute('SELECT * FROM precify_subscriptions WHERE id=%s',(str(sub['id']),))
+        current=cur.fetchone()
+    if not current or not current['provider_id']: return
+    identifier=provider_id(current['provider_id'])
+    seen=set()
+    # Bounded pagination; incomplete reconciliation is an error, never a success.
+    for offset in range(0,1000,100):
+        result=read('/authorized_payments/search?'+urlencode({'preapproval_id':identifier,'limit':100,'offset':offset}))
+        rows=result.get('results')
+        if not isinstance(rows,list): raise ApiError('invalid_provider_response',502)
+        for summary in rows:
+            invoice_id=provider_id(summary.get('id'))
+            invoice=read('/authorized_payments/'+invoice_id)
+            if str(invoice.get('id'))!=invoice_id or str(invoice.get('preapproval_id'))!=identifier:
+                raise ApiError('payment_subscription_mismatch',502)
+            payment_id=str((invoice.get('payment') or {}).get('id') or '')
+            if not payment_id: continue  # Scheduled invoices have no payment yet.
+            if not re.fullmatch(r'\d{1,30}',payment_id): raise ApiError('invalid_provider_payment',502)
+            if payment_id not in seen:
+                payment=read('/v1/payments/'+payment_id)
+                if str(payment.get('id'))!=payment_id: raise ApiError('payment_subscription_mismatch',502)
+                record_payment(payment,identifier)
+                seen.add(payment_id)
+        total=(result.get('paging') or {}).get('total')
+        if (isinstance(total,int) and offset+len(rows)>=total) or (total is None and len(rows)<100): break
+        if not rows: raise ApiError('incomplete_payment_reconciliation',502)
+    else: raise ApiError('incomplete_payment_reconciliation',502)
+    # Revisit existing payments too: a refund can arrive without a new invoice.
+    with db() as cur:
+        cur.execute('SELECT provider_id FROM precify_payments WHERE subscription_id=%s AND period_end>NOW()', (str(sub['id']),))
+        existing=cur.fetchall()
+    for row in existing:
+        if row['provider_id'] not in seen:
+            payment=read('/v1/payments/'+provider_id(row['provider_id']))
+            if str(payment.get('id'))!=row['provider_id']: raise ApiError('payment_subscription_mismatch',502)
+            record_payment(payment,identifier)
 
 
 @billing.post('/sync')
 def sync():
     user=identity()
+    from precify_core import rate_limit
+    rate_limit('billing-sync:'+str(user['id']),limit=30)
     with db() as cur:
-        cur.execute("SELECT * FROM precify_subscriptions WHERE user_id=%s AND status IN ('pending','authorized','paused') ORDER BY created_at DESC LIMIT 1",(user['id'],))
-        sub=cur.fetchone()
-    if sub:
-        sync_subscription(sub)
+        cur.execute("SELECT * FROM precify_subscriptions WHERE user_id=%s AND (status IN ('pending','authorized','paused') OR EXISTS (SELECT 1 FROM precify_payments p WHERE p.subscription_id=precify_subscriptions.id AND p.period_end>NOW())) ORDER BY created_at DESC LIMIT 5",(user['id'],))
+        subscriptions=cur.fetchall()
+    for sub in subscriptions:
+        reconcile_subscription(sub)
     with db() as cur:
         state=plan_for(cur,user['id'])
     return jsonify(plan=state)

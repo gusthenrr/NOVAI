@@ -1,13 +1,16 @@
 // background.js
 console.log("[BG] service worker up");
 
-const API_BASE = "https://nossopoint-backend-flask-server.com";
+const API_BASE = "https://novai-production-0d2f.up.railway.app";
 
 /* ---------- helpers HTTP ---------- */
 async function postJSON(url, body) {
+  // This legacy copy uses the NOVAI login session, never the Mercado Livre token.
+  const stored = await chrome.storage.local.get(['token_user']);
+  if (!stored.token_user) throw new Error('Entre na NOVAI antes de consultar dados.');
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${stored.token_user}` },
     body: JSON.stringify(body),
   });
   const txt = await res.text();

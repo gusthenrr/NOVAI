@@ -14,6 +14,7 @@ import requests
 
 from precify_core import ApiError, UTC, account, check_import, db, digest, identity, new_session, now, plan_for, rate_limit, require_feature, reserve_import
 from pricing_margin import UpstreamError, get_ml
+from security_auth import authenticate_password, validate_registration, account_requirements, valid_password, PASSWORD_POLICY
 
 precify = Blueprint('precify', __name__, url_prefix='/api/precify')
 ITEM = re.compile(r'MLB\d{6,15}\Z')
@@ -54,7 +55,9 @@ def session_data(user,token=None):
     with db() as cur:
         cur.execute('SELECT id FROM contas_mercado_livre WHERE usuario_id=%s',(user['id'],))
         linked=bool(cur.fetchone())
-        result=dict(user=dict(id=str(user['id']),email=user['email'],name=user['usuario']),linked=linked,plan=plan_for(cur,user['id']))
+        cur.execute('SELECT email_verified_at FROM usuarios WHERE id=%s',(user['id'],))
+        email_verified=bool(cur.fetchone()['email_verified_at'])
+        result=dict(emailVerified=email_verified,user=dict(id=str(user['id']),email=user['email'],name=user['usuario']),linked=linked,plan=plan_for(cur,user['id']),accountRequirements=account_requirements(cur,user['id']))
     if token:
         result['sessionToken']=token
     return result
@@ -63,17 +66,10 @@ def session_data(user,token=None):
 @precify.post('/auth/login')
 def login():
     data=body()
-    email=str(data.get('email','')).strip().lower()
-    password=data.get('password')
-    rate_limit('login:'+email)
-    rate_limit('login-ip:'+str(request.remote_addr))
-    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or len(email)>254 or not isinstance(password,str) or not 1<=len(password.encode())<=72:
-        raise ApiError('invalid_credentials',401)
+    user=authenticate_password(data.get('email'),data.get('password'))
     with db() as cur:
-        cur.execute('SELECT id,email,usuario,senha FROM usuarios WHERE LOWER(email)=%s',(email,))
-        user=cur.fetchone()
-        if not user or not bcrypt.checkpw(password.encode(),user['senha'].encode()):
-            raise ApiError('invalid_credentials',401)
+        cur.execute('SELECT auth_version FROM usuarios WHERE id=%s FOR UPDATE',(user['id'],))
+        if cur.fetchone()['auth_version']!=user['auth_version']: raise ApiError('invalid_credentials',401)
         token=new_session(cur,user['id'])
     return jsonify(session_data(user,token))
 
@@ -84,21 +80,19 @@ def register():
     email=str(data.get('email','')).strip().lower()
     name=str(data.get('name','')).strip()
     password=data.get('password')
-    rate_limit('register:'+str(request.remote_addr))
-    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or len(email)>254 or not 2<=len(name)<=100:
-        raise ApiError('invalid_registration')
-    if not isinstance(password,str) or not 8<=len(password) or len(password.encode())>72:
-        raise ApiError('invalid_password')
+    email,name=validate_registration(email,name,password)
+    rate_limit('register-email:'+email)
     if data.get('acceptedTerms') is not True or data.get('termsVersion')!=TERMS_VERSION:
         raise ApiError('terms_required')
     # Use the same NOVAI account table and password format as the existing signup.
     try:
         with db() as cur:
+            cur.execute('SELECT pg_advisory_xact_lock(%s)',(int(digest('register:'+email)[:15],16),))
             cur.execute('SELECT id FROM usuarios WHERE LOWER(email)=%s',(email,))
             if cur.fetchone():
                 raise ApiError('email_in_use',409)
-            cur.execute('INSERT INTO usuarios(usuario,email,senha) VALUES(%s,%s,%s) RETURNING id,email,usuario',
-                        (name,email,bcrypt.hashpw(password.encode(),bcrypt.gensalt()).decode()))
+            cur.execute('INSERT INTO usuarios(usuario,email,senha,password_policy_version) VALUES(%s,%s,%s,%s) RETURNING id,email,usuario',
+                        (name,email,bcrypt.hashpw(password.encode(),bcrypt.gensalt()).decode(),PASSWORD_POLICY))
             user=cur.fetchone()
             cur.execute('INSERT INTO precify_consents(user_id,purpose,version) VALUES(%s,%s,%s)',(user['id'],'precify_terms',TERMS_VERSION))
             token=new_session(cur,user['id'])
@@ -109,16 +103,61 @@ def register():
 
 @precify.get('/session')
 def session():
-    return jsonify(session_data(identity()))
+    return jsonify(session_data(identity(allow_incomplete=True)))
 
 
 @precify.post('/auth/logout')
 def logout():
-    identity()
+    identity(allow_incomplete=True)
     with db() as cur:
         cur.execute('UPDATE precify_sessions SET revoked_at=NOW() WHERE token_hash=%s',(digest(request.headers['X-Precify-Session']),))
     from precify_realtime import disconnect_session
     disconnect_session(digest(request.headers['X-Precify-Session']))
+    return jsonify(ok=True)
+
+
+@precify.post('/auth/complete')
+def complete_account():
+    user=identity(allow_incomplete=True)
+    data=body()
+    with db() as cur: needed=account_requirements(cur,user['id'])
+    if needed['needsTerms'] and (data.get('acceptedTerms') is not True or data.get('termsVersion')!=TERMS_VERSION):
+        raise ApiError('terms_required')
+    if needed['needsPasswordUpdate'] or data.get('newPassword') is not None:
+        verified=authenticate_password(user['email'],data.get('currentPassword'))
+        if not valid_password(data.get('newPassword')): raise ApiError('invalid_password')
+        with db() as cur:
+            cur.execute('UPDATE usuarios SET senha=%s,password_policy_version=%s,auth_version=auth_version+1 WHERE id=%s AND auth_version=%s',
+                (bcrypt.hashpw(data['newPassword'].encode(),bcrypt.gensalt()).decode(),PASSWORD_POLICY,user['id'],verified['auth_version']))
+            if not cur.rowcount: raise ApiError('invalid_credentials',401)
+            cur.execute('UPDATE precify_sessions SET revoked_at=NOW() WHERE user_id=%s AND token_hash<>%s',(user['id'],digest(request.headers['X-Precify-Session'])))
+        from precify_realtime import disconnect_account
+        disconnect_account(user['id'],keep_session=digest(request.headers['X-Precify-Session']))
+    if data.get('acceptedTerms') is True and data.get('termsVersion')==TERMS_VERSION:
+        with db() as cur:
+            cur.execute('INSERT INTO precify_consents(user_id,purpose,version) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING',(user['id'],'precify_terms',TERMS_VERSION))
+    return jsonify(session_data(user))
+
+
+@precify.get('/auth/sessions')
+def device_sessions():
+    user=identity()
+    with db() as cur:
+        cur.execute('SELECT token_hash,created_at,expires_at FROM precify_sessions WHERE user_id=%s AND revoked_at IS NULL AND expires_at>NOW() ORDER BY created_at DESC',(user['id'],))
+        rows=cur.fetchall()
+    current=digest(request.headers['X-Precify-Session'])
+    return jsonify(sessions=[dict(id=r['token_hash'],current=r['token_hash']==current,createdAt=r['created_at'].isoformat(),expiresAt=r['expires_at'].isoformat()) for r in rows])
+
+
+@precify.post('/auth/sessions/revoke')
+def revoke_device():
+    user=identity();identifier=body().get('id')
+    if not isinstance(identifier,str) or not re.fullmatch(r'[0-9a-f]{64}',identifier): raise ApiError('invalid_session')
+    with db() as cur:
+        cur.execute('UPDATE precify_sessions SET revoked_at=NOW() WHERE user_id=%s AND token_hash=%s RETURNING token_hash',(user['id'],identifier))
+        if not cur.fetchone(): raise ApiError('session_not_found',404)
+    from precify_realtime import disconnect_session
+    disconnect_session(identifier)
     return jsonify(ok=True)
 
 
@@ -339,6 +378,8 @@ def register_precify(app,socketio=None):
     from precify_billing import billing
     app.register_blueprint(precify)
     app.register_blueprint(billing)
+    from account_email import email_api
+    app.register_blueprint(email_api)
     app.add_url_rule('/auth/precify/connect','precify_oauth_start',oauth_start)
 
     if socketio is not None:

@@ -1,8 +1,8 @@
+import eventlet
+eventlet.monkey_patch()
 from flask import Flask, request, jsonify, redirect, session, make_response,Response, stream_with_context
 from flask_cors import CORS, cross_origin
 import requests
-import eventlet
-eventlet.monkey_patch()
 from psycogreen.eventlet import patch_psycopg
 patch_psycopg()
 import uuid
@@ -29,14 +29,14 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from jwt import ExpiredSignatureError, InvalidTokenError
 import time
-from langchain.callbacks.tracers import LangChainTracer 
+from langchain_core.tracers import LangChainTracer
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate , MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel, Field
-from langchain.prompts.few_shot import FewShotPromptTemplate
-from langchain.prompts.prompt import PromptTemplate
+from langchain_core.prompts import FewShotPromptTemplate
+from langchain_core.prompts import PromptTemplate
 from typing import Optional, List, Any, Dict, Literal,Tuple
 
 load_dotenv(".env.local")
@@ -78,6 +78,7 @@ def get_db_connection():
     return psycopg2.connect(url, cursor_factory=RealDictCursor)
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"]=262144
 from item_dates import item_dates
 app.register_blueprint(item_dates)
 from item_categories import item_categories
@@ -106,8 +107,31 @@ from http.cookiejar import MozillaCookieJar
 
 Session(app)  # Inicializa a sessão
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
+from security_network import ml_http, official_resource_url, fetch_product_html, validate_page_url
+from security_auth import authenticate_password, validate_registration, PASSWORD_POLICY
+from security_legacy import decode_account_token as decode_token, token_claims, legacy_user, connect_socket, socket_user, account_ml_token, limit_operation
+from precify_core import ApiError, db, rate_limit, digest
 from precify_api import register_precify
 register_precify(app,socketio)
+from billing_reconciliation import start as start_billing_reconciliation
+start_billing_reconciliation(app)
+
+@app.errorhandler(ApiError)
+def security_error(error):
+    return jsonify(error=error.code),error.status
+
+@app.before_request
+def request_size_limit():
+    if request.content_length and request.content_length>262144:
+        raise ApiError("request_too_large",413)
+
+@app.after_request
+def private_legacy_response(response):
+    if not request.path.startswith("/api/precify"):
+        response.headers["Cache-Control"]="no-store"
+        if response.status_code>=500:
+            response.set_data(json.dumps({"error":"internal_error"}));response.content_type="application/json"
+    return response
 
 url_global = PUBLIC_BASE_URL
 # 🔑 Suas credenciais do Mercado Livre
@@ -149,67 +173,26 @@ def clear_legacy_cookies(resp):
 # CRIAR CONTA DE USUARIO DA NOVAI
 @app.route('/add-usuario', methods=['POST'])
 def add_usuario():
-    print('Entrou no add-usuario')
-    try:
-        email = request.form.get('email')
-        senha = request.form.get('senha')
-        usuario = request.form.get('usuario')  # Novo campo
-
-        if not email or not senha or not usuario:
-            return jsonify({"error": "Usuário, email e senha são obrigatórios"}), 400
-
-        # Gerando o hash da senha com bcrypt
-        salt = bcrypt.gensalt()
-        hashed_password = bcrypt.hashpw(senha.encode('utf-8'), salt).decode('utf-8')
-
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        # Se uma tentativa anterior criou o usuário, mas o OAuth falhou antes
-        # de salvar os tokens, permita retomar a autorização com a mesma senha.
-        cur.execute("SELECT id, senha FROM usuarios WHERE LOWER(email) = LOWER(%s);", (email,))
-        usuario_existente = cur.fetchone()
-        if usuario_existente:
-            senha_valida = bcrypt.checkpw(
-                senha.encode('utf-8'),
-                usuario_existente['senha'].encode('utf-8'),
-            )
-            if not senha_valida:
-                return jsonify({"error": "Usuário já cadastrado"}), 400
-
-            cur.execute(
-                "SELECT id FROM contas_mercado_livre WHERE usuario_id = %s",
-                (usuario_existente['id'],),
-            )
-            if cur.fetchone():
-                return jsonify({"error": "Usuário já cadastrado e conectado"}), 400
-
-            session['novo_id'] = usuario_existente['id']
-            return redirect(f'{url_global}/login')
-
-        #Inserir novo usuário no banco de dados
-        cur.execute(
-            "INSERT INTO usuarios (usuario, email, senha,modo_automatico) VALUES (%s, %s, %s,%s) RETURNING id;",
-            (usuario, email, hashed_password,False)
-        )
-        novo_id=cur.fetchone()['id']
-        print(f"Novo ID: {novo_id}")
-        session['novo_id']=novo_id
-        conn.commit()
-        cur.close()
-        conn.close()
-        redirect_uri=f'{url_global}/login'
-        return redirect(redirect_uri)      
-         # Redirecionar para a página de login
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        # Certifique-se de fechar o cursor e a conexão
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
+    email,name=validate_registration(request.form.get('email'),request.form.get('usuario'),request.form.get('senha'))
+    senha=request.form.get('senha')
+    rate_limit('register-email:'+email)
+    with db() as cur:
+        cur.execute('SELECT pg_advisory_xact_lock(%s)',(int(digest('register:'+email)[:15],16),))
+        cur.execute('SELECT id FROM usuarios WHERE LOWER(email)=%s',(email,))
+        existing=cur.fetchone()
+        if not existing:
+            hashed=bcrypt.hashpw(senha.encode(),bcrypt.gensalt()).decode()
+            cur.execute('INSERT INTO usuarios(usuario,email,senha,password_policy_version) VALUES(%s,%s,%s,%s) RETURNING id',(name,email,hashed,PASSWORD_POLICY))
+            user_id=cur.fetchone()['id']
+        else:
+            user_id=existing['id']
+    if existing:
+        authenticate_password(email,senha)
+        with db() as cur:
+            cur.execute('SELECT id FROM contas_mercado_livre WHERE usuario_id=%s',(user_id,))
+            if cur.fetchone(): raise ApiError('email_in_use',409)
+    session['novo_id']=user_id
+    return redirect(f'{url_global}/login')
 
 
 
@@ -217,9 +200,7 @@ def add_usuario():
 # PESSOA IRA LOGAR CONTA DO MERCADO-LIVRE
 @app.route('/login', methods=['GET'])
 def login():
-    print("Entrou no login")
     user_id=session['novo_id']
-    print("encontrou o user_id no /login: ", user_id)
 
     if not user_id:
         return "Usuário não autenticado", 401
@@ -254,7 +235,6 @@ def callback():
 
     if not state or not code:
         return "Parâmetros ausentes", 400
-    print("Callback OAuth recebido")
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT user_id, code_verifier FROM verifier WHERE state = %s", (state,))
@@ -263,9 +243,7 @@ def callback():
     conn.close()
 
     if not result:
-        print("Sessão OAuth não encontrada")
         return "Sessão OAuth não encontrada", 400
-    print("result: ", result)
     usuario_id = result['user_id']
     code_verifier = result['code_verifier']
 
@@ -280,9 +258,8 @@ def callback():
         "code_verifier": code_verifier
     }
 
-    response = requests.post(token_url, data=payload, timeout=30)
+    response = ml_http.post(token_url, data=payload, timeout=30)
     token_data = response.json()
-    print("Resposta OAuth recebida; access_token presente:", "access_token" in token_data)
     if not response.ok or "access_token" not in token_data:
         app.logger.warning("Falha na troca do código OAuth: HTTP %s", response.status_code)
         return jsonify({"error": "oauth_token_exchange_failed"}), 400
@@ -298,10 +275,7 @@ def callback():
     expiracao_token = datetime.now() + timedelta(seconds=expires_in)
 
     # Verifica se o usuario_id foi recuperado e esta autenticado
-    print("usuario_id: ", usuario_id)
-    print('expiracao:',expiracao_token)
     if not usuario_id:
-        print("usuario nao autenticado internamente")
         return jsonify({"error": "Usuário não autenticado internamente"}), 401
 
     try:
@@ -341,18 +315,16 @@ def callback():
         # Deleta o registro da tabela verifier relacionado ao usuário
         cur.execute("DELETE FROM verifier WHERE state = %s", (state,))
         if cur.rowcount == 0:
-            print(f"Nenhum registro encontrado para o usuário {usuario_id} na tabela verifier")
+            pass  # No sensitive payloads in application logs.
 
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print("Ocorreu um erro:", e)
         return jsonify({"error": str(e)}), 500
     finally:
         cur.close()
         conn.close()
         token_jwt=gerar_token(usuario_id)
-    print('chegou aqui')
     # O antigo /loading iniciava uma sincronização completa da conta. No modo
     # token-only seguimos direto ao painel depois de persistir os tokens.
     redirect_target = f"{FRONTEND_URL}/conectado"
@@ -365,33 +337,8 @@ def callback():
 
 @app.route('/webhook/ml/messages', methods=['POST'])
 def webhook_mercado_livre_messages():
-    data = request.get_json(force=True) or {}
-    id_ml = data.get('user_id')
-    print("🔔 Notificação de mensagens recebida:", data)
-    # 1) Sempre persistir e ACK rápido
-    with get_db_connection() as conn, conn.cursor() as cur:
-        cur.execute('SELECT usuario_id from contas_mercado_livre WHERE id_ml=%s', (id_ml,))
-        usuario_id_dict = cur.fetchone()
-        user_id = usuario_id_dict['usuario_id']
-        cur.execute(
-            "INSERT INTO notification (notificacao, topic) VALUES (%s, %s)",
-            (json.dumps(data), str(data.get('topic','')))
-        )
-
-    # 2) Se há sync em andamento para esse usuário, não processe agora
-    if user_id is not None:
-        with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT pg_try_advisory_lock(%s) AS got", (int(user_id),))
-            got = cur.fetchone()["got"]
-        if not got:
-            return jsonify({"status": "queued"}), 202
-        # liberar imediatamente (foi só teste de lock)
-        with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT pg_advisory_unlock(%s)", (int(user_id),))
-
-    # 3) disparar processamento leve em background
-    socketio.start_background_task(processar_notificacao_ml, data, user_id)
-    return jsonify({"status": "ok"}), 200
+    from security_notifications import receive_notification
+    return receive_notification(socketio,processar_notificacao_ml)
 
 def processar_notificacao_ml(data: dict, user_id):
     with app.app_context():
@@ -457,7 +404,7 @@ def processar_notificacao_ml(data: dict, user_id):
             #     payments_notifications(data, cred)
 
         except Exception as e:
-            app.logger.exception("Erro no worker de notificação: %s", e)
+            app.logger.warning("NOVAI operation unavailable; sensitive details omitted")
         finally:
         # Certifique-se de fechar o cursor e a conexão
             if 'cur' in locals():
@@ -469,9 +416,8 @@ def processar_notificacao_ml(data: dict, user_id):
 
 
 def payments_notifications(data, acess_token_data):
-    print("🔔 Notificação de envios recebida:", data)
     resource = data.get('resource', '')
-    url_shipments = f"https://api.mercadolibre.com{resource}"
+    url_shipments = official_resource_url(resource)
 
 
 
@@ -479,13 +425,11 @@ def public_offers_notifications(data, acess_token_data):
     try:
         conn= get_db_connection()
         cur = conn.cursor()
-        print("🔔 Notificação de ofertas públicas recebida:", data)
         resource=data.get('resource', '')
-        url_offers = f"https://api.mercadolibre.com{resource}"
+        url_offers = official_resource_url(resource)
         headers = {"Authorization": f"Bearer {acess_token_data['acess_token']}"}
-        response = requests.get(url_offers, headers=headers)
+        response = ml_http.get(url_offers, headers=headers)
         if response.status_code != 200 and response.status_code != 206:
-            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         offer_data = response.json()
         item_id = offer_data.get('item_id')
@@ -496,9 +440,8 @@ def public_offers_notifications(data, acess_token_data):
         cur.execute("SELECT * FROM ponte_item_promotions WHERE AND promotion_id = %s", (promotion_id,))
         existing_offers = cur.fetchone()
         url_promocao = f'https://api.mercadolibre.com/seller-promotions/promotions/{promotion_id}?promotion_type={type_promotion}&app_version=v2'
-        response = requests.get(url_promocao, headers=headers)
+        response = ml_http.get(url_promocao, headers=headers)
         if response.status_code not in [200]:
-            print(f"Erro ao consultar promoções")
             return
         resposta = response.json()
         id_promotion = resposta.get('id', None)
@@ -517,12 +460,10 @@ def public_offers_notifications(data, acess_token_data):
                 seller_percent = benefits.get('seller_percent', None)
                 benefits_type = benefits.get('type', None)
                 if existing_offers:
-                    print("Oferta já existe, atualizando dados.")
                     cur.execute('''UPDATE market_place_campaign_type_promotion SET type_promotion = %s,
                     type_benefits = %s,meli_percent = %s,seller_percent = %s WHERE id_promotion = %s AND usuario_id_marketplace_campaign_type_promotion = %s''',
                     (type_promotion,benefits_type,meli_percent,seller_percent,id_promotion,user_id))
                 else:
-                    print("Oferta não existe, inserindo dados.")
                     cur.execute('INSERT INTO market_place_campaign_type_promotion (id_promotion, type_promotion, type_benefits, meli_percent,seller_percent,usuario_id_marketplace_campaign_type_promotion) VALULES (%s,%s,%s,%s,%s,%s)',(id_promotion, type_promotion, benefits_type, meli_percent, seller_percent,user_id,))
     
         elif type_promotion == 'PRE_NEGOTIATED' or type_promotion == 'UNHEALTHY_STOCK':
@@ -539,7 +480,6 @@ def public_offers_notifications(data, acess_token_data):
                 seller_percent = benefits.get('seller_percent', None)
                 benefits_type = benefits.get('type', None)
                 if existing_offers:
-                    print("Oferta já existe, atualizando dados.")
                     cur.execute('''UPDATE pre_negotiated_type_promotion SET type_promotion = %s,offer_id = %s,
                     type_benefits = %s,meli_percent = %s,seller_percent = %s,start_date = %s,end_date = %s,status = %s,
                     original_price = %s,new_price = %s WHERE id_promotion = %s AND usuario_id_pre_negotiated_type_promotion_offers = %s''',
@@ -562,14 +502,12 @@ def public_offers_notifications(data, acess_token_data):
             used_coupons = resposta.get('used_coupons', None)
             fixed_percentage = resposta.get('fixed_percentage', None)
             if existing_offers:
-                print("Oferta já existe, atualizando dados.")
                 cur.execute('''UPDATE seller_coupon_type_promotion SET type_promotion = %s, sub_type = %s,
                 fixed_amount = %s,min_purchase_amount = %s,max_purchase_amount = %s,
                 coupon_code = %s,redeems_per_user = %s,budget = %s,remaining_budget = %s,used_coupons = %s,fixed_coupons = %s WHERE
                 id_promotion = %s AND usuario_id_seller_coupon_type_promotion = %s''',(type_promotion,sub_type,fixed_amount,min_purchase_amount,
                 max_purchase_amount,coupon_code,redeems_per_user,budget,remaining_budget,used_coupons,fixed_percentage,id_promotion,user_id))
             else:
-                print("Oferta não existe, inserindo dados.")
                 cur.execute('''INSERT INTO seller_coupon_type_promotion (id_promotion,type_promotion,sub_type, fixed_amount, min_purchase_amount, max_purchase_amount, coupon_code, redeems_per_user,
                 budget, remaining_budget, used_coupons, fixed_coupons, usuario_id_seller_coupon_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(id_promotion,type_promotion,sub_type,
                 fixed_amount,min_purchase_amount,max_purchase_amount,coupon_code,redeems_per_user, budget, remaining_budget, used_coupons, fixed_percentage, user_id,))
@@ -580,23 +518,19 @@ def public_offers_notifications(data, acess_token_data):
             allow_combination = resposta.get('allow_combination', None)
             sub_type = resposta.get('sub_type', None)
             if existing_offers:
-                print("Oferta já existe, atualizando dados.")
                 cur.execute('''UPDATE volume_type_promotion SET type_promotion = %s,buy_quantity = %s,pay_quantity = %s,sub_type = %s,
                 allow_combination = %s WHERE id_promotion = %s AND usuario_id_volume_type_promotion = %s''',(type_promotion,buy_quantity,
                 pay_quantity,sub_type,allow_combination,id_promotion,user_id))
             else:
-                print("Oferta não existe, inserindo dados.")
                 cur.execute('''INSERT INTO volume_type_promotion (id_promotion,type_promotion,buy_quantity, pay_quantity, sub_type, allow_combination, usuario_id_volume_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
                 (id_promotion, type_promotion, buy_quantity, pay_quantity, sub_type, allow_combination, user_id ,))
         url=f'https://api.mercadolibre.com/seller-promotions/promotions/{id_promotion}/items?promotion_type={type_promotion}&item_id={item_id}&app_version=v2'
-        response = requests.get(url, headers=headers)
+        response = ml_http.get(url, headers=headers)
         if response.status_code != 200 and response.status_code != 206:
-            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         item_promotion_data = response.json()
         results = item_promotion_data.get('results', [])
         if not results:
-            print("Nenhum item encontrado na promoção.")
             return jsonify({"error": "Nenhum item encontrado na promoção"}), 404
         cur.execute("SELECT * FROM ponte_item_promotions WHERE promotion_id = %s AND item_id = %s AND usuario_id_ponte_item_promotions=%s", (id_promotion, item_id, user_id,))
         existing_item_promotion = cur.fetchone()
@@ -645,7 +579,7 @@ def public_offers_notifications(data, acess_token_data):
                                     seller_percentage, buy_quantity, pay_quantity, allow_combination, fixed_amount, fixed_percentage, top_deal_price, 
                                     discount_percentage, nome_item, user_id,False))
     except Exception as e:
-        print("Erro nas notificacao das promocoes: ", str(e))
+        pass  # No sensitive payloads in application logs.
     finally:
         # Certifique-se de fechar o cursor e a conexão
         if 'cur' in locals():
@@ -891,134 +825,57 @@ def _slugify_keep_letters(name: str) -> str:
 
 @app.route("/scraping", methods=["POST"])
 def scraping():
-    try:
-        data = request.get_json(force=True) or {}
-        items: List[Dict[str, Any]] = data.get("items") or []
-        print('items: ', items)
-        print('tamanho da lista: ', len(items))
-        cookie_header: str = data.get("cookie") or ""  # cookies do body (string "k=v; k2=v2")
-
-        result_map: Dict[str, Any] = {}
-
-        # headers base (permite Cookie por request)
-        base_headers = UA_HEADERS.copy()
-        if cookie_header:
-            base_headers["Cookie"] = cookie_header  # mantém cookies
-
-        for it in items:
-            item_id = (it.get("item_id") or it.get("itemId") or "").strip()
-            url = (it.get("url") or "").strip()
-            item_name = (it.get("item_name") or "")
-            if not item_id or not url:
-                continue
-
-            # Valores default seguros
-            final_url = _resolve_meli_url(url, item_name)
-            subtitle_text, sold = "", None
-
-            try:
-                resp = SESSION.get(final_url, headers=base_headers, timeout=12)
-                resp.raise_for_status()
-                html = resp.text
-                subtitle_text, sold = _extract_subtitle_and_sold(html)
-            except Exception as e:
-                print(f"[Erro primário] {final_url}: {e}")
-
-            # Fallback 1: slug "soft"
-            if not subtitle_text:
-                alt_slug = _slugify_keep_letters(item_name)
-                final_url2 = _resolve_meli_url(url, alt_slug)
-                if final_url2 != final_url:
-                    print(f"[Fallback slug soft] Tentando novamente com: {final_url2}")
-                    try:
-                        resp2 = SESSION.get(final_url2, headers=base_headers, timeout=12)
-                        resp2.raise_for_status()
-                        html2 = resp2.text
-                        subtitle_text2, sold2 = _extract_subtitle_and_sold(html2)
-                        if subtitle_text2:
-                            subtitle_text, sold, final_url = subtitle_text2, sold2, final_url2
-                        else:
-                            print(f"[Fallback slug soft] Ainda sem subtítulo em {final_url2}")
-                    except Exception as e:
-                        print(f"[Erro fallback soft] {final_url2}: {e}")
-
-            # Fallback 2: _resolve_meli_url_up com item_name
-            if not subtitle_text:
-                try:
-                    final_url3 = _resolve_meli_url_up(url, item_name)
-                    print(f"[Fallback up 1] Tentando: {final_url3}")
-                    resp3 = SESSION.get(final_url3, headers=base_headers, timeout=12)
-                    resp3.raise_for_status()
-                    html3 = resp3.text
-                    subtitle_text3, sold3 = _extract_subtitle_and_sold(html3)
-                    if subtitle_text3:
-                        subtitle_text, sold, final_url = subtitle_text3, sold3, final_url3
-                    else:
-                        print(f"[Fallback up 1] Ainda sem subtítulo em {final_url3}")
-                except Exception as e:
-                    print(f"[Erro fallback up 1] {e}")
-
-            # Fallback 3: _resolve_meli_url_up com slug
-            if not subtitle_text:
-                try:
-                    alt_slug4 = _slugify_keep_letters(item_name)
-                    final_url4 = _resolve_meli_url_up(url, alt_slug4)
-                    print(f"[Fallback up 2] Tentando: {final_url4}")
-                    resp4 = SESSION.get(final_url4, headers=base_headers, timeout=12)
-                    resp4.raise_for_status()
-                    html4 = resp4.text
-                    subtitle_text4, sold4 = _extract_subtitle_and_sold(html4)
-                    if subtitle_text4:
-                        subtitle_text, sold, final_url = subtitle_text4, sold4, final_url4
-                    else:
-                        print(f"[Fallback up 2] Ainda sem subtítulo em {final_url4}")
-                except Exception as e:
-                    print(f"[Erro fallback up 2] {e}")
-
-            # Monta resposta do item (de preferência com a URL realmente utilizada)
-            result_map[item_id] = {
-                "url": url,
-                "subtitle": subtitle_text,  # ex: "Novo · +1000 vendidos"
-                "sold": sold                # inteiro já normalizado ou None
-            }
-
-        print('result_map: ', result_map)
-        return jsonify(result_map), 200
-
-    except Exception as e:
-        print("Erro /scraping:", str(e))
-        return jsonify({"error": str(e)}), 500
+    user=legacy_user()
+    limit_operation('scraping',user)
+    data=request.get_json(silent=True)
+    items=data.get('items') if isinstance(data,dict) else None
+    if not isinstance(items,list) or not 1<=len(items)<=10: raise ApiError('invalid_items')
+    prepared=[]
+    for item in items:
+        if not isinstance(item,dict): raise ApiError('invalid_item')
+        item_id=item.get('item_id') or item.get('itemId')
+        if not isinstance(item_id,str) or not re.fullmatch(r'MLB\d{6,15}',item_id): raise ApiError('invalid_item')
+        url=_resolve_meli_url(str(item.get('url') or ''),str(item.get('item_name') or ''))
+        validate_page_url(url)
+        prepared.append((item_id,url))
+    result={}
+    deadline=time.monotonic()+30
+    for item_id,url in prepared:
+        if time.monotonic()>deadline: raise ApiError('scraping_timeout',504)
+        html=fetch_product_html(url)
+        subtitle,sold=_extract_subtitle_and_sold(html)
+        result[item_id]={'url':url,'subtitle':subtitle,'sold':sold}
+    return jsonify(result)
 
 
 
 
 @app.route('/visitsItems', methods=['POST'])
 def visitsItems():
-    data = request.get_json()
-    itemId=data['itemId']
-    print("Buscando visualizações...")
-    with get_db_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT acess_token FROM contas_mercado_livre LIMIT 1")
-        token_dict=cur.fetchone()
-        token=token_dict['acess_token']
-    url = f"https://api.mercadolibre.com/visits/items?ids={itemId}"
-    response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
-    print("Status:", response.status_code)
-    print(response.json())
-    resposta= response.json()
-    return jsonify({'itemId':resposta[itemId]}),200
+    user=legacy_user()
+    limit_operation('visits',user)
+    data=request.get_json(silent=True) or {}
+    item=data.get('itemId')
+    if not isinstance(item,str) or not re.fullmatch(r'MLB\d{6,15}',item): raise ApiError('invalid_item')
+    token=account_ml_token(user)
+    response=ml_http.get('https://api.mercadolibre.com/visits/items',params={'ids':item},headers={'Authorization':f'Bearer {token}'})
+    if response.status_code!=200: raise ApiError('visits_unavailable',502)
+    result=response.json()
+    if not isinstance(result,dict) or item not in result: raise ApiError('invalid_visits_response',502)
+    return jsonify(itemId=result[item])
 
 @app.route('/visitas_por_mes', methods=['POST'])
 def visitas_por_mes():
-    with get_db_connection() as conn, conn.cursor() as cur:
-        cur.execute('SELECT acess_token FROM contas_mercado_livre LIMIT 1')
-        acess_token_dict = cur.fetchone()
-        token = acess_token_dict['acess_token']
+    user=legacy_user()
+    limit_operation('monthly-visits',user)
+    token=account_ml_token(user)
     data = request.get_json()
     conversion = data.get('conversion')
     item = data.get('item_id')
     price = data.get('price', 0)
-    print("Buscando visualizações...")
+    if not isinstance(item,str) or not re.fullmatch(r'MLB\d{6,15}',item): raise ApiError('invalid_item')
+    if type(conversion) not in (int,float) or not 0<=conversion<=100 or type(price) not in (int,float) or not 0<=price<=9999999: raise ApiError('invalid_numbers')
+    deadline=time.monotonic()+75
     total_visits_mes=0
     date_to= datetime.now().strftime('%Y-%m-%d')
     meses = []
@@ -1026,66 +883,58 @@ def visitas_por_mes():
     faturamentos = []
     quantityMounth=[]
     for i in range(0,24):
+        if time.monotonic()>deadline: raise ApiError("visits_timeout",504)
         date_from= (datetime.now() - timedelta(days=(i+1)*30)).strftime('%Y-%m-%d')
         date_to= (datetime.now() - timedelta(days=i*30)).strftime('%Y-%m-%d')
         url_por_mes= f'https://api.mercadolibre.com/items/visits?ids={item}&date_from={date_from}&date_to={date_to}'
-        response = requests.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
+        response = ml_http.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code!=200: raise ApiError("visits_unavailable",502)
         visitas=response.json()
-        print(f'Mês: {date_from}', end=' ')
         total_visits_mes=int(visitas[0]['total_visits'])
         meses.append(total_visits_mes)
         meses_data.append({"date_from":date_from,"date_to":date_to})
         faturamentos.append(int(total_visits_mes * (conversion/100))*price)
         quantityMounth.append(int(total_visits_mes * (conversion/100)))
-        print(f'{i+1}: ',total_visits_mes)
     for i, mes in reversed(list(enumerate(meses))):
         if mes > 0:
             data_date=meses_data[i]
             data_from=data_date['date_from']
             data_to=data_date['date_to']
-            data_criacao_item=procurar_data_inicial(item,data_from,data_to,token)
-            print('data_criacao do item: ',data_criacao_item)
+            data_criacao_item=procurar_data_inicial(item,data_from,data_to,token,deadline)
             return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':data_criacao_item,'quantityMonths':quantityMounth}
-    print("Status:", response.status_code)
     return {'meses': meses, 'faturamentos': faturamentos, 'data_criacao':None, 'quantityMonths':quantityMounth}
 
-def procurar_data_inicial(item_id, data_from,data_to,token):
+def procurar_data_inicial(item_id, data_from,data_to,token,deadline=None):
     try:
         for i in range(30):
+            if deadline is not None and time.monotonic()>deadline: return None
             start = datetime.strptime(data_from, "%Y-%m-%d") + timedelta(days=i)
             end = start + timedelta(days=1)
             df = start.strftime('%Y-%m-%d')
             dt= end.strftime('%Y-%m-%d')
-            print('Procurando visitas do dia: ',df)
             url_por_mes= f'https://api.mercadolibre.com/items/visits?ids={item_id}&date_from={df}&date_to={dt}'
-            resposta_final = requests.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
+            resposta_final = ml_http.get(url_por_mes, headers={"Authorization": f"Bearer {token}"})
             visitas_dia=resposta_final.json()
-            print(f'Total de visitas do dia[{df}]: {visitas_dia[0]["total_visits"]}')
             if visitas_dia[0]['total_visits']>0:
-                print('dia que as visitas iniciaram: ', df)
                 return df
         df=None
         return df
     except Exception as e:
-        print('Erro', str(e))
+        pass  # No sensitive payloads in application logs.
 
 def claims_notifications(data, acess_token_data):
     try:
-        print("🔔 Notificação de reclamações recebida:", data)
         conn= get_db_connection()
         cur = conn.cursor()
         resource = data.get('resource', '')
-        url_claims = f"https://api.mercadolibre.com{resource}"
+        url_claims = official_resource_url(resource)
         headers= {"Authorization": f"Bearer {acess_token_data['acess_token']}"} 
-        response = requests.get(url_claims, headers=headers)
+        response = ml_http.get(url_claims, headers=headers)
         if response.status_code != 200 and response.status_code != 206:
-            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         if response.status_code != 200 and response.status_code != 206:
-            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         claim_data = response.json() 
-        print('claim_data:', claim_data)
         claim_id = claim_data.get('id')
         resource= claim_data.get('resource')
         resource_id=claim_data.get('resource_id')
@@ -1100,17 +949,14 @@ def claims_notifications(data, acess_token_data):
             pack_id_dict = cur.fetchone()
             pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
         elif resource=='shipment':
-            print('shipment')
             url_order_shipment=f"https://api.mercadolibre.com/shipments/{claim_data.get('resource_id', 0)}/items"
-            response_order_shipment = requests.get(url_order_shipment, headers=headers)
+            response_order_shipment = ml_http.get(url_order_shipment, headers=headers)
             if response_order_shipment.status_code in [200,206]:
                 order_data = response_order_shipment.json()
                 order_id = order_data[0].get("order_id")
-                print("Order ID:", order_id)
                 cur.execute("SELECT pack_id FROM pedidos_resumo WHERE id_order=%s",(order_id,))
                 pack_id_dict = cur.fetchone()
                 pack_id = pack_id_dict['pack_id'] if pack_id_dict else None
-                print(f"Pack ID encontrado: {pack_id}")
         else:
             pack_id= None
     
@@ -1138,15 +984,9 @@ def claims_notifications(data, acess_token_data):
             benefited = resolution.get("benefited",[]) 
             resolution_closed_by = resolution.get("closed_by", None)
             applied_coverage = resolution.get("applied_coverage", False)
-            print("Motivo da resolução:", reason_resolution)
-            print("Data da resolução:", date_resolution)
-            print("Beneficiado:", benefited)
-            print("Resolução fechada por:", resolution_closed_by)
-            print("Cobertura aplicada:", applied_coverage)
         url_reason = f"https://api.mercadolibre.com/post-purchase/v1/claims/reasons/{reason_id}"
-        response_reason = requests.get(url_reason, headers=headers)
+        response_reason = ml_http.get(url_reason, headers=headers)
         if response_reason.status_code != 200:
-            print(f"❌ Erro ao buscar razão da reclamação {claim_id}: {response_reason.status_code}")
             reason = None
             nome_reason = None
             expected_solution = []
@@ -1157,15 +997,12 @@ def claims_notifications(data, acess_token_data):
             #print(f"Nome da razão: {nome_reason}")
             settings = reason_data.get("settings", {})
             expected_solution = settings.get('expected_resolutions', [])
-            print("Nome da razão:", nome_reason)
-            print("Soluções esperadas:", expected_solution)
     
         #print('--------------------------------')
         url_details = f"https://api.mercadolibre.com/post-purchase/v1/claims/{claim_id}/detail"
-        response_details = requests.get(url_details, headers=headers)
+        response_details = ml_http.get(url_details, headers=headers)
     
         if response_details.status_code != 200:
-            print(f"❌ Erro ao buscar detalhes da reclamação {claim_id}: {response_details.status_code}")
             title = None
             due_date_detail = None
             description = None
@@ -1179,34 +1016,11 @@ def claims_notifications(data, acess_token_data):
             description = details.get("description")
             action_responsible = details.get("action_responsible")
             problem= details.get("problem")
-            print("Problema:", problem)
-            print("description:", description)
-            print("due_date_detail:", due_date_detail)
-            print("Title:", title)
-            print("Action responsible:", action_responsible)
-        print("ID da reclamação:", claim_id)
-        print("resource_id:", resource_id)
-        print("status:", status)
-        print("tipo:", tipo)
-        print("stage:", stage)
-        print("parent_id:", parent_id)
-        print("order_id:", order_id)
-        print("pack_id:", pack_id)
-        print("fulfilled:", fulfilled)
-        print("quantity_type:", quantity_type)
-        print("site_id:", site_id)
-        print("date_created:", date_created)
-        print("last_updated:", last_updated)
-        print("ID do comprador:", comprador_id)
-        print("ID do vendedor:", vendedor_id)
-        print("Ações disponíveis:", acoes_disponiveis)
         cur.execute("SELECT * FROM reclamacoes WHERE claim_id = %s", (claim_id,))
         existing_claim = cur.fetchone()
         if existing_claim:
-            print("Reclamação já existe, atualizando dados.")
             cur.execute("SELECT * FROM reclamacoes WHERE claim_id = %s", (claim_id,))
             data_reclamacao = cur.fetchone()
-            print("Dados da reclamação existente:", data_reclamacao)
             cur.execute("""UPDATE reclamacoes SET resource_id = %s, resource=%s,status = %s, tipo = %s, stage = %s, parent_id = %s, pack_id = %s, reason_id = %s,
                         fulfilled = %s, quantity_type = %s, site_id = %s, date_created = %s, last_updated = %s,
                         comprador_id = %s, vendedor_id = %s, acoes_disponiveis=%s,name_reason=%s,expected_solutions=%s,problem=%s,
@@ -1217,7 +1031,6 @@ def claims_notifications(data, acess_token_data):
                          problem, description,due_date_detail,title,action_responsible,
                          claim_id, acess_token_data['usuario_id']))
         else:
-            print("Reclamação não existe, inserindo dados.")
             cur.execute('''
                         INSERT INTO reclamacoes (
                             claim_id, resource_id, status, tipo, stage, parent_id, pack_id, reason_id,
@@ -1235,7 +1048,7 @@ def claims_notifications(data, acess_token_data):
         conn.close()
         cur.close()
     except Exception as e:
-        print("Erro nas notificacao das reclamacoes(claims): ", str(e))
+        pass  # No sensitive payloads in application logs.
     finally:
         # Certifique-se de fechar o cursor e a conexão
         if 'cur' in locals():
@@ -1244,19 +1057,16 @@ def claims_notifications(data, acess_token_data):
             conn.close()
 
 def orders_notifications(resource,acess_token, data_ant):
-    print("🔔 Notificação de pedidos recebida:", resource)
     conn = get_db_connection()
     cur = conn.cursor()
 
     try:
         headers = {"Authorization": f"Bearer {acess_token['acess_token']}"}
-        url = f"https://api.mercadolibre.com/{resource}"
-        response = requests.get(url, headers=headers)
+        url = official_resource_url(resource)
+        response = ml_http.get(url, headers=headers)
         if response.status_code != 200 and response.status_code != 206:
-            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         order_data = response.json()
-        print('order_data:', order_data)
         id = order_data.get('id')
         cur.execute("SELECT id_order FROM pedidos_resumo WHERE id_order = %s", (id,))
         existing_order = cur.fetchone()
@@ -1301,19 +1111,16 @@ def orders_notifications(resource,acess_token, data_ant):
             pack_id = id
         if category_id:
             url_categoria=f"https://api.mercadolibre.com/categories/{category_id}"
-            response= requests.get(url_categoria, headers=headers)
+            response= ml_http.get(url_categoria, headers=headers)
             if response.status_code in [200, 206]:
                 categoria_data = response.json()
                 category_name = categoria_data.get('name', 'Sem nome de categoria')
-                print(f"Categoria ID: {category_id}, Nome da Categoria: {category_name}")
         else:
             category_name = 'Sem nome de categoria'
 
         if existing_order:
-            print("Pedido já existe, atualizando dados.")
             cur.execute("SELECT * FROM pedidos_resumo WHERE id_order = %s", (id,))
             data_pedidos_resumo = cur.fetchone()
-            print("Dados do pedido existente:", data_pedidos_resumo)
             cur.execute("""UPDATE pedidos_resumo SET date_created = %s, date_closed = %s, date_approved = %s, last_updated = %s, 
                         total_amount = %s, paid_amount = %s, status = %s, shipping_cost = %s, payment_method = %s, payment_type = %s, installments = %s,
                     installment_amount = %s, item_id = %s, nome_item = %s, item_warranty = %s, listing_type_id = %s, category_name = %s, unit_price = %s, sale_fee = %s, quantity = %s, buyer_id = %s,
@@ -1322,7 +1129,6 @@ def orders_notifications(resource,acess_token, data_ant):
                     quantity, buyer_id, tags, fulfilled, pack_id, id, acess_token['usuario_id'],))
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(order_data), 'dados_existentes',data_ant,))
         else:
-            print("Pedido não existe, inserindo novo registro.")
             cur.execute("INSERT INTO packs (pack_id, usuario_id_packs) VALUES (%s, %s) ON CONFLICT (pack_id) DO NOTHING", (pack_id, acess_token['usuario_id'],))
             conn.commit()
             cur.execute("""INSERT INTO pedidos_resumo (id_order, date_created, date_closed, date_approved, last_updated, total_amount, paid_amount, status, shipping_cost,
@@ -1332,9 +1138,7 @@ def orders_notifications(resource,acess_token, data_ant):
                         installment_amount, item_id, item_title, item_warranty, listing_type_id, category_id, unit_price, sale_fee, quantity, buyer_id, tags, fulfilled, pack_id, category_name, acess_token['usuario_id'],))
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(order_data), 'dados_novos',data_ant,))
         conn.commit()
-        print("Dados do pedido inseridos ou atualizados com sucesso.")
     except Exception as e:
-        print("Erro ao processar pedido:", str(e))
         return jsonify({"error": str(e)}), 500
     finally:
         # Garantir que conexão seja sempre fechada na ordem correta
@@ -1353,14 +1157,12 @@ def orders_notifications(resource,acess_token, data_ant):
 
 def pos_venda_notifications(data,acess_token_data, data_ant):
     try:
-        print("🔔 Notificação de pós-venda recebida:", data)
         resource_id = data.get('resource')
         access_token = acess_token_data['acess_token']  # ou busque do banco
         url = f"https://api.mercadolibre.com/messages/{resource_id}?tag=post_sale"
         headers = {"Authorization": f"Bearer {access_token}"}
-        response = requests.get(url, headers=headers)
+        response = ml_http.get(url, headers=headers)
         if response.status_code != 200 and response.status_code != 206:
-            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         m = response.json()
         id_ml = data.get('user_id')
@@ -1369,17 +1171,14 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
         cur.execute("SELECT usuario_id FROM contas_mercado_livre WHERE id_ml=%s",(id_ml,))
         user_id_dict = cur.fetchone()
         user_id=user_id_dict['usuario_id']
-        print('order_data:', m)
         cur.execute("UPDATE notification SET dados_retornados_api = %s WHERE notificacao = %s", (json.dumps(m),data_ant,))
         if isinstance(m.get('messages'), list):
             for i in m.get('messages'):
                 message_resources = i.get('message_resources', [])
                 for resource in message_resources:
                     if resource.get('name') == 'packs':
-                        print("entrou no packs: ", resource)
                         pack_id= resource.get('id')
                         break
-                print("pack_id:", pack_id)
                 autor_comp = i.get('from').get('user_id')
                 if autor_comp!=id_ml:
                     autor = 'cliente'
@@ -1405,7 +1204,6 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
                     mensagem_existente.add(row['message'])
                     data_envio_existente.add(row['date_created'])
                 if m.get('message_date') and data_envio_existente and mensagem_existente:
-                    print("autor",autor)
                     mensagem=m.get('text')
                     if m.get('attachments'):
                         urls=[]
@@ -1415,7 +1213,6 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
                     data_envi=message_date['created']
     
                     if data_envi in data_envio_existente and mensagem in mensagem_existente:
-                        print("Mensagem já existe no banco de dados, não inserindo novamente.")
                         conn.close()
                         cur.close()
                         return
@@ -1427,25 +1224,15 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
                 mensagens_contexto_com_usuario=''
                 for mensagem in mensagens_contexto:
                   mensagens_contexto_com_usuario += f"{mensagem['author']}: mensagem:{mensagem['message']}\n"
-                print("data de envio:", data_envio)
                 read_existe = message_date.get('read', False)
                 read = True if read_existe else False
             cur.execute('INSERT INTO messages (usuario_id_messages,client_name,message,date_created,author,type,read,pack_id,is_first_message, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(user_id,cliente_nome,mensagem,data_envio,autor,tipo,read,pack_id,is_first_message, status))
-            print("mensagem:", mensagem)
-            print("data de envio:", data_envio)
-            print("autor:", autor)
-            print("cliente_nome:", cliente_nome)
-            print("tipo:", tipo)
-            print("is_first_message:", is_first_message)
-            print("pack_id:", pack_id)
-            print("read:", read)
     
             conn.commit()
             conn.close()
             cur.close()
-        print("📩 Mensagem recebida:", mensagem)
     except Exception as e:
-        print("Erro nas notificacao das mensagens pos-venda: ", str(e))
+        pass  # No sensitive payloads in application logs.
     finally:
         # Certifique-se de fechar o cursor e a conexão
         if 'cur' in locals():
@@ -1456,40 +1243,30 @@ def pos_venda_notifications(data,acess_token_data, data_ant):
     # Por exemplo, salvar no banco de dados ou emitir um socket para o front-end
 def pre_venda_notifications(data, acess_token_data):
     try:
-        print("🔔 Notificação de pré-venda recebida:", data)
         resource_id = data.get('resource')
         access_token = acess_token_data['acess_token']  # ou busque do banco
-        url=f"https://api.mercadolibre.com{resource_id}"
+        url=official_resource_url(resource_id)
         headers = {"Authorization": f"Bearer {access_token}"}
-        response = requests.get(url, headers=headers)
+        response = ml_http.get(url, headers=headers)
         if response.status_code != 200 and response.status_code != 206:
-            print("Erro ao acessar a API do Mercado Livre:", response.status_code, response.text)
             return jsonify({"error": "Erro ao acessar a API do Mercado Livre"}), response.status_code
         m = response.json()
-        print("Pergunta recebida:", m)
         conn= get_db_connection()
         cur = conn.cursor()
         buyer_id = m.get('from',{}).get('id',None)
     
         client_name = buscar_nome(buyer_id, access_token) if buyer_id else {'nickname': None}
-        print("Nome do cliente:", client_name['nickname'])
         item_id = m.get('item_id')
         status = m.get('status')
         text = m.get('text')
         date_created = m.get('date_created')
-        print("buyer_id:", buyer_id)
-        print("item_id:", item_id)
-        print("status:", status)
-        print("text:", text)
-        print("date_created:", date_created)
         cur.execute("INSERT INTO messages (usuario_id_messages, client_name, message, date_created, author, type, status, item_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                     (acess_token_data['usuario_id'], client_name['nickname'],text, date_created, 'cliente' , 'pre_sale', status, item_id,))
         conn.commit()
         conn.close()
         cur.close()
-        print("Pergunta processada com sucesso:")
     except Exception as e:
-        print("Erro nas notificacao das mensagens pre-venda: ", str(e))
+        pass  # No sensitive payloads in application logs.
     finally:
         # Certifique-se de fechar o cursor e a conexão
         if 'cur' in locals():
@@ -1499,18 +1276,16 @@ def pre_venda_notifications(data, acess_token_data):
 
 def itens_notifications(data,acess_token_data):
     try:
-        print("🔔 Notificação de itens recebida:", data)
         resource_id = data.get('resource')
         conn= get_db_connection()
         cur = conn.cursor()
         headers = {"Authorization": f"Bearer {acess_token_data['acess_token']}"}
-        url = f"https://api.mercadolibre.com/{resource_id}"
+        url = official_resource_url(resource_id)
         try:
-            response = requests.get(url, headers=headers, timeout=15)
+            response = ml_http.get(url, headers=headers, timeout=15)
             # levanta exceção para qualquer código != 2xx
             response.raise_for_status()
         except requests.RequestException as e:
-            print("Erro ao acessar a API do Mercado Livre:", e)
             # Aqui você pode atualizar a tabela notification marcando erro, se quiser.
             return {"ok": False, "error": f"Erro ML API: {e}"}
         item_data = response.json()
@@ -1519,9 +1294,8 @@ def itens_notifications(data,acess_token_data):
         quantidade= item_data.get('available_quantity', 0)
         preco=item_data.get('price')
         status=item_data.get('status')
-        print('pegando descrição')
         url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
-        response_descricao = requests.get(url_descricao, headers=headers)
+        response_descricao = ml_http.get(url_descricao, headers=headers)
         resposta_descricao = response_descricao.json()
         descricao = resposta_descricao.get('plain_text', 'Descrição não disponível')
         imagens = item_data.get('pictures', [])
@@ -1532,45 +1306,30 @@ def itens_notifications(data,acess_token_data):
         tipo_ad = item_data.get('listing_type_id')
         category_id = item_data.get('category_id')
         url_cateogira=f'https://api.mercadolibre.com/categories/{category_id}'
-        categoria_dados= requests.get(url_cateogira, headers=headers)
+        categoria_dados= ml_http.get(url_cateogira, headers=headers)
         categoria_json = categoria_dados.json()
         categoria = categoria_json.get('name', 'N/A')
-        print("item_id:", item_id)
-        print("nome_item:", nome_item)
-        print("quantidade:", quantidade)
-        print("preco:", preco)
-        print("descricao:", descricao)
-        print("imagem:", imagem)
-        print("preco_original:", preco_original)
-        print("preco_base:", preco_base)
-        print("disponivel:", disponivel)
-        print("tipo_ad:", tipo_ad)
-        print("categoria:", categoria)
         cur.execute("SELECT * FROM itens WHERE item_id = %s", (item_id,))
         item_realdict = cur.fetchall()
         if item_realdict:
-            print("Item já existe no banco de dados, atualizando item.")
             cur.execute("""
         UPDATE itens SET nome_item = %s, status = %s,quantidade = %s, preco = %s, descricao = %s, imagem = %s, preco_original = %s, preco_base = %s, disponivel = %s, tipo_ad = %s, categoria = %s
         WHERE item_id = %s AND usuario_id_item = %s             
     """,(nome_item, status,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,item_id,acess_token_data['usuario_id'],))
-            print('Item atualizado com sucesso no banco de dados.')
             cur.execute("UPDATE notification SET dados_retornados_api = %s, especificacao = %s WHERE notificacao = %s", (json.dumps(item_data), 'item_existe',json.dumps(data),))
             pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'],type='ja_possui')
         else :
-            print("Item não existe no banco de dados, inserindo item.")
             cur.execute("""
                         INSERT INTO itens (item_id, nome_item, status,quantidade, preco, descricao, imagem, preco_original, preco_base, disponivel, tipo_ad, categoria, usuario_id_item) 
                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         """,(item_id,nome_item, status,quantidade,preco,descricao,imagem,preco_original,preco_base,disponivel,tipo_ad,categoria,acess_token_data['usuario_id'],))
-            print('Item inserido com sucesso no banco de dados.')
             pegar_anuncio_novo(item_id, acess_token_data['acess_token'], acess_token_data['usuario_id'],type='novo')
         conn.commit()
         cur.close()
         conn.close()
         return {"ok": True, "message": "Item processado com sucesso"}
     except Exception as e:
-        print("Erro nas notificacao dos itens: ", str(e))
+        pass  # No sensitive payloads in application logs.
     finally:
         # Certifique-se de fechar o cursor e a conexão
         if 'cur' in locals():
@@ -1899,7 +1658,6 @@ def test_model_generation_openai(
 
     sample = sample_random_item_and_order(usuario_id)
     if not sample:
-        print("[WARN] Não foi possível amostrar item/pedido para teste.")
         return None
 
     user_text = f"[CONTEXT]\n{build_context_from_sample(sample)}\n\n[MENSAGEM_CLIENTE]\n{synth_customer_message(sample)}"
@@ -1921,16 +1679,13 @@ def test_model_generation_openai(
 def run_pipeline_openai(usuario_id: int, data_out_dir: str = "./data-ft", base_model: str = "gpt-4.1-mini"):
     rows = fetch_messages_with_context(usuario_id)
     if not rows:
-        print("[ERRO] Nenhuma mensagem encontrada para este usuário.")
         return
 
     examples = build_sft_examples(rows)
     if not examples:
-        print("[ERRO] Não foi possível formar pares cliente→vendedor.")
         return
 
     train_path, val_path, test_path = split_and_save_jsonl(examples, data_out_dir)
-    print(f"[OK] Salvos:\n- {train_path}\n- {val_path}\n- {test_path}")
 
     # Cria o FT job (você pode usar um sufixo com o usuário, apenas como rótulo)
     ft_model = train_openai_finetune(
@@ -1940,20 +1695,18 @@ def run_pipeline_openai(usuario_id: int, data_out_dir: str = "./data-ft", base_m
         suffix=f"novai-u{usuario_id}",
         metadata={"usuario_id": str(usuario_id), "projeto": "NOVAI"}
     )
-    print(f"[OK] Modelo fine-tunado: {ft_model}")
 
     # Teste rápido
     resposta = test_model_generation_openai(usuario_id, model_id=ft_model)
     if resposta:
-        print("\n=== RESPOSTA DO MODELO (teste sintético) ===\n")
-        print(resposta)
+        pass  # No sensitive payloads in application logs.
+        pass  # No sensitive payloads in application logs.
     else:
-        print("[WARN] Teste não executado (sem item/pedido amostrado).")
+        pass  # No sensitive payloads in application logs.
 
 
 def pegar_anuncio_novo(item_id, acess_token,user_id,type):
     try:
-        print("Pegando anuncio novo")
         conn = get_db_connection()
         cur = conn.cursor()
         advertiser_id='MLB'
@@ -1963,10 +1716,9 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
             'api-version': '2',
         }
         try:
-            response = requests.get(url, headers=headers, timeout=15)
+            response = ml_http.get(url, headers=headers, timeout=15)
             response.raise_for_status()
         except requests.RequestException as e:
-            print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {e}")
             return
         data = response.json()
         listingtype_id = data.get('listing_type_id', 'N/A')
@@ -1994,7 +1746,7 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         final = datetime.now().date()
         inicio = final - timedelta(days=1)
         url = f'''https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark'''
-        response_campanha = requests.get(url, headers=headers)
+        response_campanha = ml_http.get(url, headers=headers)
         if response_campanha.status_code not in [200, 206]:
             return response_campanha.status_code
         result = response_campanha.json()
@@ -2047,7 +1799,6 @@ def pegar_anuncio_novo(item_id, acess_token,user_id,type):
         cur.close()
         conn.close()
     except Exception as e:
-        print(f"Erro ao pegar anúncio novo: {str(e)}")
         return {"ok": False, "error": str(e)}
 
 
@@ -2061,25 +1812,16 @@ def user_login():
     email = data.get('email')
     password = data.get('password')
     agora=datetime.now()
-    print("agora:",agora)
     if not email or not password:
         return jsonify({"error": "Email e senha são obrigatórios"}), 400
     try:
-        print("entrou no try")
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        print("entrou no banco de dados")
         # Busca o usuário pelo e-mail no banco
-        cur.execute("SELECT * FROM usuarios WHERE email = %s;", (email,))
-        user = cur.fetchone()
-        if not user or not bcrypt.checkpw(password.encode('utf-8'), user['senha'].encode('utf-8')):
-            return jsonify({"message": "Credenciais inválidas", "status": "error"}), 401
-        print(user['id'])
+        user=authenticate_password(email,password)
         cur.execute("SELECT expiracao_token FROM contas_mercado_livre WHERE usuario_id=%s",(user['id'],))
         expiracao=cur.fetchone()
-        print("Valor de expiracao:", expiracao)
         if expiracao and expiracao["expiracao_token"] and agora > expiracao["expiracao_token"]:
-            print("verificou que o token expirou")
             cur.execute("SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s", (user['id'],))
             refresh = cur.fetchone()
             if refresh and refresh["refresh_token"]:
@@ -2091,7 +1833,7 @@ def user_login():
                 conn.commit()
 
         session['user_id'] = user['id']
-        jwt_token = gerar_token(user['id'])
+        jwt_token = gerar_token(user['id'],auth_version=user['auth_version'])
         # O login não inicia nem consulta a sincronização completa.
         resp = jsonify({
             "message": "Login bem-sucedido",
@@ -2112,9 +1854,9 @@ def user_login():
         return resp, 200
 
 
+    except ApiError:
+        raise
     except Exception as e:
-        print("Erro capturado:", str(e))
-        print("retornando erro 3")
         return jsonify({"error": str(e)}),500
     finally:
         # Certifique-se de fechar o cursor e a conexão
@@ -2128,18 +1870,14 @@ def user_login():
 #VERIFICAÇÃO DE USUARIO, VERIFICA SE O TOKEN GERADO ESTA ASSINADO OU NAO EXPIRADO
 @app.route('/verificar_id', methods=['POST'])
 def verificar_id():
-    print("Entrou no verificar_id")
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
     # Obtém o user_id dos parâmetros da query string
     token = auth_header.split(" ")[1] if " " in auth_header else auth_header
-    print("Token:", token)
     try:
         decoded_token=decode_token(token)
-        print(decoded_token)
         user_id=decoded_token.get("sub")
-        print(user_id)
         exp_timestamp = decoded_token.get("exp")
         now = int(time.time())
         if exp_timestamp and exp_timestamp < now:
@@ -2149,12 +1887,10 @@ def verificar_id():
         # Conecta ao banco de dados
         conn = get_db_connection()
         cur = conn.cursor()
-        print("entrou o banco de dados")
         # Consulta o e-mail do usuário na tabela 'usuarios'
         cur.execute("SELECT email FROM usuarios WHERE id = %s;", (user_id,))
         user_data = cur.fetchone()
         if not user_data:
-            print('usuario não encontrado')
             return jsonify({"error": "Usuário não encontrado"}), 404
 
         user_email = user_data['email']
@@ -2162,7 +1898,6 @@ def verificar_id():
         cur.execute("SELECT modo_automatico FROM usuarios WHERE id=%s",(user_id,))
         user_modo=cur.fetchone()
         modo_automatico=user_modo['modo_automatico']
-        print("modo_automatico:", modo_automatico)
         # Consulta o token de acesso na tabela 'contas_mercado_livre'
         # (Note que usamos a coluna 'acess' conforme a sua criação)
         cur.execute(
@@ -2171,18 +1906,15 @@ def verificar_id():
         )
         token_row = cur.fetchone()
         if not token_row:
-            print('Conta do Mercado Livre não encontrada para este usuário')
             return jsonify({"error": "Conta do Mercado Livre não encontrada para este usuário"}), 404
 
         access_token = token_row['acess_token']
-        print(access_token)
         # Faz uma requisição para a API do Mercado Livre para pegar os dados do usuário
         headers = {
             "Authorization": f"Bearer {access_token}"
         }
-        ml_response = requests.get("https://api.mercadolibre.com/users/me", headers=headers)
+        ml_response = ml_http.get("https://api.mercadolibre.com/users/me", headers=headers)
         if ml_response.status_code not in [200, 206]:
-            print('Erro ao acessar a API do Mercado Livre')
             return jsonify({
                 "error": "Erro ao acessar a API do Mercado Livre",
                 "status_code": ml_response.status_code,
@@ -2191,16 +1923,12 @@ def verificar_id():
         ml_user_data = ml_response.json()
         # Por exemplo, pegamos o 'nickname' como o nome da conta
         account_name = ml_user_data.get("nickname", "N/A")
-        print(account_name)
         id_ml=ml_user_data["id"]
-        print("id da conta do mercado livre",id_ml)     
         conn.commit()
         cur.execute("SELECT modo_automatico FROM usuarios WHERE id=%s",(user_id,))
-        print("Saiu do verificar_id, user_id: ", user_id, 'user_email: ', user_email, 'account_name: ', account_name)
         return jsonify({"valid": True, "user_id": user_id, "user_email": user_email, "account_name": account_name, 'modo_automatico':modo_automatico,}), 200
 
     except Exception as e:
-        print("Erro:", str(e))
         return jsonify({"error": str(e),"valid":False}), 500
 
     finally:
@@ -2216,39 +1944,29 @@ def verificar_id():
 ###                         ###
 
 @socketio.on('connect')
-def handle_connect():
-    token = request.cookies.get('__Host-token')
-    print('CONNECT host=', request.host)
-    print('CONNECT cookies=', request.headers.get('Cookie'))
-    if not token:
-        print('conectado sem token')
-    else:
-        try:
-            user_id = int(decode_token(token)['sub'])
-            room=f'user:{user_id}'
-            join_room(room)
-            print('conectado')
-        except Exception:
-            return False  # rejeita a conexão se não autenticar 
+def handle_connect(auth=None):
+    try:
+        user=connect_socket(auth)
+        join_room(f'user:{user}')
+    except ApiError:
+        return False
       
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print('usuario desconectado')
+    pass  # No sensitive payloads in application logs.
 
 
 @socketio.on("getMensagens")
 def getMensagens(payload):
+    socket_user()
     try:
-        print("entrou no getMensagens")
         token=payload.get('token')
         tipo=payload.get("tipo")
-        decoded_token=decode_token(token)
-        user_id=payload.get('user_id', decoded_token.get('sub'))
+        decoded_token=dict(sub=str(socket_user()))
+        user_id=decoded_token['sub']
         conn = get_db_connection()
         cur = conn.cursor()
-        print("user_id:", user_id)
-        print("tipo:", tipo)
         cur.execute("""
         SELECT cliente_nome, mensagem, data_envio, autor
         FROM mensagens_clientes
@@ -2276,7 +1994,7 @@ def getMensagens(payload):
                 # Supondo que 'cur' é seu cursor do banco de dados
         # Você pode adicionar um WHERE se souber quais item_ids são relevantes
         # ex: WHERE item_id IN (lista_de_item_ids_dos_seus_clientes)
-        cur.execute("SELECT item_id, imagem FROM itens")
+        cur.execute("SELECT item_id, imagem FROM itens WHERE usuario_id_item=%s", (user_id,))
         todos_os_itens_com_imagem = cur.fetchall()
         mapa_imagens = {}
         if todos_os_itens_com_imagem: # Verifica se a lista não está vazia
@@ -2294,7 +2012,7 @@ def getMensagens(payload):
                     # você pode armazenar None ou um placeholder.
                     mapa_imagens[id_do_item] = None
         else:
-            print("A lista 'todos_os_itens_com_imagem' está vazia ou não foi carregada.")
+            pass  # No sensitive payloads in application logs.
         for cliente_info in rows_clientes: # 'cliente_info' é cada dicionário/objeto da sua lista original
             item_id_do_cliente = cliente_info['item_id'] # Ou como você acessa o item_id do cliente
             imagem_correspondente = mapa_imagens.get(item_id_do_cliente)
@@ -2310,24 +2028,22 @@ def getMensagens(payload):
             "mensagens":mensagens,
             "clientes":clientes,
         }
-        print("data:", data)
         cur.close() 
         conn.close()
-        emit("respostaGetMensagens",data, broadcast=True)
+        emit("respostaGetMensagens",data, to=request.sid)
 
     except Exception as e:
-        print("Erro ao pegar os dados:", str(e))
+        pass  # No sensitive payloads in application logs.
 
 
 
 @socketio.on('mudarModo')
 def mudar_modo_automatico(modo):
+    socket_user()
     try:
-        print("Entrou no mudarModo")
         modo_automatico=modo.get('modo', False)
-        print("modo_automatico:", modo_automatico)
         token=modo.get('token', None)
-        decoded_token=decode_token(token)
+        decoded_token=dict(sub=str(socket_user()))
         user_id=decoded_token.get('sub')
         conn=get_db_connection()
         cur=conn.cursor()
@@ -2342,9 +2058,8 @@ def mudar_modo_automatico(modo):
         cur.close()
 
         conn.close()
-        print(access_token)
 
-        run_pipeline_openai('1')
+        run_pipeline_openai(str(user_id))
 
         #t = threading.Thread(target=listar_todos_itens, args=(user_id,seller_id,access_token))
         #t.start()
@@ -2368,13 +2083,14 @@ def mudar_modo_automatico(modo):
         #chat_novai_manager_separador_de_pergunta('quais produtos eu vendo melhor?',user_id)
 
     except Exception as e:
-        print("Erro no mudarmodo:", str(e))
+        pass  # No sensitive payloads in application logs.
 
 @socketio.on('getItens')
 def getItens(data):
+    socket_user()
     try:
         token=data.get('token')
-        decoded_token=decode_token(token)
+        decoded_token=dict(sub=str(socket_user()))
         user_id=decoded_token.get('sub')
         conn=get_db_connection()
         cur=conn.cursor()
@@ -2394,10 +2110,10 @@ def getItens(data):
                 'preco_base':row['preco_base'],
             })
         for i,row in enumerate(row_itens[0]):
-            print(f'{i}: printou= {type(row)}')
+            pass  # No sensitive payloads in application logs.
         emit('RespostaGetItens', { 'itens': itens_detalhes })
     except Exception as e:
-        print("Erro em getItens:", str(e))
+        pass  # No sensitive payloads in application logs.
     finally:
         try:
             cur.close()
@@ -2406,39 +2122,29 @@ def getItens(data):
             pass
 @socketio.on("mensagem_cliente")
 def mensagem_cliente(data):
+    socket_user()
     try:
         token = data.get('token')
-        print("Token:", token)
-        decoded_token=decode_token(token)
-        print(decoded_token)
+        decoded_token=dict(sub=str(socket_user()))
         user_id=decoded_token.get("sub")
-        print("user_id:", user_id)
         cliente_nome = data["cliente_nome"]
         mensagem     = data["mensagem"]
         autor        = data["autor"]
-        item=data['item_id']
+        item=data.get('item_id')
         data_envio   = datetime.now()
         tipo=data['tipo']
-        print("mensagem enviada:", mensagem)
-        print("cliente_nome:", cliente_nome)
-        print("autor:", autor)
-        print("item:", item)
-        print("data_envio:", data_envio)
-        print("tipo:", tipo)
         # 1) salva no banco
         conn = get_db_connection()
         cur  = conn.cursor()
         cur.execute("SELECT modo_automatico FROM usuarios WHERE id=%s",(user_id,))
         modo_row=cur.fetchone()
         modo=modo_row['modo_automatico'] if modo_row else False
-        print("modo:", modo)
         cur.execute(
             "INSERT INTO mensagens_clientes (usuario_id_mensagem, cliente_nome, mensagem, data_envio, autor,tipo,item_id) VALUES (%s, %s, %s, %s,%s,%s,%s)",
             (user_id, cliente_nome, mensagem, data_envio, autor,tipo,item)
         )
-        print("Mensagem salva no banco de dados")
-        cur.execute("SELECT nome_item,descricao FROM itens WHERE item_id=%s",(item,))
-        item_data = cur.fetchone()
+        cur.execute("SELECT nome_item,descricao FROM itens WHERE item_id=%s AND usuario_id_item=%s",(item,user_id))
+        item_data = cur.fetchone() or {}
         nome_item = item_data.get('nome_item','Item não encontrado')
         detalhes = item_data.get('descricao','Descrição não encontrada')
         conn.commit()
@@ -2446,11 +2152,10 @@ def mensagem_cliente(data):
         conn.close()
 
         # 2) Se veio do cliente, chama a OpenAI e emite a resposta
-        if autor == "cliente":
+        if autor == "cliente" and modo:
             if modo:
                 resposta = chat_pos_venda(mensagem,nome_item,detalhes)  # devolve só a string
                 autor_resposta='vendedor'
-            print("resposta do chat:",resposta)
             # opcional: também salvar no banco a resposta do assistente
             conn = get_db_connection()
             cur  = conn.cursor()
@@ -2466,14 +2171,13 @@ def mensagem_cliente(data):
                 "token":token,
                 "tipo":tipo,
             }
-            print("payload:", payload)
             # agora emite pro front-end
         # 3) Por fim, atualiza a lista completa de mensagens (se for esse seu fluxo)
 
-        getMensagens(payload)
+        getMensagens({"tipo":tipo})
 
     except Exception as e:
-        print("erro ao armazenar mensagem:", str(e))
+        pass  # No sensitive payloads in application logs.
 
 
 def sync_lock_acquire(user_id: int) -> bool:
@@ -2492,39 +2196,33 @@ def sync_lock_release(user_id: int):
 
 @socketio.on('verificar_status')
 def verificar_status():
+    socket_user()
     try: 
         token = request.cookies.get("__Host-token")
-        print('token verificar_status', token)
-        if not token:
-            print('sem token')
-            return {'status': 'Sem Token'}
-        decoded = decode_token(token)
+        decoded = dict(sub=str(socket_user()))
         user_id = int(decoded.get('sub'))
-        print('user_id', user_id)
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT id FROM usuarios WHERE id=%s", (user_id,))
             if cur.fetchone():
-                print('Encontrou o usuario')
                 cur.execute("SELECT status FROM first_sync WHERE usuario_id_first_sync= %s", (user_id,))
                 status_dict=cur.fetchone()
                 if status_dict:
-                    print('usuario com status')
                     status = status_dict['status']
                     room=f'user:{user_id}'
                     socketio.emit('status_loading',{'message':'Aguarde mais alguns minutos,\n esse processo pode demorar um pouco...'},room=room)
                     return {'status':status,'token':token}
                 else:
-                    print('usuario sem status, Inserindo status')
                     cur.execute('INSERT INTO first_sync (status,usuario_id_first_sync) VALUES (%s,%s)',('sync_em_processamento',user_id,))
                     conn.commit()
                     return {'status': 'sync_nao_iniciada','token':token}
             else:
                 return {'status':'Sem Token'}
     except Exception as e:
-        print('erro ao verificar_status: ', e)
+        pass  # No sensitive payloads in application logs.
 
 @socketio.on('pegar_dados_iniciais')
 def pegar_dados_gerais():
+    socket_user()
     try:
         # Proteção adicional: o frontend não emite mais este evento. Enquanto
         # ENABLE_INITIAL_SYNC=false, nenhuma coleta ampla pode ser iniciada.
@@ -2534,25 +2232,18 @@ def pegar_dados_gerais():
                 'status': True,
             })
             return False
-        print('pegar_dados_geraisF')
         token = request.cookies.get("__Host-token")
     
-        if not token:
-            return False
-        print('token', token)
         try:
-            decoded = decode_token(token)
+            decoded = dict(sub=str(socket_user()))
             user_id = int(decoded.get('sub'))
         except jwt.InvalidTokenError:
             return False
         room=f'user:{user_id}'
-        print('token depois:', token)
-        emit('guardar_token', {'token':token}, room=room)
         socketio.sleep(3)   
         socketio.start_background_task(run_pipeline, user_id, room)
         emit('status_loading', {'message': 'Iniciando sincronização...'}, room=room)
     except Exception as e:
-        print(f'erro: {str(e)}')
         return False
         
 def run_pipeline(user_id, room):
@@ -2634,12 +2325,11 @@ def buscar_item(item_id,access_token):
     headers={
         "Authorization":f"Bearer {access_token}"
     }
-    response=requests.get(url,headers=headers)
+    response=ml_http.get(url,headers=headers)
     return response.json()
 
 def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
     try:
-        print("Entrou na função listar_conversas_pos_venda")
         conn = get_db_connection()
         cur = conn.cursor()
     
@@ -2647,7 +2337,7 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
             'Authorization': f'Bearer {access_token}'
         }
         url = 'https://api.mercadolibre.com/messages/unread?tag=post_sale'
-        resp = requests.get(url, headers=headers)
+        resp = ml_http.get(url, headers=headers)
         resposta = resp.json()
         results = resposta.get('results',[])
         count_20 = 0
@@ -2655,10 +2345,9 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
         for result in results:
             resource = result.get('resource', None)
             pack_id = resource.split('/')[2]
-            print('pack id', pack_id)
     
             url = f"https://api.mercadolibre.com/messages/{resource}?mark_as_read=false&tag=post_sale"
-            response = requests.get(url, headers=headers)
+            response = ml_http.get(url, headers=headers)
             data = response.json()
             paging = data.get('paging')
             total = paging.get('total')
@@ -2715,14 +2404,12 @@ def listar_conversas_pos_venda(user_id, seller_id, access_token,room):
         cur.close()
         conn.close()
     except Exception as e:
-        print(f'erro: {str(e)}')
-    print('Terminou de pegar as mensagens pos-venda')
+        pass  # No sensitive payloads in application logs.
 
 
 
 def reclamacoes(access_token, user_id, room):
     try:
-        print("Entrou na função de reclamações")
         change=0
         count_20=0
         base_url = "https://api.mercadolibre.com"
@@ -2734,7 +2421,7 @@ def reclamacoes(access_token, user_id, room):
     
         while True:
             url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=opened&offset={offset}&limit={limit}"
-            response = requests.get(url, headers=headers)
+            response = ml_http.get(url, headers=headers)
             if response.status_code != 200:
                 break
     
@@ -2758,7 +2445,7 @@ def reclamacoes(access_token, user_id, room):
                     shipment_id = claim.get('resource_id') 
                     
                     url_order_shipment = f"https://api.mercadolibre.com/shipments/{shipment_id}/items"
-                    response_order_shipment = requests.get(url_order_shipment, headers=headers)
+                    response_order_shipment = ml_http.get(url_order_shipment, headers=headers)
                     
                     pack_id = None # Garante que pack_id seja definido
                     
@@ -2802,7 +2489,7 @@ def reclamacoes(access_token, user_id, room):
                         vendedor_id = player["user_id"]
                         acoes_disponiveis = [acao["action"] for acao in player.get("available_actions", [])]
                 url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
-                response_reason = requests.get(url_reason, headers=headers)
+                response_reason = ml_http.get(url_reason, headers=headers)
                 if response_reason.status_code != 200:
                     reason = None
                 else:
@@ -2815,7 +2502,7 @@ def reclamacoes(access_token, user_id, room):
     
                 #print('--------------------------------')
                 url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
-                response_details = requests.get(url_details, headers=headers)
+                response_details = ml_http.get(url_details, headers=headers)
                 if response_details.status_code in [200, 206]:
                     details = response_details.json()
                     #print(f'Details: {details}')
@@ -2860,7 +2547,7 @@ def reclamacoes(access_token, user_id, room):
         count_20=0
         while True:
             url = f"https://api.mercadolibre.com/post-purchase/v1/claims/search?status=closed&offset={offset}&limit={limit}"
-            response = requests.get(url, headers=headers)
+            response = ml_http.get(url, headers=headers)
             if response.status_code != 200:
                 break
             data_geral = response.json()
@@ -2881,7 +2568,7 @@ def reclamacoes(access_token, user_id, room):
                     shipment_id = claim.get('resource_id') 
                     
                     url_order_shipment = f"https://api.mercadolibre.com/shipments/{shipment_id}/items"
-                    response_order_shipment = requests.get(url_order_shipment, headers=headers)
+                    response_order_shipment = ml_http.get(url_order_shipment, headers=headers)
                     
                     pack_id = None # Garante que pack_id seja definido
                     
@@ -2937,7 +2624,7 @@ def reclamacoes(access_token, user_id, room):
                     apllied_coverage = resolution.get("applied_coverage", False)
     
                 url_reason = f"{base_url}/post-purchase/v1/claims/reasons/{reason_id}"
-                response_reason = requests.get(url_reason, headers=headers)
+                response_reason = ml_http.get(url_reason, headers=headers)
                 if response_reason.status_code != 200:
                     reason = None
                 else:
@@ -2950,7 +2637,7 @@ def reclamacoes(access_token, user_id, room):
     
     
                 url_details = f"{base_url}/post-purchase/v1/claims/{claim_id}/detail"
-                response_details = requests.get(url_details, headers=headers)
+                response_details = ml_http.get(url_details, headers=headers)
     
                 if response_details.status_code != 200:
                     title = None
@@ -2996,16 +2683,13 @@ def reclamacoes(access_token, user_id, room):
             conn.commit()
         
     except Exception as e:
-        print(f'erro: {str(e)}')
-    print('Terminou de pegar as reclamacoes')
+        pass  # No sensitive payloads in application logs.
 
 
-    print("✅ Sincronização de reclamações finalizada com sucesso.")
 
 
 @app.route('/promotions-and-items', methods=['GET'])
 def get_promotions_and_items():
-    print('entrou no promotions-and-items')
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
@@ -3022,7 +2706,6 @@ def get_promotions_and_items():
         return jsonify({"error": f"Falha ao decodificar token: {exc}"}), 400
 
     user_id = decoded_token.get("sub") if decoded_token else None
-    print(user_id)
     if not user_id:
         return jsonify({"error": "Usuário não encontrado no token"}), 400
     query = """
@@ -3118,13 +2801,9 @@ def login_extension():
         if not email or not senha:
             return jsonify({'error': 'email_password_required'}), 400
 
+        user = authenticate_password(email,senha)
         agora = datetime.now()
         with get_db_connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, senha FROM usuarios WHERE LOWER(email) = %s", (email,))
-            user = cur.fetchone()
-            if not user or not bcrypt.checkpw(senha.encode('utf-8'), user['senha'].encode('utf-8')):
-                return jsonify({'error': 'invalid_credentials'}), 401
-
             user_id = user['id']
             cur.execute(
                 'SELECT acess_token, refresh_token, expiracao_token '
@@ -3151,10 +2830,12 @@ def login_extension():
                 )
                 conn.commit()
 
-        token_user = gerar_token_extensao(user_id)
+        token_user = gerar_token_extensao(user_id,auth_version=user['auth_version'])
         return jsonify({'access_token':token_access, 'refresh_token':refresh_token, 'token_user':token_user}), 200
+    except ApiError:
+        raise
     except Exception:
-        app.logger.exception('Falha no login da extensão')
+        app.logger.warning("NOVAI operation unavailable; sensitive details omitted")
         return jsonify({'error': 'login_failed'}), 500
 
 @app.route("/token_access", methods=["POST"])
@@ -3186,7 +2867,7 @@ def token_access():
                         (new_access, new_refresh, new_expiration, user_id),
                     )
                     conn.commit()
-                    token_user = gerar_token_extensao(user_id)
+                    token_user = gerar_token_extensao(user_id,auth_version=decoded_token.get('auth_version',0))
                 else:
                     return jsonify({"error": "refresh_failed"}), 400
                 return jsonify({
@@ -3195,10 +2876,9 @@ def token_access():
                     "token_user": token_user,
                 }), 200
         except Exception as e:
-            return jsonify({"error": "refresh_exception", "message": str(e)}), 400
+            return jsonify({"error": "refresh_exception", "message": "Operação indisponível"}), 400
     
 def faturamento_por_pedidos(user_id, room):
-    print("entrou no faturamento_por_pedidos")
     try:
         conn=get_db_connection()
         cur=conn.cursor()
@@ -3209,7 +2889,7 @@ def faturamento_por_pedidos(user_id, room):
 
         url_pages=f"https://api.mercadolibre.com/orders/search?seller={id}"
         headers = {"Authorization": f"Bearer {access_token}"}
-        response = requests.get(url_pages, headers=headers)
+        response = ml_http.get(url_pages, headers=headers)
         resposta=response.json()
         paging=resposta.get('paging')
         total_pages=paging.get('total')
@@ -3219,7 +2899,7 @@ def faturamento_por_pedidos(user_id, room):
             url = f"https://api.mercadolibre.com/orders/search?seller={id}&offset={offset}&limit=50&sort=date_desc"
 
 
-            response = requests.get(url, headers=headers)
+            response = ml_http.get(url, headers=headers)
             if response.status_code not in [200, 206]:
                 return []
             orders = response.json()
@@ -3277,7 +2957,6 @@ def faturamento_por_pedidos(user_id, room):
                 date_created_order_dt=datetime.fromisoformat(date_created_order).astimezone(timezone.utc)
                 days_90=datetime.now(timezone.utc) - timedelta(days=90)
                 if date_created_order_dt < days_90:
-                    print('Passou dos 3 meses')
                     return
                 date_closed_z = result.get('date_closed', 'Sem data de fechamento')
                 date_closed=converter_zona_pro_brasil(date_closed_z)
@@ -3292,7 +2971,7 @@ def faturamento_por_pedidos(user_id, room):
                 conn.commit()
                 if item.get('category_id'):
                     url_categoria=f"https://api.mercadolibre.com/categories/{item.get('category_id')}"
-                    response= requests.get(url_categoria, headers=headers)
+                    response= ml_http.get(url_categoria, headers=headers)
                     if response.status_code in [200, 206]:
                         categoria_data = response.json()
                         category_id = categoria_data.get('id', 'Sem categoria')
@@ -3314,7 +2993,7 @@ def faturamento_por_pedidos(user_id, room):
                     conn.commit()
 
                 except Exception as e:
-                    print(f"Erro ao inserir pedido {id_order}: {e}")
+                    pass  # No sensitive payloads in application logs.
 
             count_20 += 1
             if count_20>20:
@@ -3332,12 +3011,10 @@ def faturamento_por_pedidos(user_id, room):
         #print('faturamento dos ultimos 50 pedidos: R$ ', faturamentos)
 
     except Exception as e:
-        print("Erro no faturamento_ por pedidos:", str(e))
-    print('Terminou de pegar os pedidos')
+        pass  # No sensitive payloads in application logs.
     
 def faturamento(user_id):
     try:
-        print('🔍 Entrou na função faturamento para o usuário:', user_id)
 
         # 🔌 Conexão e token
         conn = get_db_connection()
@@ -3349,24 +3026,20 @@ def faturamento(user_id):
 
         # 🔄 Buscar todos os períodos disponíveis
         url_periodos = "https://api.mercadolibre.com/billing/integration/monthly/periods?group=ML&document_type=BILL&limit=12"
-        response = requests.get(url_periodos, headers=headers)
+        response = ml_http.get(url_periodos, headers=headers)
         periodos_data = response.json()
-        print(periodos_data)
         if 'results' not in periodos_data:
-            print("❌ Nenhum período encontrado.")
             return
 
         # 📊 Iterar sobre os períodos
         for periodo in periodos_data['results']:
             key = periodo['key']  # Ex: "2024-12-01"
-            print(f"\n📅 Período: {key}")
 
             # 🔧 ADICIONADO group=ML
             url_summary = f"https://api.mercadolibre.com/billing/integration/periods/key/{key}/summary/details?group=ML&document_type=BILL"
 
 
-            response_summary = requests.get(url_summary, headers=headers)
-            print("causa do erro: ", response_summary.text)
+            response_summary = ml_http.get(url_summary, headers=headers)
 
             if response_summary.status_code in [200, 206]:
                 resumo = response_summary.json()
@@ -3381,19 +3054,10 @@ def faturamento(user_id):
                         else :
                             debt_expiration_date = None
                         period_status=resumo.get('period_status','')
-                        print('Data de referencia: ', key)
-                        print('📅 Data inicial do período:', date_from)
-                        print('📅 Data final do período:', date_to)
-                        print('📆 Data de expiração da fatura:', date_expiration)
-                        print('data limite para pendencias de pagamento: ', debt_expiration_date)
-                        print('status do periodo: ', period_status)
                     resumo_bill_includes = resumo.get('bill_includes', '')
                     if resumo_bill_includes:
-                        print(resumo_bill_includes)
                         total_amount = resumo_bill_includes.get('total_amount', 'Sem total')
                         total_perception = resumo_bill_includes.get('total_perception', 'Sem total perception')
-                        print('💰 Valor total faturado (total_amount):', total_amount)
-                        print('📑 Total de percepções fiscais (total_perceptions):', total_perception)
                         #dentro de payment_collected#
                         payment_collected = resumo.get('payment_collected', {})
                         desconto_operacional = payment_collected.get('operation_discount', 'Sem desconto operacional')
@@ -3401,25 +3065,19 @@ def faturamento(user_id):
                         total_credit_note = payment_collected.get('total_credit_note', 'Sem nota de crédito')
                         total_collected = payment_collected.get('total_collected', 'Sem total coletado')
                         total_debt = payment_collected.get('total_debt', 'Sem dívida restante')
-                        print('🔻 Descontos operacionais (operation_discount):', resumo['payment_collected']['operation_discount'])
-                        print('💵 Pagamento realizado (total_payment):', resumo['payment_collected']['total_payment'])
-                        print('🧾 Notas de crédito recebidas (total_credit_note):', resumo['payment_collected']['total_credit_note'])
-                        print('✅ Valor total efetivamente coletado (total_collected):', resumo['payment_collected']['total_collected'])
-                        print('❗ Dívida restante (total_debt):', resumo['payment_collected']['total_debt'])
                         cur.execute('INSERT INTO faturas (key,date_from,date_to,date_expiration,debt_expiration_date,period_status,total_faturado,total_perception,descontos_operacionais,pagamento_realizado,total_credit_note,total_collected,total_debt) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(key,date_from,date_to,date_expiration,debt_expiration_date,period_status,total_amount,total_perception,desconto_operacional,total_payment,total_credit_note,total_collected,total_debt))
                         conn.commit()  
             else:
-                print(f"⚠️ Erro ao obter resumo do período {key}: {response_summary.status_code}")
+                pass  # No sensitive payloads in application logs.
 
         cur.close()
         conn.close()
     except Exception as e:
-        print('erro ao pegar faturamento :', e)
+        pass  # No sensitive payloads in application logs.
 
 
 
 def listar_novas_conversas():
-    print("Entrou na função listar_novas_conversas")
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT usuario_id, acess_token FROM contas_mercado_livre")
@@ -3430,25 +3088,23 @@ def listar_novas_conversas():
         headers = {
             "Authorization": f"Bearer {access_token}"
         }
-        ml_response = requests.get("https://api.mercadolibre.com/users/me", headers=headers)
+        ml_response = ml_http.get("https://api.mercadolibre.com/users/me", headers=headers)
         response_ml=ml_response.json()
         id_ml=response_ml['id']
-        print(f"Processando conta ID: {id}, User ID: {user_id}")
         try:
             listar_conversas_pre_venda(user_id,id_ml,access_token)
         except Exception as e:
-            print(f"Erro ao listar conversas pré-venda para a conta ID {id}: {e}")
+            pass  # No sensitive payloads in application logs.
     cur.close()
     conn.close()
 
 def dados_vendedor(access_token,user_id):
     try:
-        print("Entrou na função dados_vendedor")
         url= "https://api.mercadolibre.com/users/me"
         headers = {
             "Authorization": f"Bearer {access_token}"
         }
-        response = requests.get(url, headers=headers)
+        response = ml_http.get(url, headers=headers)
         if response.status_code not in [200, 206]:
             return {}
         dados = response.json()
@@ -3516,8 +3172,7 @@ def dados_vendedor(access_token,user_id):
         cur.close()
         conn.close()
     except Exception as e:
-        print(f'erro: {str(e)}')
-    print('Terminou de pegar os dados do venedor')
+        pass  # No sensitive payloads in application logs.
 
 
 def campanhas_e_anuncios(user_id, access_token,room):
@@ -3525,7 +3180,6 @@ def campanhas_e_anuncios(user_id, access_token,room):
         # Buscar anuncios
         count_20=0
         change=0
-        print("Buscando anúncios do vendedor...")
         conn= get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT item_id FROM itens")
@@ -3543,7 +3197,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
             item_id = item['item_id']
             try:
                 url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
-                response = requests.get(url, headers=headers_url)
+                response = ml_http.get(url, headers=headers_url)
             except requests.exceptions.RequestException as e:
                 cont_errados += 1
                 continue
@@ -3591,7 +3245,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
 
 
             url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
-            response_summary = requests.get(url, headers=headers_url)
+            response_summary = ml_http.get(url, headers=headers_url)
             if response_summary.status_code not in [200, 206]:
                 return response_summary.status_code
             resumo_data = response_summary.json()
@@ -3667,7 +3321,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
                     continue
 
             url = f'''https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark'''
-            response_campanha = requests.get(url, headers=headers_url)
+            response_campanha = ml_http.get(url, headers=headers_url)
             if response_campanha.status_code not in [200, 206]:
                 return response_campanha.status_code
             result = response_campanha.json()
@@ -3691,7 +3345,7 @@ def campanhas_e_anuncios(user_id, access_token,room):
             #metricas diarias por campanha
             if status == 'active':
                 url_campanhas_diaria = f"""https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"""
-                response_campanhas_diaria = requests.get(url_campanhas_diaria, headers=headers_url)
+                response_campanhas_diaria = ml_http.get(url_campanhas_diaria, headers=headers_url)
                 if response_campanhas_diaria.status_code not in [200, 206]:
                     return response_campanhas_diaria.status_code
                 campanhas_diaria_data = response_campanhas_diaria.json() 
@@ -3763,11 +3417,9 @@ def campanhas_e_anuncios(user_id, access_token,room):
         cur.close()
 
     except Exception as e:
-        print(f"Erro ao buscar campanhas e anúncios: {e}")
-    print('Terminou de pegar as campanhas e anuncios')
+        pass  # No sensitive payloads in application logs.
 
 def campanhas_e_anuncios_periodico():
-    print("Entrou na função campanhas_e_anuncios_periodico")
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT usuario_id, acess_token, id_ml,expiracao_token FROM contas_mercado_livre")
@@ -3777,18 +3429,12 @@ def campanhas_e_anuncios_periodico():
         expiracao_token = conta['expiracao_token']
         id_ml = conta['id_ml']
         if agora>expiracao_token:
-            print("Token expirado, renovando...")
-            print("verificou que o token expirou")
             cur.execute("SELECT refresh_token FROM contas_mercado_livre WHERE id_ml=%s",(id_ml,))
             refresh=cur.fetchone()
             dados=renovar_access_token(refresh["refresh_token"])
-            print("retornando os dados:", dados)
             access_token=dados["access_token"]
-            print(access_token)
             refresh=dados["novo_refresh_token"]
-            print(refresh)
             expiracao=dados["nova_expiracao"]
-            print(expiracao)
             cur.execute("UPDATE contas_mercado_livre SET acess_token=%s,refresh_token=%s,expiracao_token=%s WHERE id_ml=%s",(access_token,refresh,expiracao,id_ml,))
             conn.commit()
         else:
@@ -3804,13 +3450,10 @@ def campanhas_e_anuncios_periodico():
         for item in itens_dict:
             item_id = item['item_id']
             title = item['nome_item']
-            print(f"Processando item_id: {item_id}")
             antes_de_ontem = agora - timedelta(days=2)
-            print("ontem:", ontem)
             url = f"""https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={ontem.strftime('%Y-%m-%d')}&date_to={ontem.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"""
-            response = requests.get(url,headers = headers)
+            response = ml_http.get(url,headers = headers)
             if response.status_code!=200 and response.status_code!=206:
-                print('erro na chamada da api', response.text)
                 continue
             resp = response.json()
             results_resumo=resp.get('results', [])
@@ -3846,41 +3489,35 @@ def campanhas_e_anuncios_periodico():
                 item_id, item_id, title,clicks, prints, cost, cpc, direct_amount, indirect_amount, total_amount,direct_units_quantity, indirect_units_quantity, units_quantity,direct_items_quantity,
                 indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_items_quantity, acos, organic_units_amount,sov, ctr, cvr, roas, date, usuario_id,))
             conn.commit()
-            print('----------------------------------------\n\n')
         url='https://api.mercadolibre.com/advertising/advertisers?product_id=PADS'
         headers = {
             "Authorization": f"Bearer {access_token}",
             'api-version': '1',
             'Content-Type': 'application/json'
         }
-        response = requests.get(url, headers=headers)
+        response = ml_http.get(url, headers=headers)
         advertisers = response.json()
         if response.status_code not in [200, 206]:
-            print(f"Erro ao buscar anunciantes: {advertisers.get('message', 'Erro desconhecido')}")
             continue
         for advertiser in advertisers.get('advertisers', []):
             advertiser_id = advertiser.get('advertiser_id', 'N/A')
-            print(f"Anunciante ID: {advertiser_id}")
             headers = {
             "Authorization": f"Bearer {access_token}",
             'api-version': '2',
         }
             url=f'https://api.mercadolibre.com/advertising/advertisers/{advertiser_id}/product_ads/campaigns?limit=1&offset=0'
-            response = requests.get(url, headers = headers)
+            response = ml_http.get(url, headers = headers)
             resp = response.json()  
             paging = resp.get('paging', {})
             total_campanhas = paging.get('total', 0)
             for offset in range(0, total_campanhas):
                 url=f'https://api.mercadolibre.com/advertising/advertisers/{advertiser_id}/product_ads/campaigns?limit=1&offset={offset}' 
-                response = requests.get(url, headers = headers)
+                response = ml_http.get(url, headers = headers)
                 if response.status_code not in [200, 206]:
-                    print(f"Erro ao buscar campanhas do anunciante {advertiser_id} com offset {offset}: {response.text}")
                     continue
                 resp = response.json()
                 result= resp.get('results', [])
                 for campanha in result:
-                    print(f"Campanha: {campanha.get('id')}")
-                    print("Nome da campanha: ", campanha.get('name', None))
                     campanha_id = campanha.get('id', None)
                     nome= campanha.get('name', None)
                     status = campanha.get('status', None)
@@ -3890,23 +3527,16 @@ def campanhas_e_anuncios_periodico():
                     last_updated = campanha.get('last_updated', None)
                     if last_updated:
                         last_updated = datetime.fromisoformat(last_updated.replace('Z','')).date()
-                    print('last_updated', last_updated)
                     date_created = datetime.fromisoformat(campanha.get('date_created', None).replace('Z','')).date()
-                    print('date_created',date_created)
-                    print("ontem")
                     channel= campanha.get('channel', None)
                     acos_target = campanha.get('acos_target', 0.0)
                     if date_created.strftime('%Y-%m-%d') == ontem.strftime('%Y-%m-%d'):
-                        print("Inserindo nova campanha no banco de dados")
                         cur.execute('''INSERT INTO campanhas (campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,usuario_id_campanhas,channel,acos_target)
                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(campanha_id,nome,status,strategy,budget,currency_id,last_updated,date_created,usuario_id,acos_target,))
-                        print(f'campanha: {campanha_id}, inserida com sucesso')
                     elif last_updated.strftime('%Y-%m-%d') == ontem.strftime('%Y-%m-%d'):
-                        print(f"Atualizando campanha {campanha_id} com os dados mais recentes")
                         cur.execute('''UPDATE campanhas SET nome = %s, status = %s, strategy=%s,
                         budget = %s, last_updated = %s, channel = %s, acos_target = %s WHERE campanha_id = %s 
                         AND usuario_id_campanhas = %s''',(nome, status, strategy, budget, last_updated, channel, acos_target, campanha_id, usuario_id,))
-                        print(f'campanha: {campanha_id}, atualizada com sucesso')
                     conn.commit()
                     #Campanhas Metricas diarias abaixo:
         cur.execute('SELECT campanha_id,nome FROM campanhas WHERE usuario_id_campanhas = %s', (usuario_id,))
@@ -3915,9 +3545,8 @@ def campanhas_e_anuncios_periodico():
             nome = campanhas['nome']
             if status == 'active':
                 url_campanhas_diaria = f"https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={ontem.strftime('%Y-%m-%d')}&date_to={ontem.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"
-                response_campanhas_diaria = requests.get(url_campanhas_diaria, headers=headers)
+                response_campanhas_diaria = ml_http.get(url_campanhas_diaria, headers=headers)
                 if response_campanhas_diaria.status_code not in [200, 206]:
-                    print("Erro ao buscar métricas diárias da campanha:", response_campanhas_diaria.text)
                     return response_campanhas_diaria.status_code
                 campanhas_diaria_data = response_campanhas_diaria.json() 
                 results_diaria = campanhas_diaria_data.get('results', [])
@@ -3949,14 +3578,6 @@ def campanhas_e_anuncios_periodico():
                     lost_impression_share_by_ad_rank = result_diaria.get('lost_impression_share_by_ad_rank', 0.0)
                     acos_benchmark = result_diaria.get('acos_benchmark', 0.0)
                     date = result_diaria.get('date', 'N/A')
-                    print(f"Data: {date}, Cliques: {clicks}, Impressões: {prints}, Custo: {cost}")
-                    print(f"CPC: {cpc}, CTR: {ctr}, Quantidade de unidades diretas: {direct_units_quantity}, Quantidade de unidades indiretas: {indirect_units_quantity}")
-                    print(f"Quantidade total de unidades: {units_quantity}, Quantidade de itens diretos: {direct_items_quantity}, Quantidade de itens indiretos: {indirect_items_quantity}")
-                    print(f"Quantidade de itens publicitários: {advertising_items_quantity}, Quantidade de unidades orgânicas: {organic_units_quantity}, Quantidade de montante orgânico: {organic_units_amount}")
-                    print(f"Quantidade de itens orgânicos: {organic_items_quantity}, ACOS: {acos}, CVR: {cvr}, ROAS: {roas}, SOV: {sov}")
-                    print(f"Participação de impressões: {impression_share}, Participação de impressões no topo: {top_impression_share}")
-                    print(f"Participação de impressões perdidas por orçamento: {lost_impression_share_by_budget}, Participação de impressões perdidas por classificação do anúncio: {lost_impression_share_by_ad_rank}")
-                    print(f"ACOS Benchmark: {acos_benchmark}")
 
 
 
@@ -3975,7 +3596,6 @@ def campanhas_e_anuncios_periodico():
 
 def promocoes(user_id, access_token,id_ml):
     try:
-        print(f"Consultando promoções do usuário")
         conn= get_db_connection()
         cur = conn.cursor() 
         url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2"
@@ -3983,7 +3603,7 @@ def promocoes(user_id, access_token,id_ml):
             "Authorization": f"Bearer {access_token}",
         }
         TYPES_NO_DETAILS = ["DOD", "LIGHTNING", "PRICE_DESCOUNT",]
-        response = requests.get(url_promocoes, headers=headers)
+        response = ml_http.get(url_promocoes, headers=headers)
         respostas = response.json()
         if response.status_code not in [200,206]:
             return 
@@ -3992,7 +3612,7 @@ def promocoes(user_id, access_token,id_ml):
         limit= paging.get('limit', 0)
         for offset in range(0,total,limit):
             url_promocoes = f"https://api.mercadolibre.com/seller-promotions/users/{id_ml}?app_version=v2&offset={offset}&limit={limit}"
-            response = requests.get(url_promocoes, headers=headers)
+            response = ml_http.get(url_promocoes, headers=headers)
             if response.status_code not in [200, 206]:
                 continue
             respostas = response.json()
@@ -4054,7 +3674,7 @@ def promocoes(user_id, access_token,id_ml):
                     cur.execute('''INSERT INTO volume_type_promotion (id_promotion,type_promotion,buy_quantity, pay_quantity, sub_type, allow_combination, usuario_id_volume_type_promotion) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
                     (id_promotion, type_promotion, buy_quantity, pay_quantity, sub_type, allow_combination, user_id ,))
                 url = f'https://api.mercadolibre.com/seller-promotions/promotions/{id_promotion}/items?promotion_type={type_promotion}&app_version=v2'
-                response = requests.get(url, headers=headers) 
+                response = ml_http.get(url, headers=headers)
                 if response.status_code not in [200]:
                     continue      
                 resp = response.json()
@@ -4099,12 +3719,10 @@ def promocoes(user_id, access_token,id_ml):
         cur.close()
         conn.close()
     except Exception as e:
-        print(f'erro: {str(e)}')
-    print('Terminou de pegar as promocoes')
+        pass  # No sensitive payloads in application logs.
 
 
 def listar_novas_conversas_pos_venda():
-    print("Entrou na função listar_novas_conversas_pos_venda")
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT usuario_id, acess_token FROM contas_mercado_livre")
@@ -4115,14 +3733,13 @@ def listar_novas_conversas_pos_venda():
         headers = {
             "Authorization": f"Bearer {access_token}"
         }
-        ml_response = requests.get("https://api.mercadolibre.com/users/me", headers=headers)
+        ml_response = ml_http.get("https://api.mercadolibre.com/users/me", headers=headers)
         response_ml=ml_response.json()
         id_ml=response_ml['id']
-        print(f"Processando conta ID: {id_ml}, User ID: {user_id}")
         try:
             listar_conversas_pos_venda(user_id,id_ml,access_token)
         except Exception as e:
-            print(f"Erro ao listar conversas pós-venda para a conta ID {id_ml}: {e}")
+            pass  # No sensitive payloads in application logs.
 
 
 @app.route('/')
@@ -4136,11 +3753,9 @@ def health():
 
 
 def minha_tarefa():
-    print("Rodando tarefa de atualização diária às 00:00")
     pegar_anuncios_e_campanhas_diario()
 
 def pegar_anuncios_e_campanhas_diario():
-    print('Entrou em campanhas e anuncios diarios')
     try:
         with get_db_connection() as conn, conn.cursor() as cur:
             cur.execute("SELECT i.item_id as item_id, i.title as title,i.usuario_id_anuncios as user_id,a.acess_token as access_token, a.refresh_token as refresh_token,a.expiracao_token as expiracao_token FROM anuncios i JOIN contas_mercado_livre a ON i.usuario_id_itens=a.usuario_id")
@@ -4174,7 +3789,7 @@ def pegar_anuncios_e_campanhas_diario():
             final = datetime.now().date()
             inicio = final - timedelta(days=1) 
             url_metricas_anuncios_ontem=f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount&aggregation_type=DAILY"
-            response_summary = requests.get(url_metricas_anuncios_ontem, headers=headers)
+            response_summary = ml_http.get(url_metricas_anuncios_ontem, headers=headers)
             if response_summary.status_code not in [200, 206]:
                 return response_summary.status_code
             resumo_data = response_summary.json()
@@ -4237,7 +3852,7 @@ def pegar_anuncios_e_campanhas_diario():
             final = datetime.now().date()
             inicio = final - timedelta(days=1) 
             url_campanhas_diaria = f"""https://api.mercadolibre.com/advertising/product_ads/campaigns/{campanha_id}?date_from={inicio.strftime('%Y-%m-%d')}&date_to={final.strftime('%Y-%m-%d')}&metrics=clicks,prints,ctr,cost,cpc,acos,organic_units_quantity,organic_units_amount,organic_items_quantity,direct_items_quantity,indirect_items_quantity,advertising_items_quantity,cvr,roas,sov,direct_units_quantity,indirect_units_quantity,units_quantity,direct_amount,indirect_amount,total_amount,impression_share,top_impression_share,lost_impression_share_by_budget,lost_impression_share_by_ad_rank,acos_benchmark&aggregation_type=DAILY"""
-            response_campanhas_diaria = requests.get(url_campanhas_diaria, headers=headers)
+            response_campanhas_diaria = ml_http.get(url_campanhas_diaria, headers=headers)
             if response_campanhas_diaria.status_code not in [200, 206]:
                 return response_campanhas_diaria.status_code
             campanhas_diaria_data = response_campanhas_diaria.json() 
@@ -4284,14 +3899,13 @@ def pegar_anuncios_e_campanhas_diario():
                 direct_items_quantity, indirect_items_quantity, advertising_items_quantity,organic_units_quantity, organic_units_amount, organic_items_quantity, acos,
                 cvr, roas, sov, impression_share, top_impression_share,lost_impression_share_by_budget, lost_impression_share_by_ad_rank,acos_benchmark, name,date, user_id,))
     except Exception as e:
-        print('Erro: ', str(e))
+        pass  # No sensitive payloads in application logs.
 
 def listar_todos_itens(user_id,id,access_token):
     try:
-        print("Entrou na função listar_todos_itens")
         url=f"https://api.mercadolibre.com/users/{id}/items/search"
         headers = {"Authorization": f"Bearer {access_token}"}
-        response = requests.get(url, headers=headers)
+        response = ml_http.get(url, headers=headers)
         if response.status_code not in [200, 206]:
             return False
         itens = response.json()
@@ -4306,7 +3920,7 @@ def listar_todos_itens(user_id,id,access_token):
             itens_existentes.add(linha['item_id'])
         for offset in range(0, total, limit):
             url=f"https://api.mercadolibre.com/users/{id}/items/search?offset={offset}&limit={limit}"
-            response = requests.get(url, headers=headers)
+            response = ml_http.get(url, headers=headers)
             if response.status_code not in [200]:
                 continue
             itens = response.json()
@@ -4314,16 +3928,16 @@ def listar_todos_itens(user_id,id,access_token):
                 if item_id not in itens_existentes:
                     url_item = f"https://api.mercadolibre.com/items/{item_id}"
                     url_descricao = f"https://api.mercadolibre.com/items/{item_id}/description"
-                    response_descricao = requests.get(url_descricao, headers=headers)
+                    response_descricao = ml_http.get(url_descricao, headers=headers)
                     resposta_descricao = response_descricao.json()
     
-                    response_item = requests.get(url_item, headers=headers)
+                    response_item = ml_http.get(url_item, headers=headers)
                     if response_item.status_code not in [200, 206]:
                         continue
                     resposta_itens = response_item.json()
                     category_id = resposta_itens.get('category_id', 'N/A')
                     url_cateogira=f'https://api.mercadolibre.com/categories/{category_id}'
-                    categoria_dados= requests.get(url_cateogira, headers=headers)
+                    categoria_dados= ml_http.get(url_cateogira, headers=headers)
                     categoria_json = categoria_dados.json()
                     categoria = categoria_json.get('name', 'N/A')
                     nome_item = resposta_itens.get('title', 'Sem título').strip()
@@ -4343,17 +3957,15 @@ def listar_todos_itens(user_id,id,access_token):
                         )
                         conn.commit()
                     except Exception as e:
-                        print(f"Erro ao inserir item {item_id} no banco: {e}")
+                        pass  # No sensitive payloads in application logs.
     except Exception as e:
-        print(f'erro: {str(e)}')   
-    print('Terminou de pegar os itens')
+        pass  # No sensitive payloads in application logs.
 
 def listar_conversas_pre_venda(user_id,id,access_token):
     try:
-        print("entrou no listar_conversas")
         url = f"https://api.mercadolibre.com/questions/search?seller_id={id}&api_version=4"
         headers = {"Authorization": f"Bearer {access_token}"}
-        response = requests.get(url, headers=headers)
+        response = ml_http.get(url, headers=headers)
         pages = response.json()
         if response.status_code not in [200, 206]:
             return []
@@ -4361,10 +3973,9 @@ def listar_conversas_pre_venda(user_id,id,access_token):
         total_pages = pages.get("total", 0)
         for offset in range(0, total_pages, 50):
             url_recentes = f"https://api.mercadolibre.com/questions/search?seller_id={id}&api_version=4&limit=50&offset={offset}"
-            respons = requests.get(url_recentes, headers=headers)
+            respons = ml_http.get(url_recentes, headers=headers)
             time.sleep(0.3)  # Atraso de 300ms entre as requisições
             if respons.status_code not in [200, 206]:
-                print('ERRO ao tentar pegar uma mensagem pre-venda')  
                 continue
             conversas=respons.json()
             conn=get_db_connection()
@@ -4433,14 +4044,13 @@ def listar_conversas_pre_venda(user_id,id,access_token):
         conn.close()
         cur.close()
     except Exception as e:
-        print(f'erro: {str(e)}')
-    print('Terminou de pegar as mensagens pre-venda') 
+        pass  # No sensitive payloads in application logs.
 
 
 def buscar_nome(id_do_cliente,access_token):
     url=f"https://api.mercadolibre.com/users/{id_do_cliente}"
     headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers)
+    response = ml_http.get(url, headers=headers)
     return response.json()
 
 # 🔹 Função para gerar o code_verifier (PKCE)
@@ -4451,15 +4061,14 @@ def generate_code_verifier():
 def generate_code_challenge(code_verifier):
     sha256_hash = hashlib.sha256(code_verifier.encode()).digest()
     return base64.urlsafe_b64encode(sha256_hash).decode('utf-8').rstrip('=')
-def gerar_token(user_id):
-    print('entrou no gerar token')
-    token = create_access_token(identity=str(user_id), expires_delta=timedelta(hours=2))
+def gerar_token(user_id,auth_version=None):
+    token = create_access_token(identity=str(user_id), additional_claims=token_claims(user_id) if auth_version is None else {'auth_version':auth_version}, expires_delta=timedelta(hours=2))
     return token
 
 
-def gerar_token_extensao(user_id):
+def gerar_token_extensao(user_id,auth_version=None):
     """JWT auxiliar usado apenas para renovar os tokens salvos pela extensão."""
-    return create_access_token(identity=str(user_id), expires_delta=timedelta(days=30))
+    return create_access_token(identity=str(user_id), additional_claims=token_claims(user_id) if auth_version is None else {'auth_version':auth_version}, expires_delta=timedelta(days=30))
 def renovar_access_token(refresh_token):
     url = "https://api.mercadolibre.com/oauth/token"
     payload = {
@@ -4468,7 +4077,7 @@ def renovar_access_token(refresh_token):
         "client_secret": CLIENT_SECRET,
         "refresh_token": refresh_token
     }
-    response = requests.post(url, data=payload, timeout=30)
+    response = ml_http.post(url, data=payload, timeout=30)
     token_data = response.json()
     if not response.ok or 'access_token' not in token_data:
         raise RuntimeError(f"Falha ao renovar token do Mercado Livre: HTTP {response.status_code}")
@@ -4486,8 +4095,6 @@ def renovar_access_token(refresh_token):
 
 
 def getApiMercadoLivre(data):
-    print("entoru no getAPi do mercado livre")
-    print("token:",data)
     decoded_token=decode_token(data)
     user_id=decoded_token.get('sub')
     conn=get_db_connection()
@@ -4498,7 +4105,7 @@ def getApiMercadoLivre(data):
     headers = {
             "Authorization": f"Bearer {access_token}"
         }
-    ml_response = requests.get("https://api.mercadolibre.com/users/me", headers=headers)
+    ml_response = ml_http.get("https://api.mercadolibre.com/users/me", headers=headers)
     response_ml=ml_response.json()
     id_ml=response_ml['id']
     cur.execute("UPDATE contas_mercado_livre SET id_ml=%s WHERE usuario_id=%s",(id_ml,user_id,))
@@ -4523,7 +4130,6 @@ def converter_zona_pro_brasil(ml_date):
 
 
 def teste_itens_promovidos(access_token):
-    print("Entrou na função teste_itens_promovidos")
     conn= get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT item_id FROM itens")
@@ -4536,30 +4142,20 @@ def teste_itens_promovidos(access_token):
     }
     for i,item in enumerate(itens):
         item_id = item['item_id']
-        print(f"item_id: {item_id}")
-        print (f'item {i}: ', end='')
         try:
             url = f"https://api.mercadolibre.com/advertising/product_ads/items/{item_id}"
-            response = requests.get(url, headers=headers_url)
+            response = ml_http.get(url, headers=headers_url)
         except requests.exceptions.RequestException as e:
-            print(f"Erro ao fazer requisição para o item {item_id}: {e}")
             cont_errados += 1
             continue
 
         if response.status_code not in [200, 206]:
-            print(f"Erro ao buscar anúncios promovidos para o item {item_id}: {response.text}")
             continue
             cont_errados += 1
         cont_certos +=1
         data = response.json()
         listingtype_id = data.get('listing_type_id', 'N/A')
         price = data.get('price', 0.0)
-        print(f"title", data.get('title', 'N/A'))
-        print(f"status: {data.get('status', 'N/A')}")
-        print(f"has_discount: {data.get('has_discount', 'N/A')}")
-        print(f"condition : {data.get('condition')}, 'N/A')")
-        print(f"Total de itens processados: {len(itens)}"
-        f"\nItens com sucesso: {cont_certos} \nItens com erro: {cont_errados}")
 
 
 
@@ -4571,20 +4167,16 @@ def teste_itens_promovidos(access_token):
 
 
 def chat_pos_venda(mensagem: str, nome: str,descricao:str, contexto:str) -> str:
-    print("entrou no chat")
     try:
       modelo=ChatOpenAI(model='gpt-4o-mini')
       if contexto == 'nao existe':
         prompt=ChatPromptTemplate.from_template('Você é um vendedor do mercado livre, responda a seguinte pergunta:{pergunta}, este é o nome do item:{nome} e a sua descricao:{descricao}')
         chain= prompt | modelo | StrOutputParser()
-        print(chain.invoke({'pergunta': mensagem, 'nome':nome,'descrição':descricao}))
       else:
         prompt=ChatPromptTemplate.from_template('você é um vendedor do mercado livre, responda a seguinte pergunta :{pergunta},este é o nome do item:{nome} e a sua descricao:{descricao},  com base nesse contexto de conversa: {contexto}')
         chain= prompt | modelo | StrOutputParser()
-        print(chain.invoke({'pergunta':mensagem,'nome':nome,'descricao':descricao,'contexto':contexto}))
 
     except Exception as e:
-        print("Erro na OpenAI:", e)
         return ""
 
 
@@ -4622,16 +4214,13 @@ Agora analise a seguinte mensagem e retorne as perguntas ajustadas no formato de
         resp: list[str] = Field(description='lista com as perguntas ajustadas')
     chain = prompt | model.with_structured_output(EncaminharNeuronio)
     resposta = chain.invoke({'mensagem':mensagem})
-    print('resposta do primeiro neuronio: ', resposta)
     informacao_final=[]
     for i in resposta.resp:
         informacao_final.append(chat_novai_manager_pilot(i,user_id))
     prompt= ChatPromptTemplate.from_template('Você é um assistente de um vendedor do mercado livre, responda a mensagem:{mensagem} dele com base nos dados fornecidos: {mensagem_final} e deixe sua resposta bem robusta dando a resposta para a pergunta, mas se possivel complementaar a respostas caso tenha dados extras para deixaar a resposta mais colorida com mais dados.')
     chain= prompt | model | StrOutputParser()
-    print('informação final:', informacao_final)
     informacao_final += f'\ndata de hoje: {datetime.now()}'
     resposta_final=chain.invoke({'mensagem_final':informacao_final, 'mensagem':mensagem})
-    print("resposta final: ", resposta_final)
     return jsonify({'resposta_final':resposta_final})
 
 
@@ -4652,26 +4241,21 @@ def chat_novai_manager_pilot(pergunta : str, user_id : int):
         resp: str = Field(description='Responda exatamente com: "api publica mercado livre", "dados_vendedor" ou "simples".')
     return_final = None
     def route(input):
-        print("Primeiro neuronio: ",input.resp)
         nonlocal return_final
         if input.resp=='simples':
             chain_temp = model | StrOutputParser()
             resposta=chain_temp.invoke(f'Você é um assitente de vendedores do mercado livre responda apenas perguntas sobre esse assunto e se nao souber responde que nao sabe, mas nao de informação errada, pergunta: {pergunta}')
-            print("resposta:",resposta)
             return_final = resposta
         elif input.resp=='dados_vendedor':
 
             return_final = chat_novai_manager_requisicao(pergunta,user_id)
 
         else:
-            print("API do mercado livre resposta")
             return_final = "nao temos api do mercado livre "
     chain_TESTE = prompt | model | StrOutputParser()
     pensamento = chain_TESTE.invoke(pergunta)
-    print(f'Resposta do Pilot Teste: \n{pensamento}')
     chain = model.with_structured_output(EncaminharNeuronio) | route
     chain.invoke(pensamento)
-    print('return pilot:', return_final)
     return return_final
 
 def _sender_from_author(author: str) -> str:
@@ -4728,23 +4312,18 @@ def parse_dt(value):
 
 @socketio.on('mudar_data')
 def atualizar_dados(data):
+    socket_user()
     try:
         token = request.cookies.get("__Host-token")
-        if not token:
-            socketio.emit('Sem_token',{"message":"Sem token"})
-            return
         # Obtém o user_id dos parâmetros da query string
-        print("Token:", token)
         try:
-            decoded_token=decode_token(token)
-            print(decoded_token)
+            decoded_token=dict(sub=str(socket_user()))
             user_id=decoded_token.get("sub")
-            print(user_id)
             room = f'user:{user_id}'
             exp_timestamp = decoded_token.get("exp")
             now = int(time.time())
             if exp_timestamp and exp_timestamp < now:
-                socketio.emit('Sem_token',{"message":"Token expirado"})
+                emit('Sem_token',{"message":"Token expirado"})
                 return
         except:
             return
@@ -4813,22 +4392,22 @@ def atualizar_dados(data):
                         f"?date_from={date_from}&date_to={date_to}"
                     )
                     try:
-                        resp = requests.get(url, headers=headers, timeout=20)
+                        resp = ml_http.get(url, headers=headers, timeout=20)
                         if resp.ok:
                             payload = resp.json()
                             total_visits = payload.get('total_visits') if isinstance(payload, dict) else None
                             emit('atualizar_dados', {'visualizacoes_hoje': total_visits})
                         else:
-                            app.logger.warning('Falha ML: %s %s', resp.status_code, resp.text)
+                            app.logger.warning("NOVAI operation unavailable; sensitive details omitted")
                             emit('atualizar_dados', {'error': 'Falha ML'})
                     except requests.exceptions.RequestException as exc:
-                        app.logger.exception('Erro de rede ML: %s', exc)
+                        app.logger.warning("NOVAI operation unavailable; sensitive details omitted")
                         emit('atualizar_dados', {'error': 'Erro de rede ML'})
                     return
 
                 emit('atualizar_dados', {'info': f'cardId não tratado: {card_id}'})
     except Exception as exc:
-        app.logger.exception('Erro em mudar_data: %s', exc)
+        app.logger.warning("NOVAI operation unavailable; sensitive details omitted")
         emit('atualizar_dados', {'error': 'Erro interno'})
 
 
@@ -5198,20 +4777,15 @@ def get_dados_gerais():
         )
 
         try:
-            response = requests.get(url, headers=headers, timeout=20)
+            response = ml_http.get(url, headers=headers, timeout=20)
             if response.ok:
                 payload = response.json()
-                print(payload)
                 if isinstance(payload, dict):
                     visualizacoes_hoje=payload.get('total_visits')
             else:
-                app.logger.warning(
-                    'Falha ao buscar visitas no Mercado Livre: %s %s',
-                    response.status_code,
-                    response.text,
-                )
+                app.logger.warning("NOVAI operation unavailable; sensitive details omitted")
         except requests.exceptions.RequestException as exc:
-            app.logger.exception('Erro na requisição de visitas do Mercado Livre: %s', exc)
+            app.logger.warning("NOVAI operation unavailable; sensitive details omitted")
 
     payload = {
         'total_amount': total_amount_today,
@@ -5221,24 +4795,20 @@ def get_dados_gerais():
         'email':email,
     }
 
-    socketio.emit('atualizar_dados', payload)
+    socketio.emit('atualizar_dados', payload, to=f'user:{user_id}')
     return jsonify(payload)
         
 
 
 @app.route('/get_conversation', methods=['GET'])
 def get_conversation():
-    print('entrou no get_conversation')
     auth_header = request.headers.get("Authorization")
     if not auth_header:
         return jsonify({"error": "Cabeçalho Authorization ausente"}), 401
     token = auth_header.split(" ")[1] if " " in auth_header else auth_header
-    print("token: ",token)
     try:
         decoded_token=decode_token(token)
-        print(decoded_token)
         user_id=decoded_token.get("sub")
-        print(user_id)
         exp_timestamp = decoded_token.get("exp")
         now = int(time.time())
         if exp_timestamp and exp_timestamp < now:
@@ -5363,10 +4933,9 @@ def categorias_mais_vendidas_concorrentes(
         url_info_categories = f"https://api.mercadolibre.com/sites/{site}/categories"
         headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
         try:
-            r = requests.get(url_info_categories, headers=headers, timeout=20)
+            r = ml_http.get(url_info_categories, headers=headers, timeout=20)
             # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
             categorias_compactas = r.json()
-            print("categorias:", categorias_compactas)
         except Exception:
             categorias_compactas = []
     
@@ -5409,13 +4978,13 @@ def categorias_mais_vendidas_concorrentes(
             "site": site,  # <<< agora o template usa {site}
         })
         if out:
-            print("url retornada:",out.url)
+            pass  # No sensitive payloads in application logs.
         url = (out.url or "").strip() if out else ""
         headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
         
         if not url:
             raise ValueError("Modelo não retornou uma URL válida.")
-        resposta_json= requests.get(url, headers=headers, timeout=20)
+        resposta_json= ml_http.get(url, headers=headers, timeout=20)
         resposta_final = {"url":url,"dados_retornado_url":resposta_json.json(),"Categoria_id_e_nomes":categorias_compactas}
         # 6) Fallback: se vier vazio, tenta construir por termo (q=)
         if not url:
@@ -5424,7 +4993,7 @@ def categorias_mais_vendidas_concorrentes(
     
         return resposta_final
     except Exception as e:
-        print(f"Erro ao pegar informações extras sobre o concorrente\nErro:{str(e)}")
+        pass  # No sensitive payloads in application logs.
 
 def itens_detalhados(itens_id_json, access_token, tipo):
     headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
@@ -5437,11 +5006,11 @@ def itens_detalhados(itens_id_json, access_token, tipo):
             for j in content:
                 id_item = j.get("id")
                 url = f"https://api.mercadolibre.com/items/{id_item}"
-                response=requests.get(url, headers=headers)
+                response=ml_http.get(url, headers=headers)
                 result=response.json()
                 pictures=result.get("pictures")
                 url_descricao = f"https://api.mercadolibre.com/items/{id_item}/description"
-                response_descricao = requests.get(url_descricao, headers=headers)
+                response_descricao = ml_http.get(url_descricao, headers=headers)
                 descricao=response_descricao.get('plain_text')
                 for m in pictures:
                     imagens.append(m.get("url"))
@@ -5466,7 +5035,7 @@ def mais_vendidos_por_categoria(categorias_compactas, access_token):
         category_id = i.get("id")
         category_name = i.get("name")
         url_por_categoria=f"https://api.mercadolibre.com/highlights/MLB/category/{category_id}"
-        resposta = requests.get(url_por_categoria, headers=headers)
+        resposta = ml_http.get(url_por_categoria, headers=headers)
         resposta_final.append({f"name":category_name,n:resposta.json()})
     return resposta_final
 
@@ -5475,10 +5044,9 @@ def get_info():
     url_info_categories = f"https://api.mercadolibre.com/sites/{site}/categories"
     headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
     try:
-        r = requests.get(url_info_categories, headers=headers, timeout=20)
+        r = ml_http.get(url_info_categories, headers=headers, timeout=20)
         # compacta para id + name (suficiente para o LLM mapear nome ↔ id das raízes)
         categorias_compactas = r.json()
-        print("categorias:", categorias_compactas)
     except Exception:
         categorias_compactas = []
     resultado_mais_vendidos=mais_vendidos_por_categoria(categorias_compactas, access_token)
@@ -5522,23 +5090,17 @@ def carregar_historico_conversa(conexao, conversa_id: str, usuario_id: int, limi
 
 @socketio.on('chat_novai_manager')
 def chat_novai_manager_requisicao(data): 
-    print('entrou aqui no chat')
+    socket_user()
     token = request.cookies.get("__Host-token")
-    if not token:
-        socketio.emit('Sem_token',{"message":"Sem token"})
-        return
     # Obtém o user_id dos parâmetros da query string
-    print("Token:", token)
     try:
-        decoded_token=decode_token(token)
-        print(decoded_token)
+        decoded_token=dict(sub=str(socket_user()))
         user_id=decoded_token.get("sub")
-        print(user_id)
         room = f'user:{user_id}'
         exp_timestamp = decoded_token.get("exp")
         now = int(time.time())
         if exp_timestamp and exp_timestamp < now:
-            socketio.emit('Sem_token',{"message":"Token expirado"})
+            emit('Sem_token',{"message":"Token expirado"})
             return
     except:
         return
@@ -5547,7 +5109,6 @@ def chat_novai_manager_requisicao(data):
     id_conversa = data.get('conversa_id', '')
     date_unix = data.get('date')
     date = datetime.fromtimestamp(date_unix / 1000)
-    print('token', token)
     if not user_id:
         return
     with get_db_connection() as conn, conn.cursor() as cur:
@@ -5670,14 +5231,12 @@ Pensamento: {pensamento}
     def route(out: RoteadorSlim):
         nonlocal return_final
         if out.acao == "chamar_funcao" and out.funcao == "categorias_mais_vendidas_concorrentes":
-            print("Entrou na parte de concorrentes")
             return_final = categorias_mais_vendidas_concorrentes(
                 user_id=user_id,
                 message=mensagem,
                 site='MLB'
             )
         elif out.acao == "usar_tabelas":
-            print("Vai pegar os dados do proprio vendedor")
             tables = out.tables or ["pedidos_resumo", "anuncios_metricas_diarias", "itens"]
             return_final = chat_novai_manager_table_verification(tables, mensagem, user_id, id_conversa)
     partial=[]
@@ -5701,8 +5260,6 @@ Pensamento: {pensamento}
             "history": history_msgs,
             "final_prompt": final_prompt_text
         })
-        print("chegou aqui")
-        print('return final:', return_final)
         #respostas = await model.abatch([{"messages": [{"role": "user", "content": json.dumps(p['dados retornados da query']),"function":'sintetize os dados em no max 10 linhas'}]} for p in return_final])
         sintese_prompt = ChatPromptTemplate.from_messages([
     ("system", 
@@ -5753,7 +5310,7 @@ Pensamento: {pensamento}
             partial.append(text)
             socketio.emit("chat_token", {"text": text, "requestId": request_id}, room=room)  
     except Exception as e:
-        print(f'Erro ao processar o modelo: {e}')
+        pass  # No sensitive payloads in application logs.
     finally:
         full = "".join(partial)
         socketio.emit("chat_done", {"text": full, "requestId": request_id}, room=room)
@@ -5762,481 +5319,9 @@ Pensamento: {pensamento}
             conn.commit()
 
 
-def chat_novai_manager_table_verification(tables : list,mensagem: str,user_id: int, conversa_id: str):
-
-    model = ChatOpenAI(model='gpt-4.1', temperature=0)
-
-    descricao_table = {
-    "campanhas": """Tabela: 'campanhas'
-    Descrição: Representa campanhas de publicidade criadas pelo vendedor.
-    Colunas:
-    - 'campanha_id': BIGINT, PRIMARY KEY
-    - 'nome': TEXT
-    - 'status': TEXT (valores possíveis: active, paused, archived, scheduled, pending)
-    - 'strategy': TEXT (valores possíveis: profitability, visibility, increase)
-    - 'budget': NUMERIC(10,2)
-    - 'currency_id': TEXT
-    - 'last_updated': TIMESTAMP
-    - 'date_created': TIMESTAMP
-    - 'usuario_id_campanhas': INTEGER, FOREIGN KEY → usuarios(id)
-    - 'channel': TEXT (marketplace, mshops)
-    - 'acos_target': NUMERIC(10,2)
-    Relacionamentos:
-    - campanhas → campanhas_metricas_diarias (1:N)
-    - campanhas → anuncios (1:N)
-    """,
-
-        "anuncios": """Tabela: 'anuncios'
-    Descrição: Anúncios ativos ou pausados, relacionados a campanhas e itens.
-    Colunas:
-    - 'id_anuncio': TEXT, PRIMARY KEY
-    - 'item_id': TEXT, FOREIGN KEY → itens(item_id)
-    - 'title': TEXT,
-    - 'price': NUMERIC(10,2),
-    - 'campanha_id': INTEGER, FOREIGN KEY → campanhas(campanha_id)
-    - 'status': TEXT (valores possíveis: active, paused, hold)
-    - 'has_discount': BOOLEAN
-    - 'catalog_listing': BOOLEAN
-    - 'logistic_type': TEXT (default, fulfillment, drop_off, cross_docking, xd_drop_off)
-    - 'listing_type_id': TEXT (gold_pro (explicação: categoria de maior visibilidade e destaque, possibilidades de upgrades(videos, destaques, etc)), gold_special(explicação: categoria classica, padrao mais simples), free(nao pago))
-    - 'date_created': TIMESTAMP
-    - 'buy_box_winner': BOOLEAN
-    - 'channel': TEXT
-    - 'condition': TEXT (new, used)
-    - 'current_level': TEXT (unknown,geen , yellow, red, newbie)(reputação do anuncio)
-    - 'recomended': BOOLEAN (se Mercado Livre recomenda esse item para publicidade neste momento)
-    - 'image_quality': TEXT (high, medium, low)
-    - 'usuario_id_anuncios': INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - anuncios → anuncios_metricas_diarias (1:N)
-    """,
-
-        "campanhas_metricas_diarias": """Tabela: 'campanhas_metricas_diarias'
-    Descrição: Métricas de desempenho diário das campanhas.
-    Colunas:
-    - 'campanha_id': INTEGER, FOREIGN KEY → campanhas(campanha_id)
-    - 'nome': TEXT
-    - 'clicks': INTEGER
-    - 'prints': INTEGER
-    - 'cost': NUMERIC(10,2)
-    - 'cpc': NUMERIC(6,2)
-    - 'ctr': NUMERIC(10,2) → (clicks/prints)*100
-    - 'direct_amount': NUMERIC(10,2)
-    - 'indirect_amount': NUMERIC(10,2)
-    - 'organic_amount': NUMERIC(10,2)
-    - 'direct_units_quantity': INTEGER
-    - 'indirect_units_quantity': INTEGER
-    - 'organic_units_quantity': INTEGER
-    - 'direct_items_quantity': INTEGER
-    - 'indirect_items_quantity': INTEGER
-    - 'organic_items_quantity': INTEGER
-    - 'advertising_items_quantity': INTEGER -- (Total de anúncios ativos na campanha)
-    - 'acos': NUMERIC(10,2)
-    - 'cvr': NUMERIC(10,2)
-    - 'roas': NUMERIC(10,2)
-    - 'sov': NUMERIC(10,2)
-    - 'impression_share': NUMERIC(10,2) -- (%, de impressões que seu anúncio obteve em relação ao total possível)
-    - 'top_impression_share': NUMERIC(10,2) -- (%, de impressões no topo dos resultados)
-    - 'lost_impression_share_by_budget': NUMERIC(10,2) -- (%, de impressões perdidas por orçamento insuficiente)
-    - 'lost_impression_share_by_ad_rank': NUMERIC(10,2) -- (%, de impressões perdidas por ranking baixo (relevância/lance))
-    - 'acos_benchmark': NUMERIC(10,2) -- (ACOS médio do mercado para comparação)
-    - 'date': TIMESTAMP
-    - 'usuario_id_campanhas_metricas_diarias': INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - campanhas_metricas_diarias → campanhas (N:1)
-    """,
-
-        "anuncios_metricas_diarias": """Tabela: 'anuncios_metricas_diarias'
-    Descrição: Métricas de desempenho diário dos anúncios.
-    Colunas:
-    - 'id_anuncio': TEXT, FOREIGN KEY → anuncios(id_anuncio)
-    - 'item_id': TEXT, FOREIGN KEY → itens(item_id)
-    - 'title': TEXT
-    - 'clicks': INTEGER
-    - 'prints': INTEGER
-    - 'cost': NUMERIC(10,2)
-    - 'cpc': NUMERIC(10,2)
-    - 'direct_amount': NUMERIC(10,2)
-    - 'indirect_amount': NUMERIC(10,2)
-    - 'organic_amount': NUMERIC(10,2)
-    - 'direct_units_quantity': INTEGER
-    - 'indirect_units_quantity': INTEGER
-    - 'organic_units_quantity': INTEGER
-    - 'direct_items_quantity': INTEGER
-    - 'indirect_items_quantity': INTEGER
-    - 'organic_items_quantity': INTEGER
-    - 'advertising_items_quantity': INTEGER -- (Total de anúncios ativos na campanha)
-    - 'acos': NUMERIC(10,2)
-    - 'sov': NUMERIC(10,2)
-    - 'ctr': NUMERIC(10,2)
-    - 'cvr': NUMERIC(10,2)
-    - 'roas': NUMERIC(10,2)
-    - 'date': TIMESTAMP
-    - 'usuario_id_anuncios_metricas_diarias': INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - anuncios_metricas_diarias → anuncios (N:1)
-    """,
-
-    'pedidos_resumo': """Tabela: 'pedidos_resumo'
-    Descrição: Todos os pedidos feitos por clientes.
-    Colunas:
-    - 'id_order': TEXT, PRIMARY KEY
-    - 'date_created': TIMESTAMP
-    - 'date_closed': TIMESTAMP
-    - 'date_approved': TIMESTAMP
-    - 'last_updated': TIMESTAMP
-    - 'status': TEXT (valores possíveis: approved, in_mediation, rejected, charged_back, refunded, cancelled)
-    - 'total_amount': NUMERIC(10,2)
-    - 'paid_amount': NUMERIC(10,2)
-    - 'shipping_cost': NUMERIC(10,2)
-    - 'payment_method': TEXT (valores possíveis: credit_card, debit_card, bank_transfer, boleto, cash_on_delivery)
-    - 'payment_type': TEXT (valores possíveis: regular_payment, pre_authorized_payment, deferred_payment)
-    - 'installments': INTEGER
-    - 'installment_amount': NUMERIC(10,2)
-    - 'item_id': TEXT, FOREIGN KEY → itens(item_id)
-    - 'nome_item': TEXT
-    - 'item_condition': TEXT (new, used)
-    - 'item_warranty': TEXT (valores possíveis: no_warranty, warranty, extended_warranty)
-    - 'listing_type_id': TEXT (valores possíveis: gold_pro, gold_special, free)
-    - 'category_name': TEXT
-    - 'unit_price': NUMERIC(10,2)
-    - 'sale_fee': BOOLEAN
-    - 'quantity': INTEGER
-    - 'buyer_id': TEXT, FOREIGN KEY → usuarios(id)
-    - 'tags': TEXT[] (array de tags associadas ao pedido)
-    - 'fullfiled': BOOLEAN (indica se o pedido foi totalmente entregue)
-    - 'pack_id': TEXT, FOREIGN KEY → packs(pack_id)
-    - 'usuario_id_pedidos_resumo': INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - pedidos_resumo → itens (N:1)
-    - pedidos_resumo → packs (N:1)
-    - pedidos_resumo → reclamacoes (1:1) através de packs
-    """,
-        "itens": """Tabela: 'itens'
-    Descrição: Catálogo de produtos cadastrados pelo vendedor.
-    Colunas:
-    - 'usuario_id_item': INTEGER, FOREIGN KEY → usuarios(id)
-    - 'item_id': TEXT, PRIMARY KEY
-    - 'nome_item': TEXT
-    - 'quantidade': INTEGER
-    - 'preco': NUMERIC(9,2)
-    - 'descricao': TEXT
-    - 'imagem': TEXT[] (array de URLs)
-    - 'preco_original': NUMERIC(9,2)
-    - 'preco_base': NUMERIC(9,2)
-    - 'disponivel': BOOLEAN
-    - 'tipo_ad': TEXT
-    - 'categoria': TEXT
-    Relacionamentos:
-    - itens → anuncios (1:N)
-    - itens → pedidos_resumo (1:N)
-    - itens → anuncios_metricas_diarias (1:N)
-    - itens → mensagens_clientes (1:N)
-    """,
-    "reputacao_vendedor": '''Tabela: "reputacao_vendedor"
-    Descrição: Armazena informações sobre a reputação do vendedor.
-    Colunas:
-    - "level_id": TEXT
-    - "power_seller_status": TEXT 
-    - "period": TEXT(EX: historic)
-    - "total_transactions": INTEGER
-    - "completed_transactions": INTEGER
-    - "canceled_transactions": INTEGER
-    - "positive_reviews": NUMERIC(3,2)
-    - "neutral_reviews": NUMERIC(3,2)
-    - "negative_reviews": NUMERIC(3,2)
-    - "tags" : TEXT[]
-    - "seller_experience": TEXT 
-    - "usuario_id_reputacao_vendedor": INTEGER, FOREIGN KEY → usuarios(id)
-    - "consumed_credit": NUMERIC(10,2)
-    - "credit_level_id": TEXT
-    - "user_type": TEXT
-    ''',
-    "dados_vendedor": '''Tabela: "dados_vendedor"
-    Descrição: Armazena informações gerais e sensiveis do vendedor
-    Colunas:
-    - "id_ml": BIGINT
-    - "first_name": TEXT
-    - "last_name": TEXT
-    - "email": TEXT
-    - "identification_type": TEXT
-    - "identification_number": BIGINT
-    - "state": TEXT
-    - "city": TEXT
-    - "address": TEXT
-    - "zip_code": BIGINT
-    - "phone_number": BIGINT
-    - "verified": BOOLEAN
-    - "usuario_id_dados_vendedor": INTEGER, FOREIGN KEY → usuarios(id)
-    - "nickname": TEXT
-    - "registration_date": TIMESTAMP
-    - "site_id": TEXT
-    - "permalink": TEXT
-    - "shipping_mode": TEXT[]
-    - "logo": TEXT (URL da imagem)
-    ''',
-    "packs": '''Tabela: "packs"
-    Descrição: Armazena pack_id para relacionar mensagens com pedidos.
-    Colunas:
-    - "pack_id": TEXT, PRIMARY KEY
-    - "usuario_id_packs": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - packs → mensagens_clientes (1:N)
-    - packs → pedidos_resumo (1:N)
-    ''',
-    "messages": '''Tabela: "messages"
-    Descrição: Armazena mensagens trocadas entre o vendedor e o cliente.
-    Colunas:
-    - "pack_id": TEXT, FOREIGN KEY → packs(pack_id), obs: (apenas para type = 'post_sale, pode se relacionar com a table itens para pegar detalhes do item)
-    - "item_id": TEXT, FOREIGN KEY → itens(item_id), obs:(apenas para type = 'pre_sale')
-    - "client_name": TEXT
-    - "message": TEXT
-    - "date_created": TIMESTAMP
-    - "author": TEXT (seller, buyer,AI)
-    - "type": TEXT (post_sale, pre_sale)
-    - "read": BOOLEAN
-    - "is_first_message": TEXT, obs:(apenas para type = 'post_sale')
-    
-    - "status": TEXT (answered,active,etc), obs:(apenas para type = 'pre_sale')
-    - "usuario_id_messages": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - messages → packs (N:1)
-    - messages → itens (N:1)
-    ''',
-    "promotion": '''Tabela: "promotion"
-    Descrição: Armazena informações sobre promoções ativas ou pendentes ou candidatas do vendedor.
-    Colunas:
-    - "id_promotion": TEXT, PRIMARY KEY
-    - "name": TEXT
-    - "status": TEXT (started, pending, candidate)
-    - "start_date": TIMESTAMP
-    - "finish_date": TIMESTAMP
-    - "deadline_date": TIMESTAMP
-    - "type_promotion": TEXT
-    - "usuario_id_promotions": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - promotion → ponte_item_promotions (1:N)
-    ''',
-    "marketplace_campaign_type_promotion": '''Tabela: "marketplace_campaign_type_promotion"
-    Descrição: Armazena informações de promoções do tipo "marketplace_campaign_type_promotion".
-    Colunas:
-    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
-    - "type_promotioin": TEXT
-    - "type_benefits": TEXT
-    - "meli_percentage": NUMERIC(10,2)
-    - "seller_percentage": NUMERIC(10,2)
-    - "usuario_id_marketplace_campaign_type_promotion": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - marketplace_campaign_type_promotion → promotion (N:1)
-    ''',
-    "pre_negotiated_type_promotion_offers": '''Tabela: "pre_negotiated_type_promotion_offers"
-    Descrição: Armazena informações de promoções do tipo "pre_negotiated_type_promotion_offers".
-    Colunas:
-    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
-    - "type_promotion": TEXT
-    - "offer_id": TEXT
-    - "type_benefits": TEXT
-    - "meli_percent": NUMERIC(10,2)
-    - "seller_percent": NUMERIC(10,2)
-    - "start_date": TIMESTAMP
-    - "end_date": TIMESTAMP
-    - "status": TEXT 
-    - "original_price": NUMERIC(10,2)
-    - "new_price": NUMERIC(10,2)
-    - "usuario_id_pre_negotiated_type_promotion_offers": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - pre_negotiated_type_promotion_offers → promotion (N:1)
-    ''',
-    "seller_coupon_campaign_type_promotion": '''Tabela: "seller_coupon_campaign_type_promotion"
-    Descrição: Armazena informações de promoções do tipo "seller_coupon_campaign_type_promotion".
-    Colunas:
-    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
-    - "type_promotion": TEXT
-    - "sub_type": TEXT
-    - "fixed_amount": NUMERIC(10,2)
-    - "fixed_percentage": NUMERIC(10,2)
-    - "min_purchase_amount": INTEGER 
-    - "max_purchase_amount": INTEGER
-    - "redeems_per_user": INTEGER
-    - "budget": NUMERIC(10,2)
-    - "remaining_budget": NUMERIC(10,2)
-    - "coupon_code": TEXT
-    - "used_coupons": INTEGER
-    - "usuario_id_seller_coupon_campaign_type_promotion": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - seller_coupon_campaign_type_promotion → promotion (N:1)
-    ''',
-    "volume_type_promotion": '''Tabela: "volume_type_promotion"
-    Descrição: Armazena informações de promoções do tipo "volume_type_promotion".
-    Colunas:
-    - "id_promotion": TEXT, PRIMARY KEY, FOREIGN KEY → promotion(id_promotion)
-    - "buy_quantity": INTEGER
-    - "pay_quantity": INTEGER
-    - "allow_combination": BOOLEAN
-    - "sub_type": TEXT
-    - "type_promotion": TEXT
-    - "usuario_id_volume_type_promotion": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - volume_type_promotion → promotion (N:1)
-    ''',
-      "ponte_item_promotions": '''Tabela: "ponte_item_promotions"
-    Descrição: Armazena informações sobre itens que estão em promoções, servindo como uma ponte entre a tabela de promoções e itens.
-    Colunas:
-    - "id_promotion": TEXT, FOREIGN KEY → promotion(id)
-    - "item_id": TEXT, FOREIGN KEY → itens(item_id)
-    - "status": TEXT (started, pending, candidate)
-    - "price": NUMERIC(10,2)
-    - "original_price": NUMERIC(10,2)
-    - "min_discounted_price": NUMERIC(10,2)
-    - "max_discounted_price": NUMERIC(10,2)
-    - "suggested_discounted_price": NUMERIC(10,2)
-    - "start_date": TIMESTAMP
-    - "end_date": TIMESTAMP
-    - "sub_type": TEXT
-    - "offer_id": TEXT
-    - "meli_percentage": NUMERIC(10,2)
-    - "seller_percentage": NUMERIC(10,2)
-    - "buy_quantity": INTEGER
-    - "pay_quantity": INTEGER
-    - "allow_combination": BOOLEAN
-    - "fixed_amount": NUMERIC(10,2)
-    - "fixed_percentage": NUMERIC(10,2)
-    - "top_deal_price": NUMERIC(10,2)
-    - "discount_percentage": NUMERIC(10,2)
-    - "usuario_id_ponte_item_promotions": INTEGER, FOREIGN KEY → usuarios(id)
-    Relacionamentos:
-    - ponte_item_promotions → promotion (N:1)
-    - ponte_item_promotions → itens (N:1)
-    ''',
-    'reclamacoes': '''Tabela: "reclamacoes"
-    Descrição: Armazena informações sobre reclamações feitas pelos clientes.
-    Colunas:
-    - "claim_id": BIGINT, PRIMARY KEY
-    - "resource_id": BIGINT
-    - "status": TEXT (unicos valores: open, closed)
-    - "tipo": TEXT
-    - "stage": TEXT
-    - "parent_id": BIGINT
-    - "pack_id": TEXT
-    - "reason_id": TEXT
-    - "fulfilled": BOOLEAN
-    - "quantity_type": TEXT
-    - "site_id": TEXT
-    - "date_created": TIMESTAMP (apenas a data em que a reclamação foi feita)
-    - "last_updated": TIMESTAMP
-    - "comprador_id": BIGINT
-    - "acoes_disponiveis": TEXT[]
-    - "name_reason": TEXT
-    - "expected_solutions": TEXT[]
-    - "problem": TEXT
-    - "description": TEXT
-    - "due_date": TIMESTAMP
-    - "title": TEXT
-    - "action_responsible": TEXT
-    - "reason_resolution": TEXT
-    - "date_resolution": TIMESTAMP
-    - "benefited": TEXT[]
-    - "resolution_closed_by": TEXT
-    - "apllied_coverage": BOOLEAN
-    - "usuario_id_reclamacoes": INTEGER, FOREIGN KEY → usuarios(id)
-    - "pack_id": TEXT, FOREIGN KEY → packs(pack_id)
-    Relacionamentos:
-    - reclamacoes → usuarios (N:1)
-    - reclamacoes → packs (N:1)
-    - reclamacoes → pedidos_resumo (1:1) (através de packs)
-    ''',
-}
-
-
-    descricao_tables = ''
-    for table in tables:
-        descricao_tables += f'{descricao_table.get(table)}\n'
-
-    # ==== carrega histórico (janela de 6; ajuste se quiser) ====
-    with get_db_connection() as conn_hist:
-        history_msgs = carregar_historico_conversa(conn_hist, conversa_id, user_id, limit=6)
-
-    # ==== prompt em formato de chat com histórico ====
-    regras_sql = """
-Você é um assistente especializado em PostgreSQL. Dada a descrição das tabelas e uma pergunta,
-gere UMA ou no máximo 5 queries SQL puras, separadas por vírgula, que tragam os dados necessários
-para que uma segunda IA faça os cálculos.
-
-🧠 Regras obrigatórias:
-- NÃO responda a pergunta diretamente.
-- Postgres puro (sintaxe correta para Python/psycopg2).
-- Saída = APENAS as SQLs (sem comentários/markdown/explicações).
-- Use os nomes exatos de colunas/tabelas informados.
-- TODA query deve filtrar por usuário (use o id {user_id}).
-- Evite divisões por zero.
-- Prefira prefixos/aliases nas colunas para evitar ambiguidade.
-- Seja objetivo; evite retornar muitas linhas.
-- Se precisar enriquecer, inclua até 2–4 queries agregadas e leves (com LIMIT quando fizer sentido).
-- Queries de enriquecimento: limite até 1000 linhas (LIMIT 1000).
-- Sempre que possível, agregue (SUM/COUNT/AVG/…).
-- Id's sao apenas para relacionar as tables, sempre pegue os nomes para identificação de algo.
-
-⚠️ Contexto sobre a data:
-- Data de hoje = {data_atual}
-- Se a pergunta não especificar data, restrinja aos últimos 30 dias.
-"""
-
-    decisao_prompt = ChatPromptTemplate.from_messages([
-        ("system", regras_sql),
-        MessagesPlaceholder("history"),
-        ("human",
-         "Pergunta do vendedor:\n{mensagem}\n\n"
-         "Descrição das tabelas selecionadas:\n{descricao_tables}\n\n"
-         "Gere as SQLs conforme as regras.")
-    ])
-
-    class Queries(BaseModel):
-        lista: list[str] = Field(
-            description=("Retorne as queries como uma lista de strings SQL puras. "
-                         "Sem \\n no fim, sem vírgulas extras, sem markdown.")
-        )
-
-    dados = None
-
-    def route(output: Queries):
-        nonlocal dados
-        conn = get_db_connection()
-        cur = conn.cursor()
-        try:
-            dados = []
-            for respost in output.lista:
-                try:
-                    cur.execute(respost)
-                    rows = cur.fetchall()
-                    dados.append({
-                        'query': respost,
-                        'dados retornados da query': rows
-                    })
-                except Exception as e:
-                    print(f"Erro ao executar a query {respost}: {e}")
-        finally:
-            try:
-                cur.close()
-            except Exception:
-                pass
-            try:
-                conn.close()
-            except Exception:
-                pass
-    try:
-        chain = decisao_prompt | model.with_structured_output(Queries) | route
-    
-        chain.invoke({
-            "history": history_msgs,
-            "mensagem": mensagem,
-            "descricao_tables": descricao_tables,
-            "data_atual": datetime.now(),
-            "user_id": user_id
-        })
-    except Exception as e:
-        print('erro no final:', e)
-
-    return dados
+def chat_novai_manager_table_verification(tables, mensagem, user_id, conversa_id):
+    from seller_analytics import account_snapshots
+    return account_snapshots(get_db_connection, tables, user_id)
 # O scheduler fica desativado por padrão para não duplicar tarefas em deploys.
 scheduler = None
 if env_bool("ENABLE_SCHEDULER", False):
