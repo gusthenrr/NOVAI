@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "manifest_version": 3,
 
+  "action": { "default_popup": "login.html" },
   "background": { "service_worker": "background.js" },
 
   "content_scripts": [
@@ -23,7 +24,7 @@
   ],
 
   "host_permissions": [
-    "https://nossopoint-backend-flask-server.com/*"
+    "https://novai-production-0d2f.up.railway.app/*"
   ]
 
 }

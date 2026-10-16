@@ -47,6 +47,8 @@ def app():
                 cur.execute((ROOT/'database/precify_v2.sql').read_text())
             cur.execute('INSERT INTO usuarios(usuario,email,senha) VALUES(%s,%s,%s) RETURNING id',('Teste','test@example.com',bcrypt.hashpw(b'test-only-password',bcrypt.gensalt(rounds=4)).decode()))
             user=cur.fetchone()['id']; token=new_session(cur,user)
+            cur.execute('UPDATE usuarios SET password_policy_version=1 WHERE id=%s',(user,))
+            cur.execute("INSERT INTO precify_consents(user_id,purpose,version) VALUES(%s,'precify_terms','2026-10-15')",(user,))
     app.test_user=user;app.test_token=token;app.headers={'X-Precify-Session':token}
     yield app
     with psycopg2.connect(DSN) as conn:
@@ -306,6 +308,7 @@ def test_trial_checkout_requires_terms_and_verified_free_trial(app,client,monkey
 def test_trial_sync_and_cancellation_preserve_trial_without_renewal(app,client,monkeypatch):
     key,authorization=trial_checkout(client,app,monkeypatch)
     def provider(method,path,payload=None,**kwargs):
+        if path.startswith('/authorized_payments/search?'):return {'results':[], 'paging':{'total':0}}
         if path.startswith('/preapproval/search?'):return {'results':[{'id':authorization['id']}]}
         if method=='GET':return authorization
         return {'status':'cancelled'}
@@ -418,6 +421,8 @@ def test_verified_authorization_notifies_only_owner_after_commit_and_never_accep
     with app.app_context(),db() as cur:
         cur.execute("INSERT INTO usuarios(usuario,email,senha) VALUES('Outra','other@example.com','unused') RETURNING id")
         other=cur.fetchone()['id'];other_token=new_session(cur,other)
+        cur.execute('UPDATE usuarios SET password_policy_version=1 WHERE id=%s',(other,))
+        cur.execute("INSERT INTO precify_consents(user_id,purpose,version) VALUES(%s,'precify_terms','2026-10-15')",(other,))
     owner=socket_client(app,client)
     other_socket=socket_client(app,client,{'X-Precify-Session':other_token},userId=app.test_user)
     key,authorization=trial_checkout(client,app,monkeypatch)

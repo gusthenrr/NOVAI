@@ -65,3 +65,14 @@ def disconnect_session(session_hash):
         participants=list(socketio.server.manager.get_participants(NAMESPACE,'precify-session:'+session_hash))
         for sid,_ in participants:
             socketio.server.disconnect(sid,namespace=NAMESPACE)
+
+
+def disconnect_account(user_id,keep_session=None):
+    socketio=current_app.extensions.get('precify_realtime')
+    if not socketio: return
+    manager=socketio.server.manager
+    keep={sid for sid,_ in manager.get_participants(NAMESPACE,'precify-session:'+keep_session)} if keep_session else set()
+    for namespace,room in ((NAMESPACE,'precify-user:'+str(user_id)),('/','user:'+str(user_id))):
+        for sid,_ in list(manager.get_participants(namespace,room)):
+            if namespace!=NAMESPACE or sid not in keep:
+                socketio.server.disconnect(sid,namespace=namespace)

@@ -2,7 +2,7 @@ import requests
 import datetime
 import os
 item='MLB4133141233'
-token = 'APP_USR-3414621845496970-093017-134924dbee4d90e9d7c66c70e8a8b027-472633863'
+token = os.environ["MERCADO_LIVRE_ACCESS_TOKEN"]
 def teste():
     print("Buscando visualizações...")
     #url = "https://api.mercadolibre.com/visits/items?ids=MLB5750367770"

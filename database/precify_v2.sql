@@ -1,4 +1,15 @@
 -- Additive migration: existing NOVAI accounts and Mercado Livre OAuth are preserved.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS password_policy_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS auth_version INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS precify_email_actions (
+  token_hash TEXT PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK(purpose IN ('reset','verify')), email TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL, consumed_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS novai_notification_receipts (
+  key_hash TEXT PRIMARY KEY, received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS precify_plans (
   code TEXT PRIMARY KEY CHECK (code IN ('free','plus','pro')),
   name TEXT NOT NULL, monthly_cents INTEGER NOT NULL CHECK(monthly_cents >= 0),
@@ -88,3 +99,9 @@ CREATE TABLE IF NOT EXISTS precify_socket_tickets (
   expires_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS precify_socket_tickets_expiry_idx ON precify_socket_tickets(expires_at);
+
+-- Claim leases prevent duplicate reconcilers across workers/deploys.
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS reconcile_after TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS reconcile_error TEXT;
+CREATE INDEX IF NOT EXISTS precify_reconcile_due ON precify_subscriptions(reconcile_after);
