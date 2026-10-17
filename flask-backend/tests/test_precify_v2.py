@@ -512,3 +512,69 @@ def test_connected_seller_profile_rejects_invalid_or_switched_account(app, clien
     with app.app_context(), db() as cur:
         cur.execute('SELECT count(*) AS count FROM precify_seller_profiles')
         assert cur.fetchone()['count'] == 0
+
+
+def test_terms_are_public_readable_and_do_not_create_consent_or_payment(app, client, monkeypatch):
+    monkeypatch.setenv('NOVAI_LEGAL_NAME', 'NOVAI <script>test</script>')
+    monkeypatch.setenv('NOVAI_LEGAL_CONTACT', 'suporte@example.com')
+    monkeypatch.setenv('NOVAI_LEGAL_CNPJ', 'CNPJ-DE-TESTE')
+    monkeypatch.setenv('NOVAI_LEGAL_ADDRESS', 'Endereço de teste')
+    with app.app_context(), db() as cur:
+        cur.execute('SELECT count(*) AS count FROM precify_consents')
+        before = cur.fetchone()['count']
+    response = client.get('/api/precify/terms')
+    assert response.status_code == 200
+    content = response.get_data(as_text=True)
+    for text in ['Acordo NOVAI e Precify', '10 buscas', '7 dias', 'Mercado Pago', 'LGPD', 'Cancelamento', 'suporte@example.com', 'CNPJ-DE-TESTE', 'Endereço de teste']:
+        assert text in content
+    assert '<script>test</script>' not in content
+    assert '&lt;script&gt;' in content
+    assert response.headers['Cache-Control'] == 'no-store'
+    with app.app_context(), db() as cur:
+        cur.execute('SELECT count(*) AS count FROM precify_consents')
+        assert cur.fetchone()['count'] == before
+
+
+def test_oauth_return_is_bound_to_ticket_and_only_after_verified_exchange(app, client, monkeypatch):
+    monkeypatch.setenv('MERCADO_LIVRE_CLIENT_ID', 'test-client')
+    target = 'exp://test-gusthnrr-8084.exp.direct/--/autorizacao-concluida'
+    url = post(client, app, '/auth/connect', {'returnUrl':target}).json['url']
+    parts = urlsplit(url)
+    start = client.get(parts.path+'?'+parts.query)
+    query = parse_qs(urlsplit(start.location).query)
+    assert 'returnUrl' not in query
+    class Response:
+        ok = True
+        def json(self):return dict(access_token='never-in-url',refresh_token='never-in-html',expires_in=21600,user_id=12)
+    with patch('precify_api.requests.post', return_value=Response()):
+        callback = '/callback?state='+query['state'][0]+'&code=test-code&returnUrl=https://evil.example'
+        result = client.get(callback)
+        html = result.get_data(as_text=True)
+        assert result.status_code == 200
+        assert target in html and 'Voltar ao Precify' in html
+        assert 'window.location.replace' in html
+        assert 'evil.example' not in html
+        assert 'never-in-url' not in html and 'never-in-html' not in html
+        assert "script-src 'nonce-" in result.headers['Content-Security-Policy']
+        assert client.get(callback).status_code == 400
+
+
+def test_oauth_rejects_untrusted_return_targets_and_does_not_redirect_on_failure(app, client, monkeypatch):
+    monkeypatch.setenv('MERCADO_LIVRE_CLIENT_ID', 'test-client')
+    for target in ['https://evil.example', 'javascript:alert(1)', 'precificador://other',
+                   'exp://test.exp.direct.evil.example/--/autorizacao-concluida',
+                   'exp://user:password@test.exp.direct/--/autorizacao-concluida',
+                   'exp://test.exp.direct/--/autorizacao-concluida?token=x', 123]:
+        assert post(client, app, '/auth/connect', {'returnUrl': target}).status_code == 400
+    target = 'precificador://autorizacao-concluida'
+    url = post(client, app, '/auth/connect', {'returnUrl': target}).json['url']
+    parts = urlsplit(url)
+    state = parse_qs(urlsplit(client.get(parts.path+'?'+parts.query).location).query)['state'][0]
+    class Response:
+        ok=False
+        def json(self):return {'error':'invalid_grant'}
+    with patch('precify_api.requests.post', return_value=Response()):
+        result = client.get('/callback?state='+state+'&code=invalid')
+        assert result.status_code == 502
+        assert target not in result.get_data(as_text=True)
+        assert 'window.location' not in result.get_data(as_text=True)

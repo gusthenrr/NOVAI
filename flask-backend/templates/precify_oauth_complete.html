@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conta conectada · Precify</title>
+<style>body{margin:0;background:#08090c;color:#f4f4f5;font:16px/1.7 system-ui,sans-serif}main{max-width:440px;margin:14vh auto;padding:24px}b{color:#fee800}h1{font-size:28px;line-height:1.25}a{display:block;padding:16px 20px;border-radius:16px;background:#fee800;color:#111;text-decoration:none;font-weight:700;text-align:center;margin:28px 0}small{color:#b3b7c4}</style></head>
+<body><main><b>PRECIFY</b><h1>Mercado Livre conectado</h1><p>A autorização foi concluída. Volte ao Precify para continuar.</p><a href="{{ return_url }}">Voltar ao Precify</a><small>Se o aplicativo não abrir automaticamente, toque no botão. Se estiver usando a versão web, volte à aba do Precify.</small></main>
+{% if automatic %}<script nonce="{{ nonce }}">setTimeout(function(){window.location.replace({{ return_url|tojson }});},350);</script>{% endif %}
+</body></html>

@@ -112,3 +112,5 @@ CREATE TABLE IF NOT EXISTS precify_seller_profiles (
   seller_id TEXT NOT NULL, level_id TEXT, reputation TEXT NOT NULL,
   fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE precify_oauth ADD COLUMN IF NOT EXISTS return_url TEXT;

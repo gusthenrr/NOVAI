@@ -8,7 +8,7 @@ import secrets
 from urllib.parse import urlencode, urlsplit
 
 import bcrypt
-from flask import Blueprint, current_app, jsonify, redirect, request
+from flask import Blueprint, current_app, jsonify, redirect, request, render_template
 import psycopg2
 import requests
 
@@ -16,7 +16,7 @@ from precify_core import ApiError, UTC, account, check_import, db, digest, ident
 from pricing_margin import UpstreamError, get_ml
 from security_auth import authenticate_password, validate_registration, account_requirements, valid_password, PASSWORD_POLICY
 
-precify = Blueprint('precify', __name__, url_prefix='/api/precify')
+precify = Blueprint('precify', __name__, url_prefix='/api/precify', template_folder='templates')
 ITEM = re.compile(r'MLB\d{6,15}\Z')
 TERMS_VERSION='2026-10-15'
 
@@ -204,16 +204,35 @@ def seller_profile():
     return jsonify(sellerId=seller, levelId=level, reputation=levels[level])
 
 
+def oauth_return_url(value):
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value)>512:
+        raise ApiError('invalid_return_url')
+    if value == 'precificador://autorizacao-concluida':
+        return value
+    try:
+        parsed = urlsplit(value)
+        if (parsed.scheme in ('exp', 'exps') and not parsed.username and not parsed.password
+                and not parsed.port and re.fullmatch(r'[a-zA-Z0-9-]+\.exp\.direct', parsed.hostname or '')
+                and parsed.path == '/--/autorizacao-concluida' and not parsed.query and not parsed.fragment):
+            return value
+    except ValueError:
+        pass
+    raise ApiError('invalid_return_url')
+
+
 @precify.post('/auth/connect')
 def connect():
     user=identity()
     if not os.environ.get('MERCADO_LIVRE_CLIENT_ID'):
         raise ApiError('oauth_not_configured',503)
+    return_url = oauth_return_url(body().get('returnUrl'))
     ticket=secrets.token_urlsafe(32)
     state='precify_'+secrets.token_urlsafe(32)
     with db() as cur:
-        cur.execute('INSERT INTO precify_oauth(state,user_id,ticket_hash,code_verifier,expires_at) VALUES(%s,%s,%s,%s,%s)',
-          (state,user['id'],digest(ticket),secrets.token_urlsafe(48),now()+timedelta(minutes=10)))
+        cur.execute('INSERT INTO precify_oauth(state,user_id,ticket_hash,code_verifier,expires_at,return_url) VALUES(%s,%s,%s,%s,%s,%s)',
+          (state,user['id'],digest(ticket),secrets.token_urlsafe(48),now()+timedelta(minutes=10),return_url))
     return jsonify(url=public_base()+'/auth/precify/connect?'+urlencode({'ticket':ticket}))
 
 
@@ -238,7 +257,7 @@ def oauth_callback():
     state=request.args.get('state','')
     with db() as cur:
         cur.execute('''UPDATE precify_oauth SET consumed_at=NOW() WHERE state=%s AND expires_at>NOW()
-          AND started_at IS NOT NULL AND consumed_at IS NULL RETURNING user_id,code_verifier''',(state,))
+          AND started_at IS NOT NULL AND consumed_at IS NULL RETURNING user_id,code_verifier,return_url''',(state,))
         row=cur.fetchone()
     if not row or not request.args.get('code'):
         return 'Autorização não concluída. Volte ao Precify para tentar novamente.',400
@@ -259,7 +278,12 @@ def oauth_callback():
               (row['user_id'],data['access_token'],data['refresh_token'],expires.replace(tzinfo=None),data['user_id']))
     except (requests.RequestException,ValueError,KeyError,TypeError):
         return 'Não foi possível concluir a conexão. Volte ao Precify para tentar novamente.',502
-    return completion_page('Mercado Livre conectado','Você já pode fechar esta janela e voltar ao Precify.')
+    nonce=secrets.token_urlsafe(18)
+    return render_template('precify_oauth_complete.html', return_url=row['return_url'] or 'precificador://',
+                           automatic=bool(row['return_url']), nonce=nonce), 200, {
+        'Cache-Control':'no-store','Referrer-Policy':'no-referrer',
+        'Content-Security-Policy':f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"}
+
 
 
 def completion_page(title, message):
@@ -272,14 +296,12 @@ def completion_page(title, message):
 
 @precify.get('/terms')
 def terms():
-    return completion_page('Acordo NOVAI e Precify',
-        'Ao criar sua conta, você autoriza o armazenamento do seu cadastro, da sua assinatura e do uso mensal do Precify. '
-        'A conexão com o Mercado Livre será autorizada separadamente na página oficial. '
-        'As estimativas dependem dos dados disponíveis e dos custos que você informa. '
-        'O plano grátis permite 10 buscas por mês, renovadas no primeiro dia do mês no horário de Brasília. '
-        'O teste Pro dura 7 dias, uma vez por conta, após cadastrar e autorizar o pagamento no Mercado Pago. '
-        'Após o teste, o plano escolhido é cobrado automaticamente, salvo cancelamento antes da primeira cobrança. '
-        'O valor e a periodicidade são apresentados antes da autorização. Versão '+TERMS_VERSION+'.')
+    return render_template('precify_terms.html', version=TERMS_VERSION,
+        legal_name=os.environ.get('NOVAI_LEGAL_NAME','NOVAI'),
+        legal_contact=os.environ.get('NOVAI_LEGAL_CONTACT','Novai.ia@outlook.com'),
+        legal_cnpj=os.environ.get('NOVAI_LEGAL_CNPJ',''), legal_address=os.environ.get('NOVAI_LEGAL_ADDRESS','')), 200, {
+        'Cache-Control':'no-store','Referrer-Policy':'no-referrer',
+        'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"}
 
 
 def ml_token(user_id):
