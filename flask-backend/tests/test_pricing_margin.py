@@ -84,6 +84,23 @@ class PricingTests(unittest.TestCase):
             self.assertNotIn("do_not_echo", response.get_data(as_text=True))
 
     @patch("pricing_margin.requests.get")
+    def test_me2_account_notice_is_specific_and_keeps_quote_partial(self, get):
+        for message, expected in [
+            ("user 123456 does Not have me2 enabled", "frete_conta_sem_me2"),
+            ("user 999999 does Not have me2 enabled", "frete_400"),
+            ("invalid dimensions", "frete_400"),
+        ]:
+            replies = self.replies()
+            replies[1] = self.response({"message": message, "error": "bad_request"}, 400)
+            get.side_effect = replies
+            result = self.post().json
+            self.assertEqual(result["missing"], [expected])
+            self.assertIsNone(result["frete"])
+            self.assertIsNone(result["margemContribuicao"])
+            self.assertEqual(result["tarifas"], 15)
+            self.assertNotIn(message, json.dumps(result))
+
+    @patch("pricing_margin.requests.get")
     def test_zero_quote_is_valid_and_negative_margin_is_preserved(self, get):
         get.side_effect = self.replies(shipping={"coverage": {"all_country": {"list_cost": 0, "currency_id": "BRL"}}})
         response = self.post({**self.payload, "custoProduto": 110})

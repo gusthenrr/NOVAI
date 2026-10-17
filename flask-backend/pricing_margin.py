@@ -80,8 +80,9 @@ def validate(body):
 
 
 class UpstreamError(Exception):
-    def __init__(self, code):
+    def __init__(self, code, reason=None):
         self.code = code
+        self.reason = reason
 
 
 def get_ml(path, token, params=None):
@@ -110,7 +111,13 @@ def get_ml(path, token, params=None):
                         "body_format": "oversized" if too_large else "json" if valid_json else "non_json",
                         "body": logged_body}, token)
             if upstream.status_code != 200:
-                raise UpstreamError(str(upstream.status_code))
+                reason = None
+                if (upstream.status_code == 400 and isinstance(parsed, dict)
+                        and re.fullmatch(r"/users/[1-9]\d*/shipping_options/free", path)
+                        and re.fullmatch(r"user " + path.split("/")[2] + r" does not have me2 enabled",
+                                         str(parsed.get("message", "")), re.IGNORECASE)):
+                    reason = "conta_sem_me2"
+                raise UpstreamError(str(upstream.status_code), reason)
             if too_large or not valid_json:
                 raise UpstreamError("invalid_response")
             return parsed
@@ -194,7 +201,7 @@ def margin():
         except UpstreamError as error:
             if error.code == "401":
                 return jsonify(error="ml_token_expired"), 401
-            missing.append("frete_" + error.code)
+            missing.append("frete_" + (error.reason or error.code))
         except (ValueError, TypeError, KeyError) as error:
             pricing_log("shipping_invalid_response", {"exception_type": type(error).__name__})
             missing.append("frete_invalid_response")
