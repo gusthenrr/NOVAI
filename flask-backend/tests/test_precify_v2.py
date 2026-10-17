@@ -473,3 +473,42 @@ def test_concurrent_trial_checkouts_reuse_one_provider_plan(app,client,monkeypat
     assert all(r.status_code==200 for r in responses)
     assert len({r.json['subscriptionId'] for r in responses})==1
     assert provider.call_count==1
+
+
+def test_connected_seller_profile_is_private_cached_and_bound_to_current_account(app, client):
+    url = '/api/precify/seller-profile'
+    with patch('precify_api.get_ml') as upstream:
+        assert client.get(url).status_code == 401
+        upstream.assert_not_called()
+    with app.app_context(), db() as cur:
+        cur.execute("INSERT INTO contas_mercado_livre(usuario_id,id_ml,acess_token,refresh_token,expiracao_token) VALUES(%s,'123456','server-only','refresh',NOW()+INTERVAL '1 hour')", (app.test_user,))
+    with patch('precify_api.ml_token', return_value='server-only'), patch('precify_api.get_ml', return_value={'id':123456,'site_id':'MLB','seller_reputation':{'level_id':'3_yellow'},'email':'private@example.com'}) as upstream:
+        response = client.get(url, headers=app.headers)
+        assert response.status_code == 200
+        assert response.json == dict(sellerId='123456', levelId='3_yellow', reputation='Amarela')
+        assert response.headers['Cache-Control'] == 'no-store'
+        assert upstream.call_args.args == ('/users/me', 'server-only')
+        assert client.get(url, headers=app.headers).json == response.json
+        assert upstream.call_count == 1
+    with app.app_context(), db() as cur:
+        cur.execute('SELECT reputation,seller_id FROM precify_seller_profiles WHERE user_id=%s', (app.test_user,))
+        assert dict(cur.fetchone()) == dict(reputation='Amarela', seller_id='123456')
+        cur.execute("UPDATE contas_mercado_livre SET id_ml='654321' WHERE usuario_id=%s", (app.test_user,))
+    with patch('precify_api.ml_token', return_value='new-account'), patch('precify_api.get_ml', return_value={'id':654321,'site_id':'MLB','seller_reputation':{'level_id':None}}):
+        response = client.get(url, headers=app.headers)
+        assert response.json == dict(sellerId='654321', levelId=None, reputation='Sem reputação')
+    assert client.get('/api/precify/session',headers=app.headers).json['sellerId'] == '654321'
+
+
+def test_connected_seller_profile_rejects_invalid_or_switched_account(app, client):
+    with app.app_context(), db() as cur:
+        cur.execute("INSERT INTO contas_mercado_livre(usuario_id,id_ml,acess_token,refresh_token,expiracao_token) VALUES(%s,'123456','server-only','refresh',NOW()+INTERVAL '1 hour')", (app.test_user,))
+    with patch('precify_api.ml_token', return_value='server-only'), patch('precify_api.get_ml') as upstream:
+        for reputation in [{}, {'level_id':'invented'}, {'level_id':{}}, None]:
+            upstream.return_value = {'id':123456,'site_id':'MLB','seller_reputation':reputation}
+            assert client.get('/api/precify/seller-profile',headers=app.headers).status_code == 502
+        upstream.return_value = {'id':654321,'site_id':'MLB','seller_reputation':{'level_id':'5_green'}}
+        assert client.get('/api/precify/seller-profile',headers=app.headers).status_code == 409
+    with app.app_context(), db() as cur:
+        cur.execute('SELECT count(*) AS count FROM precify_seller_profiles')
+        assert cur.fetchone()['count'] == 0

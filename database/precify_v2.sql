@@ -105,3 +105,10 @@ ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS reconcile_after TIMES
 ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
 ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS reconcile_error TEXT;
 CREATE INDEX IF NOT EXISTS precify_reconcile_due ON precify_subscriptions(reconcile_after);
+
+-- Account reputation is a server snapshot, separate from device preferences.
+CREATE TABLE IF NOT EXISTS precify_seller_profiles (
+  user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  seller_id TEXT NOT NULL, level_id TEXT, reputation TEXT NOT NULL,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

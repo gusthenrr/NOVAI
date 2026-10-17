@@ -53,11 +53,12 @@ def body():
 
 def session_data(user,token=None):
     with db() as cur:
-        cur.execute('SELECT id FROM contas_mercado_livre WHERE usuario_id=%s',(user['id'],))
-        linked=bool(cur.fetchone())
+        cur.execute('SELECT id,id_ml FROM contas_mercado_livre WHERE usuario_id=%s',(user['id'],))
+        linked_account=cur.fetchone()
+        linked=bool(linked_account)
         cur.execute('SELECT email_verified_at FROM usuarios WHERE id=%s',(user['id'],))
         email_verified=bool(cur.fetchone()['email_verified_at'])
-        result=dict(emailVerified=email_verified,user=dict(id=str(user['id']),email=user['email'],name=user['usuario']),linked=linked,plan=plan_for(cur,user['id']),accountRequirements=account_requirements(cur,user['id']))
+        result=dict(emailVerified=email_verified,user=dict(id=str(user['id']),email=user['email'],name=user['usuario']),linked=linked,sellerId=str(linked_account['id_ml']) if linked_account else None,plan=plan_for(cur,user['id']),accountRequirements=account_requirements(cur,user['id']))
     if token:
         result['sessionToken']=token
     return result
@@ -165,6 +166,42 @@ def revoke_device():
 def realtime_ticket():
     from precify_realtime import ticket
     return jsonify(ticket())
+
+
+@precify.get('/seller-profile')
+def seller_profile():
+    user = identity()
+    with db() as cur:
+        cur.execute("""SELECT p.seller_id,p.level_id,p.reputation FROM precify_seller_profiles p
+          JOIN contas_mercado_livre c ON c.usuario_id=p.user_id AND c.id_ml::text=p.seller_id
+          WHERE p.user_id=%s AND p.fetched_at>NOW()-INTERVAL '1 hour'""", (user['id'],))
+        cached = cur.fetchone()
+    if cached:
+        return jsonify(sellerId=cached['seller_id'], levelId=cached['level_id'], reputation=cached['reputation'])
+    try:
+        profile = get_ml('/users/me', ml_token(user['id']))
+    except UpstreamError as error:
+        raise ApiError('seller_profile_unavailable', 502) from error
+    levels = {'5_green': 'Verde', '4_light_green': 'Verde-claro', '3_yellow': 'Amarela',
+              '2_orange': 'Laranja', '1_red': 'Vermelha', None: 'Sem reputação'}
+    reputation = profile.get('seller_reputation') if isinstance(profile, dict) else None
+    seller = str(profile.get('id', '')) if isinstance(profile, dict) else ''
+    if (not seller.isdigit() or profile.get('site_id') != 'MLB' or not isinstance(reputation, dict)
+            or 'level_id' not in reputation or not (reputation['level_id'] is None or isinstance(reputation['level_id'], str))
+            or reputation['level_id'] not in levels):
+        raise ApiError('seller_profile_invalid_response', 502)
+    level = reputation['level_id']
+    with db() as cur:
+        # A concurrent account switch must not cache the old account's reputation.
+        cur.execute("""INSERT INTO precify_seller_profiles(user_id,seller_id,level_id,reputation)
+          SELECT usuario_id,id_ml::text,%s,%s FROM contas_mercado_livre
+          WHERE usuario_id=%s AND id_ml::text=%s
+          ON CONFLICT(user_id) DO UPDATE SET seller_id=EXCLUDED.seller_id,
+          level_id=EXCLUDED.level_id,reputation=EXCLUDED.reputation,fetched_at=NOW()
+          RETURNING seller_id""", (level, levels[level], user['id'], seller))
+        if not cur.fetchone():
+            raise ApiError('seller_account_changed', 409)
+    return jsonify(sellerId=seller, levelId=level, reputation=levels[level])
 
 
 @precify.post('/auth/connect')
