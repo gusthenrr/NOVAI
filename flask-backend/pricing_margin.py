@@ -4,9 +4,11 @@ Credentials live only in this request. Unknown costs remain null, never zero.
 """
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 import re
+from time import perf_counter
 
 from flask import Blueprint, jsonify, request
 import requests
+from pricing_diagnostics import diagnose_pricing, pricing_log
 
 pricing_margin = Blueprint("pricing_margin", __name__)
 BASE = "https://api.mercadolibre.com"
@@ -83,22 +85,42 @@ class UpstreamError(Exception):
 
 
 def get_ml(path, token, params=None):
+    started = perf_counter()
+    pricing_log("ml_request", {"method": "GET", "path": path, "params": params,
+                              "authorization_present": bool(token)}, token)
     try:
         upstream = requests.get(BASE + path, params=params,
                                 headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
                                 timeout=(3, 7), allow_redirects=False)
         with upstream:
+            too_large = len(upstream.content) > 1024 * 1024
+            parsed, valid_json = None, False
+            if not too_large:
+                try:
+                    parsed = upstream.json()
+                    valid_json = True
+                except ValueError:
+                    pass
+            # /users/me also contains personal account data unrelated to a quote.
+            logged_body = ({key: parsed.get(key) for key in ("id", "site_id")}
+                           if path == "/users/me" and upstream.status_code == 200 and isinstance(parsed, dict)
+                           else parsed)
+            pricing_log("ml_response", {"path": path, "http_status": upstream.status_code,
+                        "elapsed_ms": round((perf_counter() - started) * 1000),
+                        "body_format": "oversized" if too_large else "json" if valid_json else "non_json",
+                        "body": logged_body}, token)
             if upstream.status_code != 200:
                 raise UpstreamError(str(upstream.status_code))
-            if len(upstream.content) > 1024 * 1024:
+            if too_large or not valid_json:
                 raise UpstreamError("invalid_response")
-            try:
-                return upstream.json()
-            except ValueError:
-                raise UpstreamError("invalid_response") from None
+            return parsed
     except requests.Timeout:
+        pricing_log("ml_transport_error", {"path": path, "code": "timeout",
+                    "elapsed_ms": round((perf_counter() - started) * 1000)}, token)
         raise UpstreamError("timeout") from None
     except requests.RequestException:
+        pricing_log("ml_transport_error", {"path": path, "code": "unavailable",
+                    "elapsed_ms": round((perf_counter() - started) * 1000)}, token)
         raise UpstreamError("unavailable") from None
 
 
@@ -113,6 +135,7 @@ def no_store(response):
 
 
 @pricing_margin.route("/api/ext/pricing/margin", methods=["POST"])
+@diagnose_pricing
 def margin():
     if request.content_length and request.content_length > 16384:
         return jsonify(error="request_too_large"), 413
@@ -172,7 +195,8 @@ def margin():
             if error.code == "401":
                 return jsonify(error="ml_token_expired"), 401
             missing.append("frete_" + error.code)
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError) as error:
+            pricing_log("shipping_invalid_response", {"exception_type": type(error).__name__})
             missing.append("frete_invalid_response")
 
     params = {"price": money(data["precoVenda"]), "category_id": data["categoryId"],

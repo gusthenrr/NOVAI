@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
@@ -144,6 +145,59 @@ class PricingTests(unittest.TestCase):
         self.assertEqual(response.json["missing"], ["frete_modalidade_nao_suportada"])
         self.assertIsNone(response.json["frete"])
         self.assertEqual(get.call_count, 2)
+
+    @patch("pricing_margin.requests.get")
+    def test_diagnostics_capture_400_cause_and_parameters_without_credentials(self, get):
+        replies = self.replies()
+        replies[0].json.return_value.update(email="private@example.test", address="private-address")
+        replies[1] = self.response({"error": "invalid_parameters", "message": "Invalid dimensions; echoed test-credential",
+                                   "cause": [{"code": "invalid_dimensions", "field": "dimensions"}],
+                                   "access_token": "nested-secret"}, 400)
+        get.side_effect = replies
+        with self.assertLogs("novai.pricing", level="INFO") as captured:
+            response = self.post({**self.payload, "nome": "Produto", "access_token": "body-secret",
+                                  "headers": {"Cookie": "cookie-secret", "client_secret": "client-secret"}})
+        entries = [json.loads(line.split("[pricing] ", 1)[1]) for line in captured.output]
+        rendered = "\n".join(captured.output)
+        for secret in ["test-credential", "body-secret", "nested-secret", "cookie-secret", "client-secret",
+                       "private@example.test", "private-address"]:
+            self.assertNotIn(secret, rendered)
+        quotes = [entry for entry in entries if entry["event"] == "ml_request" and entry["path"].endswith("/shipping_options/free")]
+        self.assertEqual(quotes[0]["params"]["dimensions"], "5x15x20,300")
+        self.assertTrue(quotes[0]["authorization_present"])
+        failure = next(entry for entry in entries if entry["event"] == "ml_response" and entry["http_status"] == 400)
+        self.assertEqual(failure["body"]["cause"][0]["code"], "invalid_dimensions")
+        self.assertIn("[REDACTED]", failure["body"]["message"])
+        final = next(entry for entry in entries if entry["event"] == "calculator_response")
+        self.assertEqual(final["body"], response.json)
+        self.assertEqual(response.json["missing"], ["frete_400"])
+        self.assertEqual({entry["diagnostic_id"] for entry in entries}, {response.headers["X-Pricing-Diagnostic-Id"]})
+
+    @patch("pricing_margin.requests.get")
+    def test_transport_diagnostic_and_non_json_response_are_safe(self, get):
+        get.side_effect = [self.replies()[0], requests.Timeout("https://example.test?token=test-credential"), self.replies()[2]]
+        with self.assertLogs("novai.pricing", level="INFO") as captured:
+            response = self.post()
+        self.assertEqual(response.json["missing"], ["frete_timeout"])
+        self.assertIn('"code": "timeout"', "\n".join(captured.output))
+        self.assertNotIn("test-credential", "\n".join(captured.output))
+        replies = self.replies()
+        replies[1].json.side_effect = ValueError("HTML containing test-credential")
+        get.side_effect = replies
+        with self.assertLogs("novai.pricing", level="INFO") as captured:
+            response = self.post()
+        self.assertEqual(response.json["missing"], ["frete_invalid_response"])
+        self.assertIn('"body_format": "non_json"', "\n".join(captured.output))
+        self.assertNotIn("test-credential", "\n".join(captured.output))
+
+    @patch("pricing_margin.requests.get")
+    def test_unrelated_ml_reads_do_not_enable_calculator_logging(self, get):
+        from pricing_diagnostics import pricing_log
+        with self.client.application.app_context():
+            get.side_effect = self.replies()
+            self.post()
+            with self.assertNoLogs("novai.pricing", level="INFO"):
+                pricing_log("unrelated", {"message": "must not log"})
 
 
 if __name__ == "__main__":
