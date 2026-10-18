@@ -19,6 +19,7 @@ def main() -> None:
     schema_path = Path(__file__).resolve().parent.parent / "database" / "init_token_only.sql"
     schema = schema_path.read_text(encoding="utf-8")
     schema += '\n' + (schema_path.parent / 'precify_v2.sql').read_text(encoding='utf-8')
+    schema += '\n' + (schema_path.parent / 'extension_sessions.sql').read_text(encoding='utf-8')
     with psycopg2.connect(database_url(), connect_timeout=15) as connection:
         with connection.cursor() as cursor:
             cursor.execute(schema)

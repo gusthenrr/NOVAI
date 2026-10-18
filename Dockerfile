@@ -15,4 +15,4 @@ WORKDIR /app/flask-backend
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "python init_db.py && gunicorn --worker-class eventlet --workers 1 --bind 0.0.0.0:${PORT:-8080} --timeout 120 --access-logfile - --error-logfile - teste:app"]
+CMD ["sh", "-c", "python init_db.py && gunicorn --worker-class eventlet --workers 1 --bind 0.0.0.0:${PORT:-8080} --timeout 120 --access-logfile - --access-logformat '%(h)s %(t)s %(m)s %(U)s %(s)s' --error-logfile - teste:app"]

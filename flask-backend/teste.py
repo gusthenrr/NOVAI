@@ -113,6 +113,8 @@ from security_legacy import decode_account_token as decode_token, token_claims, 
 from precify_core import ApiError, db, rate_limit, digest
 from precify_api import register_precify
 register_precify(app,socketio)
+from extension_api import extension
+app.register_blueprint(extension)
 from billing_reconciliation import start as start_billing_reconciliation
 start_billing_reconciliation(app)
 
@@ -227,6 +229,9 @@ def login():
 #CALLBACK ONDE AUTENTICAMOS COM SEGURANÇA UM ROTA ENTRE NOVAI E A CONTA DO MERCADO-LIVRE(USUARIO)
 @app.route('/callback', methods=['GET'], strict_slashes=False)
 def callback():
+    if request.args.get("state", "").startswith("ext_"):
+        from extension_api import oauth_callback as extension_callback
+        return extension_callback()
     if request.args.get('state', '').startswith('precify_'):
         from precify_api import oauth_callback
         return oauth_callback()
