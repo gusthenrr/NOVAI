@@ -322,6 +322,60 @@ def connection():
     return jsonify(connection=result)
 
 
+def item_date_response(path, token, params=None):
+    """Only fixed official resources; never log/forward upstream bodies or credentials."""
+    try:
+        with requests.get('https://api.mercadolibre.com'+path, params=params,
+                headers={'Accept':'application/json','Authorization':'Bearer '+token},
+                timeout=(3,5), allow_redirects=False) as response:
+            status=response.status_code
+            current_app.logger.info('extension_item_date upstream_status=%s request_id=%s',
+                status,request.extension_request_id)
+            if status in (401,403):
+                current_app.logger.warning('extension_access status=403 reason=ml_date_denied request_id=%s',request.extension_request_id)
+            if status!=200: return status,None
+            if len(response.content)>1024*1024: return 502,None
+            data=response.json()
+            return (200,data) if isinstance(data,dict) else (502,None)
+    except requests.Timeout:
+        return 504,None
+    except (requests.RequestException,ValueError):
+        return 502,None
+
+
+def valid_item_timestamp(value):
+    from datetime import datetime, timezone
+    if not isinstance(value,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})',value): return None
+    try:
+        date=datetime.fromisoformat(value.replace('Z','+00:00'))
+        if date.tzinfo and datetime(2000,1,1,tzinfo=timezone.utc)<=date<=now()+timedelta(days=1): return value
+    except ValueError: pass
+    return None
+
+
+@extension.post('/items/created-at')
+def item_created_at():
+    row=identity()
+    from security_auth import require_ready
+    require_ready(row['user_id'])
+    item_id=body().get('item_id')
+    if not isinstance(item_id,str) or not re.fullmatch(r'MLB\d{6,15}',item_id): raise ApiError('invalid_item_id',400)
+    rate_limit('ext-item-date:'+str(row['user_id']),60)
+    token=ml_token(row['user_id'])
+    # Same order as Precify insights: actual listing first, then its description.
+    status,data=item_date_response('/items/'+item_id,token,{'attributes':'id,date_created'})
+    iso=valid_item_timestamp(data.get('date_created')) if data and data.get('id')==item_id else None
+    if iso: return jsonify(itemId=item_id,createdAt={'iso':iso,'source':'ml_item'})
+    if status==401: deny('ml_date_denied')
+    if status==429: raise ApiError('ml_rate_limit',429)
+    status,data=item_date_response('/items/'+item_id+'/description',token)
+    if status in (401,403): deny('ml_date_denied')
+    if status==429: raise ApiError('ml_rate_limit',429)
+    if status not in (200,404): raise ApiError('ml_date_unavailable',502)
+    iso=valid_item_timestamp(data.get('date_created')) if data else None
+    return jsonify(itemId=item_id,createdAt={'iso':iso,'source':'ml_description'} if iso else None)
+
+
 @extension.get('/account')
 def account_page():
     nonce=secrets.token_urlsafe(18)

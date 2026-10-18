@@ -165,3 +165,67 @@ def test_unknown_refresh_cannot_revoke_valid_session_and_oauth_logout(app,client
     with patch('extension_api.requests.post') as upstream:
         assert client.get('/extension-callback?state='+state+'&code=fake',base_url=BASE).status_code==404
         upstream.assert_not_called()
+
+
+def date_reply(status, data):
+    from unittest.mock import MagicMock
+    response=MagicMock(status_code=status,content=b'{}')
+    response.__enter__.return_value=response
+    response.json.return_value=data
+    return response
+
+
+def test_item_date_uses_account_token_and_listing_first(app,client):
+    login(client)
+    item='MLB6203834422';iso='2026-01-27T23:33:16.887Z'
+    with patch('extension_api.ml_token',return_value='server-only-token') as token, patch('extension_api.requests.get',return_value=date_reply(200,{'id':item,'date_created':iso,'private':'never-return'})) as upstream:
+        result=post(client,'items/created-at',{'item_id':item,'user_id':999,'access_token':'client-forged-token'})
+        assert result.status_code==200
+        assert result.json=={'itemId':item,'createdAt':{'iso':iso,'source':'ml_item'}}
+        token.assert_called_once_with(app.test_user)
+        upstream.assert_called_once_with('https://api.mercadolibre.com/items/'+item,params={'attributes':'id,date_created'},headers={'Accept':'application/json','Authorization':'Bearer server-only-token'},timeout=(3,5),allow_redirects=False)
+        assert 'token' not in str(result.json) and 'private' not in str(result.json)
+        assert result.headers['Cache-Control']=='no-store'
+
+
+def test_item_date_description_fallback_missing_invalid_and_denial(app,client,caplog):
+    login(client);item='MLB6203834422';iso='2026-01-27T23:33:16.887Z'
+    with patch('extension_api.ml_token',return_value='server-only-token'):
+        with patch('extension_api.requests.get',side_effect=[date_reply(403,{'error':'PolicyAgent'}),date_reply(200,{'date_created':iso,'last_updated':'2026-02-01T00:00:00Z'})]) as upstream:
+            result=post(client,'items/created-at',{'item_id':item})
+            assert result.json['createdAt']=={'iso':iso,'source':'ml_description'}
+            assert upstream.call_args.args[0].endswith('/'+item+'/description')
+        for data in [{'last_updated':iso},{'date_created':'2099-01-01T00:00:00Z'},{'date_created':'2026-01-01T00:00:00'}]:
+            with patch('extension_api.requests.get',side_effect=[date_reply(200,{'id':'MLB1111111','date_created':iso}),date_reply(200,data)]):
+                assert post(client,'items/created-at',{'item_id':item}).json=={'itemId':item,'createdAt':None}
+        with patch('extension_api.requests.get',side_effect=[date_reply(403,{}),date_reply(404,{})]):
+            assert post(client,'items/created-at',{'item_id':item}).json['createdAt'] is None
+        with patch('extension_api.requests.get',return_value=date_reply(403,{'private':'must-not-leak'})):
+            result=post(client,'items/created-at',{'item_id':item})
+            assert result.status_code==404 and result.json=={'error':'not_found'}
+        assert 'status=403' in caplog.text and 'server-only-token' not in caplog.text and 'must-not-leak' not in caplog.text
+
+
+def test_item_date_requires_session_and_valid_id_before_upstream(app,client):
+    with patch('extension_api.ml_token') as token,patch('extension_api.requests.get') as upstream:
+        assert post(client,'items/created-at',{'item_id':'MLB6203834422'}).status_code==404
+        login(client)
+        for item in ['MLBU3764123782','../../users/me','https://evil.test','MLB1',123,None]:
+            assert post(client,'items/created-at',{'item_id':item}).status_code==400
+        token.assert_not_called();upstream.assert_not_called()
+
+
+def test_item_date_refreshes_expired_ml_token_on_server(app,client):
+    login(client)
+    with app.app_context(),db() as cur:
+        cur.execute('INSERT INTO contas_mercado_livre(usuario_id,id_ml,acess_token,refresh_token,expiracao_token) VALUES(%s,12345,%s,%s,%s)',(app.test_user,'expired-test-token','server-refresh-token',now()-timedelta(days=1)))
+    renewed=Mock(ok=True)
+    renewed.json.return_value={'access_token':'renewed-test-token','refresh_token':'rotated-test-refresh','expires_in':3600}
+    with patch('precify_api.requests.post',return_value=renewed) as refresh,patch('extension_api.requests.get',return_value=date_reply(200,{'id':'MLB6203834422','date_created':'2026-01-27T23:33:16.887Z'})) as upstream:
+        assert post(client,'items/created-at',{'item_id':'MLB6203834422'}).status_code==200
+        refresh.assert_called_once()
+        assert refresh.call_args.kwargs['data']['refresh_token']=='server-refresh-token'
+        assert upstream.call_args.kwargs['headers']['Authorization']=='Bearer renewed-test-token'
+    with app.app_context(),db() as cur:
+        cur.execute('SELECT acess_token,refresh_token FROM contas_mercado_livre WHERE usuario_id=%s',(app.test_user,))
+        assert dict(cur.fetchone())=={'acess_token':'renewed-test-token','refresh_token':'rotated-test-refresh'}
