@@ -135,7 +135,9 @@ def test_registration_terms_and_account_update(app,client):
     assert post(client,'register',data).json=={'error':'not_found'}
     page=client.get('/api/extension/account',base_url=BASE)
     assert page.status_code==200 and "frame-ancestors 'none'" in page.headers['Content-Security-Policy']
-    assert post(client,'complete',dict(password='valid-new-password',newPassword='new-strong-password',acceptedTerms=True,termsVersion='2026-10-15')).status_code==200
+    with patch('precify_realtime.disconnect_account') as disconnect:
+        assert post(client,'complete',dict(password='valid-new-password',newPassword='new-strong-password',acceptedTerms=True,termsVersion='2026-10-15')).status_code==200
+        disconnect.assert_called_once()
     assert post(client,'session').status_code==200
 
 def test_actual_concurrent_activity_rotates_once(app,client):

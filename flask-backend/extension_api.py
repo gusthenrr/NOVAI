@@ -254,6 +254,9 @@ def complete():
             cur.execute('UPDATE precify_sessions SET revoked_at=NOW() WHERE user_id=%s',(user['id'],))
             row=new_session(cur,updated)
         cur.execute('INSERT INTO precify_consents(user_id,purpose,version) VALUES(%s,%s,%s) ON CONFLICT DO NOTHING',(user['id'],'precify_terms',TERMS_VERSION))
+    if data.get('newPassword') is not None:
+        from precify_realtime import disconnect_account
+        disconnect_account(user['id'])
     return issue(jsonify(state(row)),row)
 
 
