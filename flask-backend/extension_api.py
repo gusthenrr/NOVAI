@@ -39,6 +39,11 @@ def allowed_origin():
 
 
 def deny(reason='permission_denied'):
+    if reason=='origin':
+        origin=request.headers.get('Origin')
+        kind='missing' if origin is None else 'null' if origin=='null' else 'extension' if origin.startswith('chrome-extension://') else 'web'
+        current_app.logger.warning('extension_origin method=%s endpoint=%s origin_kind=%s request_id=%s',
+            request.method,request.endpoint,kind,getattr(request,'extension_request_id','-'))
     raise ApiError(reason,403)
 
 
@@ -59,6 +64,8 @@ def guard():
         return '',204
     if request.method=='POST':
         if not allowed_origin(): deny('origin')
+        # Bootstrap creates only CSRF state; explicit trusted Origin is still mandatory.
+        if request.endpoint=='extension.csrf': return None
         token=request.cookies.get(CSRF,'')
         if len(token)!=64 or not hmac.compare_digest(token,request.headers.get('X-CSRF-Token','')): deny('csrf')
     elif request.endpoint=='extension.csrf' and not allowed_origin() and request.headers.get('Sec-Fetch-Site')!='same-origin':
@@ -84,7 +91,7 @@ def cookie(response,name,value,age):
     response.set_cookie(name,value,max_age=max(0,int(age)),secure=True,httponly=True,samesite='None',path='/')
 
 
-@extension.get('/csrf')
+@extension.route('/csrf',methods=['GET','POST'])
 def csrf():
     token=request.cookies.get(CSRF)
     if not token or not re.fullmatch('[a-f0-9]{64}',token): token=secrets.token_hex(32)

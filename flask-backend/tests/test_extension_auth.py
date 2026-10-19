@@ -229,3 +229,38 @@ def test_item_date_refreshes_expired_ml_token_on_server(app,client):
     with app.app_context(),db() as cur:
         cur.execute('SELECT acess_token,refresh_token FROM contas_mercado_livre WHERE usuario_id=%s',(app.test_user,))
         assert dict(cur.fetchone())=={'acess_token':'renewed-test-token','refresh_token':'rotated-test-refresh'}
+
+
+def test_extension_post_bootstrap_then_login_cookie_identifies_novai_user(app,client):
+    # Chrome host-permitted GETs may omit Origin; this reproduces the failed bootstrap.
+    rejected=client.get('/api/extension/csrf',base_url=BASE,headers={'Sec-Fetch-Site':'none'})
+    assert rejected.status_code==404
+    bootstrap=client.post('/api/extension/csrf',base_url=BASE,json={},headers={'Origin':ORIGIN})
+    assert bootstrap.status_code==200
+    assert bootstrap.headers['Access-Control-Allow-Origin']==ORIGIN
+    csrf=bootstrap.json['csrf']
+    r=client.post('/api/extension/login',base_url=BASE,json={'email':'test@example.com','password':'test-only-password'},headers={'Origin':ORIGIN,'X-CSRF-Token':csrf})
+    assert r.status_code==200 and r.json['authenticated'] is True
+    import jwt
+    access=client.get_cookie(ACCESS,domain='novai.test')
+    claims=jwt.decode(access.value,app.config['JWT_SECRET_KEY'],algorithms=['HS256'],audience='novai-extension-api',issuer='novai-extension')
+    assert claims['sub']==str(app.test_user)
+    assert claims['exp']-claims['iat']<=15*60
+    assert access.http_only and access.secure
+    assert client.get_cookie(REFRESH,domain='novai.test').http_only
+    session=client.post('/api/extension/session',base_url=BASE,json={},headers={'Origin':ORIGIN,'X-CSRF-Token':csrf})
+    assert session.status_code==200 and session.json['authenticated'] is True
+    assert 'sub' not in session.json and 'user_id' not in session.json
+    # Possessing an arbitrary nonempty cookie never unlocks the API.
+    client.set_cookie(ACCESS,'some-nonempty-value',domain='novai.test')
+    assert post(client,'connection').status_code==404
+
+
+def test_post_bootstrap_does_not_relax_origin_or_action_csrf(app,client):
+    for headers in [{},{'Origin':'null'},{'Origin':'https://evil.test'},{'Origin':'chrome-extension://'+'a'*32}]:
+        denied=client.post('/api/extension/csrf',base_url=BASE,json={},headers=headers)
+        assert denied.status_code==404 and denied.json=={'error':'not_found'}
+        assert not denied.headers.getlist('Set-Cookie')
+    client.post('/api/extension/csrf',base_url=BASE,json={},headers={'Origin':ORIGIN})
+    denied=client.post('/api/extension/login',base_url=BASE,json={'email':'test@example.com','password':'test-only-password'},headers={'Origin':ORIGIN})
+    assert denied.status_code==404

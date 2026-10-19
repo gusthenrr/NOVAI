@@ -38,3 +38,11 @@ A extensão só chama este recurso quando não encontra `startTime` no HTML/runt
 Resposta: `{"itemId":"MLB6203834422","createdAt":{"iso":"2026-01-27T23:33:16.887Z","source":"ml_item"}}`, ou origem `ml_description`, ou `createdAt:null` se ausente. Datas de edição nunca são utilizadas. A origem `ml_description` identifica a criação da descrição, que pode ser posterior à criação do anúncio. A extensão informa isso no tooltip e conserva a origem no estado do badge.
 
 Negação de permissão retorna somente `404 {"error":"not_found"}` e registra `status=403` no servidor. Registros de diagnóstico contêm apenas o status HTTP e o identificador da requisição, nunca o corpo upstream ou tokens. Timeout/indisponibilidade retorna 502; limite upstream retorna 429. Falhas não devem ser interpretadas como uma data nem invalidar a sessão local por si só.
+
+## Compatibilidade do bootstrap com Chrome (2026-10-19)
+
+Os registros de produção mostraram GET `/api/extension/csrf` recusados por origem. GETs de extensão com host permission podem omitir `Origin`; o bootstrap do processo de fundo passou a usar **POST `/csrf`**. Essa rota exige origem explicitamente permitida e é a única exceção à conferência de CSRF em POST, porque sua finalidade é criar/recuperar esse valor. Ela não autentica nem retorna dados da conta. GET permanece restrito às regras anteriores para a página hospedada. Nenhuma origem ausente, `null` ou desconhecida foi liberada no POST.
+
+A página de conta emite `novai-session-changed` após mudanças de sessão. O content script da NOVAI nessa página transmite somente `ACCOUNT_SESSION_CHANGED`. O worker verifica remetente, URL exata e frame principal, limpa o bootstrap antigo e avisa os consumidores para consultarem a sessão. Não recebe credenciais/ID/autorização do evento. O HTML dos cards continua condicionado à resposta validada pelo servidor.
+
+As recusas por origem agora registram método, endpoint, categoria da origem e ID da requisição, sem cookies ou senhas. A extensão repete uma verificação de sessão uma única vez se houver troca de CSRF em outra aba, sem repetir ações de conta. O JWT de acesso dura até 15 minutos; a credencial de renovação mantém a sessão por até 7 dias de inatividade, com as regras de rotação/revogação existentes.
