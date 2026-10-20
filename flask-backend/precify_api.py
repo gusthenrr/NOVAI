@@ -44,6 +44,18 @@ def private_response(response):
     return response
 
 
+
+@precify.get('/app-release')
+def app_release():
+    # Public configuration, never account data; no login or database required.
+    from precify_releases import public_release, TARGETS
+    platform, channel = request.args.get('platform'), request.args.get('channel')
+    if (platform, channel) not in TARGETS:
+        return jsonify(error='not_found'), 404
+    release = public_release(os.environ.get('PRECIFY_APP_RELEASES_JSON', '{}'), platform, channel)
+    return jsonify(release=release)
+
+
 def body():
     data=request.get_json(silent=True)
     if not isinstance(data,dict):

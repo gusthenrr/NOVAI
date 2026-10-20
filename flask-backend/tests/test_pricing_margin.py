@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import unittest
+from threading import Barrier
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
@@ -37,6 +38,64 @@ class PricingTests(unittest.TestCase):
     def post(self, payload=None, headers=None):
         return self.client.post(self.url, json=self.payload if payload is None else payload,
                                 headers=self.headers if headers is None else headers)
+
+    @patch("pricing_margin.requests.get")
+    def test_both_types_are_parallel_share_owner_and_preserve_selected_response(self, get):
+        barrier = Barrier(2)
+        def reply(url, params=None, **kwargs):
+            if url.endswith('/users/me'):
+                return self.response({'id': 123456, 'site_id': 'MLB'})
+            listing = params['listing_type_id']
+            if url.endswith('/shipping_options/free'):
+                barrier.wait(timeout=3)
+                return self.response({'coverage': {'all_country': {'list_cost': 8 if listing == 'gold_special' else 9,
+                    'currency_id': 'BRL', 'billable_weight': 300}}})
+            return self.response({'listing_type_id': listing, 'currency_id': 'BRL',
+                'sale_fee_amount': 15 if listing == 'gold_special' else 20})
+        get.side_effect = reply
+        with self.assertLogs('novai.pricing', level='INFO') as captured:
+            response = self.post({**self.payload, 'tipoAnuncio': 'premium', 'incluirTiposAnuncio': True})
+        self.assertEqual(response.status_code, 200)
+        options = response.json['opcoesAnuncio']
+        self.assertEqual(options['classico']['margemContribuicao'], 33)
+        self.assertEqual(options['premium']['margemContribuicao'], 27)
+        self.assertEqual({k: v for k, v in response.json.items() if k != 'opcoesAnuncio'}, options['premium'])
+        self.assertEqual(get.call_count, 5)
+        self.assertEqual(sum(c.args[0].endswith('/users/me') for c in get.call_args_list), 1)
+        entries = [json.loads(line.split('[pricing] ', 1)[1]) for line in captured.output]
+        self.assertEqual({e['diagnostic_id'] for e in entries}, {response.headers['X-Pricing-Diagnostic-Id']})
+        self.assertEqual(sum(e['event'] == 'ml_response' for e in entries), 5)
+
+    @patch("pricing_margin.requests.get")
+    def test_failure_in_one_type_never_becomes_zero_or_contaminates_other(self, get):
+        def reply(url, params=None, **kwargs):
+            if url.endswith('/users/me'): return self.response({'id': 123456, 'site_id': 'MLB'})
+            listing = params['listing_type_id']
+            if url.endswith('/shipping_options/free'):
+                if listing == 'gold_pro': return self.response({}, 403)
+                return self.response({'coverage': {'all_country': {'list_cost': 8, 'currency_id': 'BRL'}}})
+            return self.response({'listing_type_id': listing, 'currency_id': 'BRL', 'sale_fee_amount': 15})
+        get.side_effect = reply
+        response = self.post({**self.payload, 'incluirTiposAnuncio': True})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['missing'], [])
+        self.assertEqual(response.json['opcoesAnuncio']['classico']['frete'], 8)
+        premium = response.json['opcoesAnuncio']['premium']
+        self.assertIsNone(premium['frete'])
+        self.assertIsNone(premium['margemContribuicao'])
+        self.assertEqual(premium['missing'], ['frete_403'])
+
+    @patch("pricing_margin.requests.get")
+    def test_both_flag_requires_boolean_and_expired_token_is_not_hidden(self, get):
+        for value in ['true', 1, None]:
+            self.assertEqual(self.post({**self.payload, 'incluirTiposAnuncio': value}).status_code, 400)
+        get.assert_not_called()
+        def reply(url, **kwargs):
+            return self.response({'id': 123456, 'site_id': 'MLB'}) if url.endswith('/users/me') else self.response({}, 401)
+        get.side_effect = reply
+        response = self.post({**self.payload, 'incluirTiposAnuncio': True})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json, {'error': 'ml_token_expired'})
 
     @patch("pricing_margin.requests.get")
     def test_official_quote_and_fee_fixed_component_is_not_counted_twice(self, get):

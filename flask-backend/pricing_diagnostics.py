@@ -55,7 +55,8 @@ INPUT_FIELDS = {
     "precoVenda", "custoProduto", "custoVariavel", "aliquotaImpostoPct", "tipoAnuncio",
     "freteGratis", "envioFull", "envioFlex", "pesoGramas", "alturaCm", "larguraCm",
     "comprimentoCm", "reputacao", "categoryId", "sellerId", "nome", "logisticType",
-    "comparison", "access_token",
+    "comparison", "incluirTiposAnuncio", "access_token",
+    "permitirFreteEstimado", "freteGratisRapido", "freteInformado",
 }
 
 

@@ -2,6 +2,8 @@
 
 Credentials live only in this request. Unknown costs remain null, never zero.
 """
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 import re
 from time import perf_counter
@@ -9,6 +11,7 @@ from time import perf_counter
 from flask import Blueprint, jsonify, request
 import requests
 from pricing_diagnostics import diagnose_pricing, pricing_log
+from shipping_reference import estimate_shipping
 
 pricing_margin = Blueprint("pricing_margin", __name__)
 BASE = "https://api.mercadolibre.com"
@@ -53,6 +56,21 @@ def validate(body):
         data[key] = body[key]
     if data["envioFull"] and data["envioFlex"]:
         raise ValueError("envioFull_envioFlex")
+    if not isinstance(body.get("incluirTiposAnuncio", False), bool):
+        raise ValueError("incluirTiposAnuncio")
+    data["incluirTiposAnuncio"] = body.get("incluirTiposAnuncio", False)
+    for key in ('permitirFreteEstimado', 'freteGratisRapido'):
+        if not isinstance(body.get(key, False), bool):
+            raise ValueError(key)
+        data[key] = body.get(key, False)
+    data['freteInformado'] = None
+    if 'freteInformado' in body:
+        if not data['permitirFreteEstimado']:
+            raise ValueError('permitirFreteEstimado')
+        try:
+            data['freteInformado'] = number(body['freteInformado'])
+        except ValueError:
+            raise ValueError('freteInformado') from None
     data["tipoAnuncio"] = body.get("tipoAnuncio")
     if data["tipoAnuncio"] not in ("classico", "premium"):
         raise ValueError("tipoAnuncio")
@@ -171,11 +189,31 @@ def margin():
     if data["sellerId"] and data["sellerId"] != owner:
         return jsonify(error="seller_session_mismatch"), 400
 
-    listing = "gold_special" if data["tipoAnuncio"] == "classico" else "gold_pro"
+    try:
+        if data["incluirTiposAnuncio"]:
+            # Independent quotes share the validated owner/token. Each copied
+            # context preserves request-scoped, redacted diagnostics in workers.
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                pending = {tipo: pool.submit(copy_context().run, quote_listing, data, token, owner, tipo)
+                           for tipo in ("classico", "premium")}
+                options = {tipo: future.result() for tipo, future in pending.items()}
+            return jsonify(**options[data["tipoAnuncio"]], opcoesAnuncio=options)
+        return jsonify(quote_listing(data, token, owner, data["tipoAnuncio"]))
+    except UpstreamError:
+        return jsonify(error="ml_token_expired"), 401
+
+
+def quote_listing(data, token, owner, tipo):
+    listing = "gold_special" if tipo == "classico" else "gold_pro"
     logistic = data["logistic_type"]
     shipping, fees, billable = None, None, None
     missing = []
-    if logistic == "not_specified":
+    shipping_source, table_version, warnings = None, None, []
+    if data['freteInformado'] is not None:
+        shipping = data['freteInformado']
+        shipping_source = 'informado'
+        warnings.append('frete_informado')
+    elif logistic == "not_specified":
         missing.append("frete_modalidade_nao_suportada")
     else:
         dimensions = "x".join(str(int(data[key].to_integral_value(rounding=ROUND_CEILING)))
@@ -200,8 +238,14 @@ def margin():
                 pass
         except UpstreamError as error:
             if error.code == "401":
-                return jsonify(error="ml_token_expired"), 401
-            missing.append("frete_" + (error.reason or error.code))
+                raise
+            reference = estimate_shipping(data) if data['permitirFreteEstimado'] and error.reason == 'conta_sem_me2' else None
+            if reference:
+                shipping, billable, table_version = reference
+                shipping_source = 'tabela_referencia'
+                warnings.extend(['frete_estimado_sem_me2', 'frete_tabela_geral'])
+            else:
+                missing.append("frete_" + (error.reason or error.code))
         except (ValueError, TypeError, KeyError) as error:
             pricing_log("shipping_invalid_response", {"exception_type": type(error).__name__})
             missing.append("frete_invalid_response")
@@ -221,7 +265,7 @@ def margin():
         fees = number(matching[0].get("sale_fee_amount"))
     except UpstreamError as error:
         if error.code == "401":
-            return jsonify(error="ml_token_expired"), 401
+            raise
         missing.append("tarifas_" + error.code)
     except (ValueError, TypeError):
         missing.append("tarifas_invalid_response")
@@ -232,5 +276,10 @@ def margin():
     if shipping is not None and fees is not None:
         contribution = data["precoVenda"].quantize(CENT, rounding=ROUND_HALF_UP) - Decimal(str(money(shipping))) - Decimal(str(money(fees))) - tax - costs
     percent = contribution / data["precoVenda"] * 100 if contribution is not None else None
-    return jsonify(frete=money(shipping), tarifas=money(fees), impostos=money(tax), custos=money(costs),
+    result = dict(frete=money(shipping), tarifas=money(fees), impostos=money(tax), custos=money(costs),
                    margemContribuicao=money(contribution), margemPct=money(percent), missing=missing)
+    if shipping_source:
+        result.update(freteOrigem=shipping_source, avisos=warnings)
+        if table_version:
+            result['freteTabelaVersao'] = table_version
+    return result
