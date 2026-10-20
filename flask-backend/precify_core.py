@@ -77,21 +77,23 @@ def month_window(at=None):
 
 def plan_for(cur, user_id):
     account(cur, user_id)
-    cur.execute('SELECT trial_started_at,trial_ends_at FROM precify_accounts WHERE user_id=%s', (user_id,))
+    cur.execute('SELECT trial_started_at,trial_ends_at,testers FROM precify_accounts WHERE user_id=%s', (user_id,))
     trial = cur.fetchone()
+    is_tester = trial['testers'] == 0
     cur.execute('''SELECT s.plan_code,p.period_end FROM precify_subscriptions s JOIN precify_payments p ON p.subscription_id=s.id
       WHERE s.user_id=%s AND p.status='approved' AND p.period_end>NOW()
       ORDER BY CASE s.plan_code WHEN 'pro' THEN 2 ELSE 1 END DESC,p.period_end DESC LIMIT 1''', (user_id,))
     paid = cur.fetchone()
     testing = bool(trial['trial_ends_at'] and trial['trial_ends_at'] > now())
-    tier = 'pro' if testing else paid['plan_code'] if paid else 'free'
-    end = trial['trial_ends_at'] if testing else paid['period_end'] if paid else None
+    # Only a direct database change grants this override; billing records stay intact.
+    tier = 'pro' if is_tester or testing else paid['plan_code'] if paid else 'free'
+    end = None if is_tester else trial['trial_ends_at'] if testing else paid['period_end'] if paid else None
     month, reset = month_window()
     cur.execute('SELECT searches FROM precify_monthly_usage WHERE user_id=%s AND month=%s', (user_id,month))
     row = cur.fetchone()
     used = row['searches'] if row else 0
-    return dict(tier=tier, status='trialing' if testing else 'active' if paid else 'free',
-        validUntil=end.isoformat() if end else None, trialAvailable=not trial['trial_started_at'] and not paid,
+    return dict(tier=tier, status='active' if is_tester else 'trialing' if testing else 'active' if paid else 'free',
+        validUntil=end.isoformat() if end else None, trialAvailable=not is_tester and not trial['trial_started_at'] and not paid,
         usage=dict(used=used,limit=10 if tier=='free' else None,remaining=max(0,10-used) if tier=='free' else None,resetsAt=reset),
         features=dict(insights=tier=='pro',comparisons=tier in ('plus','pro'),unlimitedSearches=tier!='free'))
 

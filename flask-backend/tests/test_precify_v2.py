@@ -120,6 +120,78 @@ def test_quota_concurrency_never_exceeds_ten(app):
     assert statuses.count(200)==10 and statuses.count(429)==6
     assert plan(app)['usage']['used']==10
 
+def test_testers_migration_defaults_existing_accounts_and_preserves_override(app):
+    with app.app_context(),db() as cur:
+        cur.execute('SELECT testers FROM precify_accounts WHERE user_id=%s',(app.test_user,))
+        assert cur.fetchone()['testers']==1
+        # Simulate an account created before this additive migration existed.
+        cur.execute('ALTER TABLE precify_accounts DROP COLUMN testers')
+        cur.execute((ROOT/'database/precify_v2.sql').read_text())
+        cur.execute('SELECT testers FROM precify_accounts WHERE user_id=%s',(app.test_user,))
+        assert cur.fetchone()['testers']==1
+        cur.execute('UPDATE precify_accounts SET testers=0 WHERE user_id=%s',(app.test_user,))
+        cur.execute((ROOT/'database/precify_v2.sql').read_text())
+        assert plan_for(cur,app.test_user)['tier']=='pro'
+
+@pytest.mark.parametrize('value',[None,-1,2])
+def test_testers_database_rejects_invalid_values(app,value):
+    with pytest.raises(psycopg2.IntegrityError),app.app_context(),db() as cur:
+        cur.execute('UPDATE precify_accounts SET testers=%s WHERE user_id=%s',(value,app.test_user))
+    assert plan(app)['tier']=='free'
+
+def test_testers_cannot_be_enabled_by_registration_login_or_client_data(app,client):
+    data=dict(email='tester-attempt@example.com',name='Attempt',password='strong-test-password',
+              acceptedTerms=True,termsVersion='2026-10-15',testers=0)
+    registered=post(client,app,'/auth/register',data)
+    assert registered.status_code==201 and registered.json['plan']['tier']=='free'
+    logged_in=post(client,app,'/auth/login',dict(email='test@example.com',password='test-only-password',testers=0))
+    assert logged_in.status_code==200 and logged_in.json['plan']['tier']=='free'
+    assert client.get('/api/precify/session?testers=0',headers=app.headers).json['plan']['tier']=='free'
+    with app.app_context(),db() as cur:
+        cur.execute('SELECT testers FROM precify_accounts')
+        assert all(row['testers']==1 for row in cur.fetchall())
+
+def test_tester_pro_access_no_quota_and_restoring_normal_account(app,client):
+    with app.app_context(),db() as cur:
+        cur.execute('UPDATE precify_accounts SET testers=0 WHERE user_id=%s',(app.test_user,))
+    state=client.get('/api/precify/session',headers=app.headers).json['plan']
+    assert state['tier']=='pro' and state['status']=='active'
+    assert state['validUntil'] is None and not state['trialAvailable']
+    assert all(state['features'].values()) and state['usage']['limit'] is None
+    assert 'testers' not in state
+    url='https://www.mercadolivre.com.br/p/MLB68084564'
+    for _ in range(11):
+        result=post(client,app,'/imports',dict(url=url,requestKey=str(uuid4())))
+        assert result.status_code==200 and result.json['plan']['usage']['remaining'] is None
+    assert post(client,app,'/imports/validate',dict(url=url,importId=result.json['importId'])).json['insights'] is True
+    with patch('precify_api.ml_token',return_value='test-token'),patch('precify_api.get_ml',return_value={'id':'MLB6203834422','sold_quantity':13,'date_created':'2026-01-27T23:33:16.887Z'}):
+        assert client.get('/api/precify/items/MLB6203834422/insights',headers=app.headers).json['sold']==13
+    assert client.get('/api/precify/session').status_code==401
+    with app.app_context(),db() as cur:
+        cur.execute('SELECT trial_started_at,trial_ends_at FROM precify_accounts WHERE user_id=%s',(app.test_user,))
+        assert cur.fetchone()==dict(trial_started_at=None,trial_ends_at=None)
+        for table in ('precify_payments','precify_subscriptions'):
+            cur.execute('SELECT COUNT(*) AS n FROM '+table)
+            assert cur.fetchone()['n']==0
+        cur.execute('UPDATE precify_accounts SET testers=1 WHERE user_id=%s',(app.test_user,))
+    assert plan(app)['tier']=='free' and plan(app)['usage']['used']==11
+    assert post(client,app,'/imports',dict(url=url,requestKey=str(uuid4()))).status_code==429
+    assert client.get('/api/precify/items/MLB6203834422/insights',headers=app.headers).status_code==403
+
+def test_tester_override_is_account_scoped_and_preserves_paid_plan(app):
+    key,amount=subscription(app,tier='plus')
+    with app.app_context():record_payment(payment(key,amount))
+    before=plan(app)
+    with app.app_context(),db() as cur:
+        cur.execute('UPDATE precify_accounts SET testers=0 WHERE user_id=%s',(app.test_user,))
+        cur.execute("INSERT INTO usuarios(usuario,email,senha) VALUES('Other','other@example.com','unused-test-password') RETURNING id")
+        other_id=cur.fetchone()['id']
+        assert plan_for(cur,other_id)['tier']=='free'
+    assert plan(app)['tier']=='pro' and plan(app)['validUntil'] is None
+    with app.app_context(),db() as cur:
+        cur.execute('UPDATE precify_accounts SET testers=1 WHERE user_id=%s',(app.test_user,))
+    assert plan(app)==before
+
 def test_brasilia_month_boundary():
     start,end=month_window(datetime(2026,11,1,2,59,tzinfo=timezone.utc))
     assert str(start)=='2026-10-01' and end=='2026-11-01T00:00:00-03:00'

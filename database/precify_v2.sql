@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS precify_accounts (
   trial_started_at TIMESTAMPTZ, trial_ends_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- Database-only entitlement override: 0 = tester with Pro access, 1 = normal billing.
+-- Existing accounts receive 1; repeat deploys preserve manually configured testers.
+ALTER TABLE precify_accounts ADD COLUMN IF NOT EXISTS testers INTEGER NOT NULL DEFAULT 1
+  CONSTRAINT precify_accounts_testers_check CHECK (testers IN (0,1));
 CREATE TABLE IF NOT EXISTS precify_sessions (
   token_hash TEXT PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL,
