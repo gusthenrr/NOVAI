@@ -329,6 +329,30 @@ def connection():
     return jsonify(connection=result)
 
 
+@extension.post('/pricing')
+def pricing():
+    row=identity()
+    from security_auth import require_ready
+    from pricing_margin import margin, validate
+    require_ready(row['user_id'])
+    rate_limit('ext-pricing:'+str(row['user_id']),30)
+    supplied=body()
+    fields=('precoVenda','custoProduto','custoVariavel','aliquotaImpostoPct','tipoAnuncio',
+            'freteGratis','envioFull','envioFlex','pesoGramas','alturaCm','larguraCm',
+            'comprimentoCm','reputacao','categoryId','nome','logisticType','incluirTiposAnuncio',
+            'permitirFreteEstimado','freteInformado','freteGratisRapido')
+    data={key:supplied[key] for key in fields if key in supplied}
+    try: validate(data)
+    except (ValueError,TypeError): raise ApiError('invalid_pricing',400) from None
+    token=ml_token(row['user_id'])
+    # Reuse Precify's quote engine; credentials and seller identity are server-owned.
+    with current_app.test_request_context('/api/ext/pricing/margin',method='POST',json=data,
+            headers={'Authorization':'Bearer '+token}):
+        response=current_app.make_response(margin())
+    if response.status_code in (401,403): deny('ml_pricing_denied')
+    return response
+
+
 def item_date_response(path, token, params=None):
     """Only fixed official resources; never log/forward upstream bodies or credentials."""
     try:

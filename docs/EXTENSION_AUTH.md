@@ -20,6 +20,7 @@ POST `/login`, `/register`, `/complete`: existing NOVAI users/password policy an
 POST `/session`, `/activity`, `/logout`: browser session lifecycle.
 POST `/connect`: starts explicit OAuth with PKCE and state tied to session; callback consumes state once and revalidates session before saving connection. It only redirects to the fixed NOVAI account page.
 POST `/connection`: validates/refreshes this user's ML credentials using existing server-side ml_token; returns readiness only. Future data routes must use identity(), require_ready() and ml_token(session.user_id), and enforce resource/plan permissions.
+POST `/pricing`: authenticated calculator; requires ready account, existing Origin/CSRF guards and a 30-request rate limit. Validates an allowlist of quote inputs, ignores caller tokens, user IDs and seller IDs, and invokes Precify's existing margin handler with `ml_token(session.user_id)`. Supports both listing types and explicitly requested reference shipping. Upstream authorization failures become the same generic 404; no ML credentials are returned.
 
 Denied access returns identical JSON `{"error":"not_found"}` with HTTP 404, internal sanitized event status=403 and request ID. Operational/input failures retain separate statuses. Do not log credentials, email, request/response bodies or OAuth query strings. Gunicorn access logging now excludes query parameters.
 

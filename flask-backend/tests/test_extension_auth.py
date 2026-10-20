@@ -35,6 +35,45 @@ def post(client,path,data=None,origin=ORIGIN):
 
 def login(client):return post(client,'login',dict(email='test@example.com',password='test-only-password'))
 
+def pricing_payload():
+    return dict(precoVenda=100,custoProduto=40,aliquotaImpostoPct=4,tipoAnuncio='classico',
+                freteGratis=True,envioFull=False,envioFlex=False,pesoGramas=300,alturaCm=5,
+                larguraCm=15,comprimentoCm=20,reputacao='sem-reputacao',categoryId='MLB9600',incluirTiposAnuncio=True)
+
+def test_pricing_uses_authenticated_account_and_never_client_credentials(app,client):
+    from flask import request,jsonify
+    login(client)
+    def calculate():
+        assert request.headers['Authorization']=='Bearer server-only-ml-token'
+        assert 'sellerId' not in request.json and 'access_token' not in request.json and 'user_id' not in request.json
+        assert request.json['incluirTiposAnuncio'] is True
+        return jsonify(frete=8,tarifas=15,impostos=4,custos=40,margemContribuicao=33,margemPct=33,missing=[])
+    with patch('extension_api.ml_token',return_value='server-only-ml-token') as token,patch('pricing_margin.margin',side_effect=calculate):
+        response=post(client,'pricing',{**pricing_payload(),'sellerId':'999','user_id':999,'access_token':'attacker-token'})
+        assert response.status_code==200 and response.json['margemContribuicao']==33
+        token.assert_called_once_with(app.test_user)
+        assert 'token' not in response.get_data(as_text=True)
+
+def test_pricing_denied_without_session_csrf_or_origin(app,client):
+    with patch('extension_api.ml_token') as token,patch('pricing_margin.margin') as calculate:
+        assert post(client,'pricing',pricing_payload()).status_code==404
+        login(client)
+        assert client.post('/api/extension/pricing',base_url=BASE,json=pricing_payload()).status_code==404
+        assert post(client,'pricing',pricing_payload(),origin='https://attacker.test').status_code==404
+        token.assert_not_called();calculate.assert_not_called()
+
+def test_pricing_validation_and_upstream_denial_do_not_leak_data(app,client,caplog):
+    from flask import jsonify
+    login(client)
+    with patch('extension_api.ml_token') as token:
+        assert post(client,'pricing',{**pricing_payload(),'categoryId':'bad'}).status_code==400
+        token.assert_not_called()
+    with app.app_context(): denied=(jsonify(error='private-upstream-detail'),403)
+    with patch('extension_api.ml_token',return_value='secret'),patch('pricing_margin.margin',return_value=denied):
+        response=post(client,'pricing',pricing_payload())
+        assert response.status_code==404 and response.json=={'error':'not_found'}
+        assert 'status=403' in caplog.text and 'secret' not in caplog.text
+
 def age_session(app,expired=False):
     with app.app_context(),db() as cur:
         cur.execute("UPDATE extension_sessions SET last_active_at=NOW()-INTERVAL '1 day',rotated_at=NOW()-INTERVAL '1 day',expires_at=NOW()+INTERVAL '2 days'")
