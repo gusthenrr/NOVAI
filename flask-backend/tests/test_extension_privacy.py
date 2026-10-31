@@ -37,3 +37,19 @@ def test_account_page_links_to_public_privacy_policy():
     response=app.test_client().get('/api/extension/account')
     assert response.status_code==200
     assert 'href="/api/extension/privacy"' in response.get_data(as_text=True)
+
+
+def test_account_theme_is_bundled_and_uses_the_page_nonce():
+    import re
+    templates=Path(__file__).resolve().parents[1]/'templates'
+    app=Flask(__name__,template_folder=str(templates))
+    app.register_blueprint(extension)
+    response=app.test_client().get('/api/extension/account')
+    assert response.status_code==200
+    html=response.get_data(as_text=True)
+    assert 'novaiAccountTheme' in html and 'novai-privacy' in html
+    nonce=re.search(r"script-src 'nonce-([^']+)'",response.headers['Content-Security-Policy'])[1]
+    assert re.findall(r'<script nonce="([^"]+)"',html)==[nonce,nonce]
+    assert "script-src 'unsafe-inline'" not in response.headers['Content-Security-Policy']
+    assert 'https://' not in ''.join(re.findall(r'<script[^>]+src="([^"]+)"',html))
+    assert all('id="'+field+'"' in html for field in ('form','email','password','terms','connected','connect','logout'))

@@ -463,7 +463,7 @@ def privacy_page():
 def account_page():
     nonce=secrets.token_urlsafe(18)
     response=current_app.make_response(render_template('extension_account.html',nonce=nonce,terms_version=TERMS_VERSION))
-    response.headers['Content-Security-Policy']=f"default-src 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    response.headers['Content-Security-Policy']=f"default-src 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; connect-src 'self'; font-src data:; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     return response
 
 

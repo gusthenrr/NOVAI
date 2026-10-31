@@ -22,4 +22,4 @@ el('connect').onclick=()=>action(async()=>{const r=await call('connect');const u
 el('back').onclick=()=>location.assign('https://www.mercadolivre.com.br/');
 el('logout').onclick=()=>action(async()=>{await call('logout');notifyExtension();location.reload();});
 call('session').then(show).catch(()=>{});
-</script></main></body></html>
+</script></main>{% include 'extension_account_theme.html' %}</body></html>
