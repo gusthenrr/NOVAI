@@ -185,9 +185,11 @@ def state(row,data=None):
     with db() as cur:
         cur.execute('SELECT id_ml FROM contas_mercado_livre WHERE usuario_id=%s',(row['user_id'],))
         account=cur.fetchone(); requirements=account_requirements(cur,row['user_id'])
+        cur.execute('SELECT email FROM usuarios WHERE id=%s',(row['user_id'],))
+        owner=cur.fetchone()
     matched='unknown' if not ids or not account else ('match' if str(account['id_ml']) in ids else 'mismatch')
     return dict(authenticated=True,expiresAt=int(min(now()+timedelta(minutes=15),row['expires_at']).timestamp()*1000),
-        accountState=matched,linked=bool(account),accountRequirements=requirements)
+        accountState=matched,linked=bool(account),accountRequirements=requirements,user=dict(email=owner['email']) if owner else None)
 
 
 @extension.post('/session')
@@ -353,21 +355,23 @@ def pricing():
     return response
 
 
-def item_date_response(path, token, params=None):
+def item_date_response(path, token, params=None, *, logger=None, request_id=None, allow_partial=False):
     """Only fixed official resources; never log/forward upstream bodies or credentials."""
+    logger = logger if logger is not None else current_app.logger
+    request_id = request_id if request_id is not None else request.extension_request_id
     try:
         with requests.get('https://api.mercadolibre.com'+path, params=params,
                 headers={'Accept':'application/json','Authorization':'Bearer '+token},
                 timeout=(3,5), allow_redirects=False) as response:
             status=response.status_code
-            current_app.logger.info('extension_item_date upstream_status=%s request_id=%s',
-                status,request.extension_request_id)
+            logger.info('extension_item_date upstream_status=%s request_id=%s',
+                status,request_id)
             if status in (401,403):
-                current_app.logger.warning('extension_access status=403 reason=ml_date_denied request_id=%s',request.extension_request_id)
-            if status!=200: return status,None
+                logger.warning('extension_access status=403 reason=ml_date_denied request_id=%s',request_id)
+            if status!=200 and not (allow_partial and status==206): return status,None
             if len(response.content)>1024*1024: return 502,None
             data=response.json()
-            return (200,data) if isinstance(data,dict) else (502,None)
+            return (status,data) if isinstance(data,dict) else (502,None)
     except requests.Timeout:
         return 504,None
     except (requests.RequestException,ValueError):
@@ -389,7 +393,18 @@ def item_created_at():
     row=identity()
     from security_auth import require_ready
     require_ready(row['user_id'])
-    item_id=body().get('item_id')
+    supplied = body()
+    if 'ids' in supplied:
+        from extension_dates import normalize_ids, lookup_batch
+        try: ids = normalize_ids(supplied['ids'])
+        except ValueError: raise ApiError('invalid_item_ids',400) from None
+        rate_limit('ext-item-dates-batch:'+str(row['user_id']),60)
+        token = ml_token(row['user_id'])
+        logger, request_id = current_app.logger, request.extension_request_id
+        def fetch(path, params):
+            return item_date_response(path,token,params,logger=logger,request_id=request_id)
+        return jsonify(items=lookup_batch(ids,fetch))
+    item_id=supplied.get('item_id')
     if not isinstance(item_id,str) or not re.fullmatch(r'MLB\d{6,15}',item_id): raise ApiError('invalid_item_id',400)
     rate_limit('ext-item-date:'+str(row['user_id']),60)
     token=ml_token(row['user_id'])
@@ -407,9 +422,53 @@ def item_created_at():
     return jsonify(itemId=item_id,createdAt={'iso':iso,'source':'ml_description'} if iso else None)
 
 
+@extension.post('/items/details')
+def item_details():
+    row=identity()
+    from security_auth import require_ready
+    from extension_dates import normalize_ids
+    from extension_details import lookup_batch
+    require_ready(row['user_id'])
+    supplied=body()
+    try: ids=normalize_ids(supplied.get('ids'))
+    except ValueError: raise ApiError('invalid_item_ids',400) from None
+    include_stock=supplied.get('include_stock',False)
+    if type(include_stock) is not bool: raise ApiError('invalid_stock_option',400)
+    rate_limit('ext-item-details:'+str(row['user_id']),60)
+    token=ml_token(row['user_id'])
+    owner_id=None
+    if include_stock:
+        with db() as cur:
+            cur.execute('SELECT id_ml FROM contas_mercado_livre WHERE usuario_id=%s',(row['user_id'],))
+            account=cur.fetchone()
+            owner_id=account['id_ml'] if account else None
+    logger,request_id=current_app.logger,request.extension_request_id
+    def fetch(path,params):
+        return item_date_response(path,token,params,logger=logger,request_id=request_id,allow_partial=True)
+    return jsonify(items=lookup_batch(ids,fetch,include_stock,owner_id))
+
+
+@extension.get('/privacy')
+def privacy_page():
+    response=current_app.make_response(render_template('extension_privacy.html',
+        legal_name=os.environ.get('NOVAI_LEGAL_NAME','NOVAI'),
+        legal_contact=os.environ.get('NOVAI_LEGAL_CONTACT','Novai.ia@outlook.com'),
+        legal_cnpj=os.environ.get('NOVAI_LEGAL_CNPJ',''),
+        legal_address=os.environ.get('NOVAI_LEGAL_ADDRESS','')))
+    response.headers['Content-Security-Policy']="default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    return response
+
+
 @extension.get('/account')
 def account_page():
     nonce=secrets.token_urlsafe(18)
     response=current_app.make_response(render_template('extension_account.html',nonce=nonce,terms_version=TERMS_VERSION))
     response.headers['Content-Security-Policy']=f"default-src 'none'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     return response
+
+
+@extension.post('/saved-items')
+def saved_items():
+    row=resolve()
+    from saved_items import operate
+    return issue(jsonify(operate(row['user_id'],body())),row)

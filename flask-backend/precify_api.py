@@ -445,6 +445,13 @@ def comparison():
         margemContribuicao=money(margin),margemPct=money(margin/price*100),missing=[],source='user_costs')
 
 
+@precify.route('/saved-items',methods=['GET','POST'])
+def saved_items():
+    user=identity()
+    from saved_items import operate
+    return jsonify(operate(user['id'],body() if request.method=='POST' else {}))
+
+
 def register_precify(app,socketio=None):
     from precify_billing import billing
     app.register_blueprint(precify)

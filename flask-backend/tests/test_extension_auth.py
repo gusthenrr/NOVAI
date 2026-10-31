@@ -82,7 +82,8 @@ def age_session(app,expired=False):
 def test_cookies_server_identity_and_no_tokens(app,client):
     r=login(client);assert r.status_code==200
     assert r.json['authenticated'] and not r.json['linked']
-    assert all(x not in str(r.json) for x in ['test@example','access_token','refresh_token','sessionToken','user_id'])
+    assert r.json['user']['email']=='test@example.com'
+    assert all(x not in str(r.json) for x in ['access_token','refresh_token','sessionToken','user_id'])
     cookies=r.headers.getlist('Set-Cookie')
     assert len(cookies)==2 and all('HttpOnly' in x and 'Secure' in x and 'SameSite=None' in x for x in cookies)
     assert 'Max-Age=604' in cookies[1]
