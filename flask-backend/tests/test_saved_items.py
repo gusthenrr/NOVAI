@@ -45,3 +45,12 @@ def test_extension_and_app_share_owner_and_migration_does_not_resurrect(app,clie
     assert client.get('/api/precify/saved-items',headers=headers).json['items']==[]
     client.post('/api/precify/saved-items',headers=headers,json=dict(action='remove',key=item['itemId']))
     assert len(client.get('/api/precify/saved-items',headers=app.headers).json['items'])==1
+
+
+def test_extension_preserves_complete_precify_form_and_calculation():
+    entry=dict(product=dict(name='Produto',price=100,url='https://produto.mercadolivre.com.br/MLB-1234567890-_JM'),
+               form=dict(salePrice='100',productCost='40',tax='4',category='MLB9600',adType='Premium',shippingMode='Full',reputation='Verde',freeShipping=True,packaging=dict(name='Caixa',weight='300',height='5',width='15',length='20',cost='2')),
+               result=dict(frete=10,tarifas=16,impostos=4,custos=42,margemContribuicao=28,margemPct=28,missing=[]),categoryName='Categoria',visitedAt='2026-10-31T12:00:00Z')
+    key,url,item,payload=clean(dict(item=dict(entry=entry)))
+    assert payload['form']['packaging']['height']=='5' and payload['form']['category']=='MLB9600'
+    assert payload['result']['margemPct']==28 and item['profit']==28 and item['other']==2

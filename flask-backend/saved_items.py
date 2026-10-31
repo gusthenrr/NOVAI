@@ -38,6 +38,7 @@ def clean(data):
     if not isinstance(data, dict) or len(json.dumps(data)) > 24000:
         raise ApiError('invalid_saved_item')
     entry, item = data.get('entry'), data.get('item')
+    if entry is None and isinstance(item,dict): entry=item.get('entry')
     if isinstance(entry, dict):
         product = entry.get('product', {})
         if not isinstance(product, dict): raise ApiError('invalid_saved_item')
