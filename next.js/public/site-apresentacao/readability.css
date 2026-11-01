@@ -1,0 +1,121 @@
+/* Leitura confortável e contextos de uso, sem mudar a identidade aprovada. */
+.editorial-home .info-hero p,
+.editorial-home .extension-copy p,
+.editorial-home .precify-section p,
+.editorial-home .account-section p{font-size:18px;line-height:1.65;color:#4d5047;max-width:62ch}
+.editorial-home .extension-copy p{color:#393616}
+.editorial-home .extension-copy li,
+.editorial-home .precify-section li{font-size:17px;line-height:1.65;color:#45473e}
+.editorial-home .extension-copy li{color:#393616}
+.editorial-home .info-benefits{gap:20px;margin-top:25px}
+.editorial-home .info-benefits strong{display:block;margin-bottom:3px}
+.editorial-home .extension-copy h2,
+.editorial-home .precify-section h2,
+.editorial-home .account-section h2{font-size:clamp(32px,3.2vw,42px);line-height:1.16;letter-spacing:-1.2px}
+.editorial-home .extension-copy .info-eyebrow,
+.editorial-home .precify-section .info-eyebrow,
+.editorial-home .info-hero .info-eyebrow,
+.editorial-home .account-section .info-eyebrow,
+.editorial-home .info-faq .info-eyebrow{font-size:13px;line-height:1.55;letter-spacing:.6px;color:#535345}
+.editorial-home .extension-copy .info-eyebrow{color:#4b451d}
+.editorial-home .info-text-link{font-size:16px;min-height:48px;margin-top:10px}
+.editorial-home .plan-cta-solid{display:inline-flex;align-items:center;justify-content:center;gap:26px;max-width:100%;box-sizing:border-box;min-height:56px;margin-top:10px;padding:15px 22px;border:1px solid #171717;border-radius:12px;background:#171717;color:#fff;text-align:center;text-decoration:none;font:600 17px/1.3 Avenir,'DM Sans',Arial,sans-serif;box-shadow:0 4px 10px #1717170c;transition:transform .18s,box-shadow .18s}
+.editorial-home .plan-cta-solid svg{flex-shrink:0}
+.editorial-home .plan-cta-solid:hover{transform:translateY(-2px);box-shadow:0 7px 16px #17171718}
+.editorial-home .plan-cta-solid:active{transform:translateY(0)}
+.editorial-home .info-index strong{font-size:21px;line-height:1.3}
+.editorial-home .info-index small{font-size:15px;line-height:1.55;color:#55594d}
+.editorial-home .info-index .index-number{font-size:13px;color:#5d6053}
+.editorial-home .info-index a{min-height:165px}
+.editorial-home .account-points strong{font-size:18px;line-height:1.5;display:block}
+.editorial-home .account-points p{font-size:16px;margin-top:7px}
+.editorial-home .precify-section .info-included{font-size:16px!important;line-height:1.6;color:#414638!important}
+.editorial-home .info-faq>div>p,
+.editorial-home .info-final p{font-size:16px;line-height:1.65}
+.editorial-home .faq-list summary{font-size:17px;min-height:70px;padding-block:18px}
+.editorial-home .faq-list details p{font-size:16px;line-height:1.7;color:#505348;padding-right:20px}
+.editorial-home .info-primary{font-size:17px;min-height:54px}
+.editorial-home .site-footer a{font-size:14px}
+.editorial-home .site-footer-brand{font-size:13px}
+.product-hero .hero-copy>p{font-size:17px}
+.product-hero .hero-nav a,.product-hero .hero-header-cta{font-size:14px}
+.product-hero .hero-visual figcaption{font-size:12px;color:#554b16}
+.precify-media{min-width:0;width:100%}
+.precify-lifestyle{width:100%;margin:24px 0 0}
+.precify-lifestyle img{display:block;width:100%;height:auto;aspect-ratio:3/2;border-radius:18px;box-shadow:0 7px 20px #17171712}
+.precify-lifestyle figcaption{font-size:12px;line-height:1.45;color:#55594c;text-align:center;margin-top:10px}
+.editorial-home .browser-chrome span,.editorial-home .example-product small,.editorial-home .example-metrics small,.editorial-home .example-legend{font-size:12px;color:#55594c}
+.editorial-home .example-product p{font-size:15px;color:#171717}
+.editorial-home .example-chart-title{font-size:14px;flex-wrap:wrap;gap:6px}
+.editorial-home .example-chart-title span{font-size:12px;color:#665d2e}
+.editorial-home .extension-figure figcaption{font-size:12px;color:#4d451c}
+.editorial-home .precify-capture-grid figcaption,
+.editorial-home .precify-section .capture-note{font-size:13px;line-height:1.5;color:#55594c}
+.editorial-home .demo-strip-heading p{font-size:16px;line-height:1.6}
+.demo-card h3{font-size:16px;line-height:1.45}
+.demo-store{font-size:13px;color:#5d6268}
+.demo-sold{color:#5d6268}
+.demo-rating{font-size:14px}
+.demo-installment,.demo-shipping{font-size:14px;color:#08783c}
+.demo-price span{background:#08783c}
+.demo-offer s{font-size:13px;color:#60656d}
+.demo-metrics span{font-size:13px}
+.demo-metrics strong{font-size:20px}
+.demo-analysis{font-size:16px;min-height:48px}
+.demo-data-note,.demo-scroll-controls span{font-size:13px}
+.demo-preview{padding-top:25px}
+.demo-preview-kicker{font-size:12px;color:#615a46;padding-right:32px}
+.demo-preview-close{width:44px;height:44px;right:5px;top:5px}
+.demo-preview h3{padding-right:12px}
+.demo-preview .chart text{font-size:10px;fill:#5d6254}
+.demo-chart-key{font-size:12px;gap:10px}
+.demo-preview p{font-size:12px;color:#555a4c}
+.plans-page .plan-description{font-size:16px;line-height:1.5;color:#505646}
+.plans-page .price-billing{font-size:14px;color:#515647}
+.plans-page .plan-price>span{font-size:14px;color:#515647}
+.plans-page .plan-features{font-size:15px;line-height:1.6;gap:13px}
+.plans-page .trial-caption{font-size:13px}
+.plans-page .trial-tag{font-size:12px;letter-spacing:.6px}
+.plans-page .billing-switch button{font-size:15px;min-height:44px;white-space:normal;line-height:1.3}
+.plans-page .billing-switch button>span{font-size:11px}
+.plans-page .plan-card h2>span{font-size:12px}
+.plans-page .precify-tag{font-size:11px;line-height:1.5}
+.plans-page .precify-benefit strong{font-size:16px}
+.plans-page .bundle-savings,.plans-page .bundle-comparison{font-size:14px;line-height:1.6}
+.plans-page .bundle-comparison summary{min-height:44px}
+.plans-page .plan-learn,.plans-page .plans-demo,.plans-page .plans-footer a,.plans-page .site-nav a{font-size:14px}
+.plans-page .selection-label{font-size:12px}
+.plans-page .selection p,.plans-page #selection-price,.plans-page .selection-actions a,.plans-page .selection-actions button{font-size:14px;line-height:1.6}
+.plans-page .selection-note{font-size:13px!important}
+.plans-page .plans-footer>p{font-size:12px}
+@media(max-width:850px){
+ .editorial-home #extensao{grid-template-columns:1fr;gap:30px}
+ .editorial-home .extension-copy{grid-column:auto;grid-row:1}
+ .editorial-home .extension-figure{grid-column:auto;grid-row:2;max-width:640px}
+ .editorial-home .home-information .precify-section{grid-template-columns:1fr}
+ .precify-media{max-width:640px;justify-self:center}
+ .editorial-home .info-faq{gap:30px}
+}
+@media(max-width:650px){
+ .editorial-home .extension-copy p,.editorial-home .precify-section p,.editorial-home .info-hero p,.editorial-home .account-section p{font-size:17px}
+ .editorial-home .extension-copy li,.editorial-home .precify-section li{font-size:16px}
+ .editorial-home .info-index a{min-height:112px}
+ .editorial-home .info-index strong{font-size:20px}
+ .editorial-home .info-index small{font-size:15px}
+ .editorial-home .extension-copy h2,.editorial-home .precify-section h2,.editorial-home .account-section h2{font-size:32px}
+ .editorial-home .info-benefits{gap:18px}
+ .editorial-home .account-points p{font-size:16px}
+ .editorial-home .info-faq>div>p{display:block;margin-top:16px}
+ .editorial-home .faq-list summary{font-size:16px}
+ .editorial-home .precify-section .info-eyebrow{flex-wrap:wrap;gap:8px}
+ .product-hero .hero-copy>p{font-size:16px}
+ .product-hero .hero-nav a{font-size:12px;min-height:44px}
+ .product-hero .hero-nav{column-gap:12px;row-gap:0}
+ .product-hero .hero-visual figcaption{font-size:12px;max-width:none}
+ .plans-page .billing-switch button{padding:9px 12px;font-size:14px;flex-wrap:wrap}
+ .plans-page .billing-switch button>span{font-size:10px}
+ .plans-page .plan-card{padding:20px}
+ .plans-page .site-nav a{font-size:13px}
+ .editorial-home .plan-cta-solid{gap:16px;padding-inline:18px}
+}
+@media(prefers-reduced-motion:reduce){.editorial-home .plan-cta-solid{transition:none}.editorial-home .plan-cta-solid:hover{transform:none}}
