@@ -56,3 +56,4 @@
 @media(max-width:650px){.product-hero .hero-logo{width:74px}.plans-page .plans-logo{width:70px}}
 
 .site-login{font-size:12px;color:#171717;text-decoration:none;margin-left:auto;margin-right:20px;white-space:nowrap}@media(max-width:600px){.site-login{margin-right:12px}.hero-header-cta{font-size:11px}}
+@media(max-width:600px){.hero-header{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}.hero-logo{grid-column:1;grid-row:1}.site-login{grid-column:2;grid-row:1;margin:0}.hero-nav{grid-column:1/-1;grid-row:2;display:flex;gap:18px;flex-wrap:wrap;justify-content:flex-start}.hero-header-cta{display:none}}
