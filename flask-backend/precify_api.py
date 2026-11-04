@@ -240,12 +240,17 @@ def connect():
     if not os.environ.get('MERCADO_LIVRE_CLIENT_ID'):
         raise ApiError('oauth_not_configured',503)
     return_url = oauth_return_url(body().get('returnUrl'))
+    return jsonify(url=create_oauth_ticket(user['id'],return_url))
+
+
+def create_oauth_ticket(user_id,return_url):
+    if not os.environ.get('MERCADO_LIVRE_CLIENT_ID'):raise ApiError('oauth_not_configured',503)
     ticket=secrets.token_urlsafe(32)
     state='precify_'+secrets.token_urlsafe(32)
     with db() as cur:
         cur.execute('INSERT INTO precify_oauth(state,user_id,ticket_hash,code_verifier,expires_at,return_url) VALUES(%s,%s,%s,%s,%s,%s)',
-          (state,user['id'],digest(ticket),secrets.token_urlsafe(48),now()+timedelta(minutes=10),return_url))
-    return jsonify(url=public_base()+'/auth/precify/connect?'+urlencode({'ticket':ticket}))
+          (state,user_id,digest(ticket),secrets.token_urlsafe(48),now()+timedelta(minutes=10),return_url))
+    return public_base()+'/auth/precify/connect?'+urlencode({'ticket':ticket})
 
 
 def oauth_start():

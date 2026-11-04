@@ -117,6 +117,10 @@ from extension_api import extension
 app.register_blueprint(extension)
 from billing_reconciliation import start as start_billing_reconciliation
 start_billing_reconciliation(app)
+from seller_dashboard import panel
+app.register_blueprint(panel)
+from seller_sync import start as start_seller_sync
+start_seller_sync(app)
 
 @app.errorhandler(ApiError)
 def security_error(error):
@@ -1824,19 +1828,7 @@ def user_login():
         cur = conn.cursor(cursor_factory=RealDictCursor)
         # Busca o usuário pelo e-mail no banco
         user=authenticate_password(email,password)
-        cur.execute("SELECT expiracao_token FROM contas_mercado_livre WHERE usuario_id=%s",(user['id'],))
-        expiracao=cur.fetchone()
-        if expiracao and expiracao["expiracao_token"] and agora > expiracao["expiracao_token"]:
-            cur.execute("SELECT refresh_token FROM contas_mercado_livre WHERE usuario_id=%s", (user['id'],))
-            refresh = cur.fetchone()
-            if refresh and refresh["refresh_token"]:
-                dados = renovar_access_token(refresh["refresh_token"])
-                cur.execute(
-                    "UPDATE contas_mercado_livre SET acess_token=%s,refresh_token=%s,expiracao_token=%s WHERE usuario_id=%s",
-                    (dados["access_token"], dados["novo_refresh_token"], dados["nova_expiracao"], user["id"]),
-                )
-                conn.commit()
-
+        # Login returns immediately; ML requests renew credentials through account_ml_token.
         session['user_id'] = user['id']
         jwt_token = gerar_token(user['id'],auth_version=user['auth_version'])
         # O login não inicia nem consulta a sincronização completa.

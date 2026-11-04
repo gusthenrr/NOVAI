@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="novai-dashboard-api" content="__DASHBOARD_API__"><meta name="theme-color" content="#171717"><meta name="description" content="Painel Novai: vendas, produtos e margem em um só lugar.">
+  <title>Resumo · Novai</title><link rel="stylesheet" href="/painel/dashboard.css">
+  <script src="/painel/dashboard-model.js" defer></script><script src="/painel/dashboard.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Ir para o conteúdo</a>
+  <aside class="sidebar" aria-label="Navegação do painel">
+    <a class="brand" href="#resumo" aria-label="Novai, início"><img src="/painel/assets/novai.svg" alt="Novai" width="80" height="57"></a>
+    <nav aria-label="Navegação principal">
+      <a class="nav-item active" href="#resumo" data-nav="resumo"><i data-icon="layout-dashboard"></i><span>Resumo</span></a>
+      <a class="nav-item" href="#financeiro" data-nav="financeiro"><i data-icon="wallet"></i><span>Financeiro</span></a>
+      <a class="nav-item" href="#produtos" data-nav="produtos"><i data-icon="box"></i><span>Produtos</span><small id="nav-product-count">—</small></a>
+      <a class="nav-item" href="#publicidade" data-nav="publicidade"><i data-icon="speakerphone"></i><span>Publicidade</span></a>
+      <a class="nav-item precify-nav" href="#oportunidades" data-nav="oportunidades" aria-label="Precify, margens e salvos"><img src="/painel/assets/precify.png" alt="" width="25" height="25"><span>Precify</span></a>
+    </nav>
+    <div class="sidebar-end"><a class="nav-item" href="/dashboard/Promotion">Promoções</a><a class="nav-item" href="/dashboard/claims">Reclamações</a><a class="nav-item" href="/Manager">Assistente NOVAI</a><a class="nav-item" href="/conectado"><i data-icon="adjustments-horizontal"></i><span>Configurações</span></a></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <a class="mobile-brand" href="#resumo" aria-label="Novai, início"><img src="/painel/assets/novai.svg" alt="Novai" width="44" height="32"></a>
+      <div class="store"><span class="store-mark"><i data-icon="building-store"></i></span><span><strong>Sua loja</strong><small>Mercado Livre</small></span><span class="market-symbol"><img src="/painel/assets/mercado-livre-simbolo.png" alt="Mercado Livre"></span></div>
+      <div class="header-actions"><a class="settings-shortcut" href="/conectado" aria-label="Configurações"><i data-icon="adjustments-horizontal"></i></a><div class="menu-wrap demo-wrap"><button class="demo-trigger" id="demo-trigger" aria-expanded="false" aria-controls="demo-menu"><span class="demo-dot"></span>Dados da sua conta <span class="chevron down"></span></button><div class="dropdown demo-menu" id="demo-menu" hidden><p>Testar estados do painel</p><button data-coverage="complete" aria-pressed="true">Custos completos <span>✓</span></button><button data-coverage="missing" aria-pressed="false">Um produto sem custo <span>✓</span></button><button id="reset-demo">Restaurar a prévia</button></div></div></div>
+    </header>
+    <main id="main" tabindex="-1">
+      <div class="page-head"><div><div class="page-eyebrow" id="page-eyebrow">VISÃO DA LOJA</div><h1 id="page-title">Resumo</h1></div><div class="menu-wrap period-wrap"><button id="period-trigger" class="period-trigger" aria-expanded="false" aria-controls="period-menu"><i data-icon="calendar-month"></i><span id="period-label">Últimos 7 dias</span><span class="chevron down"></span></button><div class="period-range" id="period-range"></div><div class="dropdown period-menu" id="period-menu" hidden><button data-days="7" aria-pressed="true">Últimos 7 dias <span>✓</span></button><button data-days="15" aria-pressed="false">Últimos 15 dias <span>✓</span></button><button data-days="30" aria-pressed="false">Últimos 30 dias <span>✓</span></button><button id="all-period">Todo o histórico disponível</button><button id="custom-trigger" aria-expanded="false">Personalizado <span class="chevron"></span></button><form id="custom-form" hidden><label>Início<input type="date" id="start"  required></label><label>Fim<input type="date" id="end"  required></label><p id="date-error" role="alert"></p><button class="button primary" type="submit">Aplicar período</button></form></div></div></div>
+      <section id="sync-status" class="sync-banner" role="status" aria-live="polite"><div><strong id="sync-title">Preparando seu painel…</strong><p id="sync-description">Você pode navegar enquanto os dados são coletados.</p><progress id="sync-progress" max="1"></progress><small id="sync-coverage"></small></div><button class="button secondary" id="sync-retry">Atualizar</button><a class="button secondary" id="sync-login" href="/login" hidden>Entrar</a><a class="button secondary" id="sync-connect" href="/conectado" hidden>Conectar Mercado Livre</a></section><div class="route-tabs" id="route-tabs" hidden></div>
+      <section class="metric-strip" id="metrics" aria-label="Indicadores do período"></section>
+      <p class="comparison-note" id="comparison-note"></p>
+      <section id="tasks-section" class="tasks-section" aria-labelledby="tasks-title"><div class="section-heading"><h2 id="tasks-title">Para revisar</h2><button class="text-button" id="attention-all">Ver pendências <span id="attention-count"></span><span class="chevron"></span></button></div><div class="tasks-row" id="attention-list"></div></section>
+      <section id="chart-section" class="panel chart-panel" aria-labelledby="chart-title"><div class="panel-heading"><div><h2 id="chart-title">Evolução do período</h2><p id="chart-caption">Uma visão por dia.</p></div><div class="segments" role="group" aria-label="Métrica do gráfico"><button data-chart="gross" aria-pressed="true">Faturamento</button><button data-chart="result" aria-pressed="false">Resultado</button><button data-chart="orders" aria-pressed="false">Vendas</button></div></div><div class="chart-container" id="chart-container" tabindex="0" role="group" aria-label="Gráfico do período. Use as setas para consultar os valores."><svg id="chart" role="img" aria-label="Evolução no período selecionado"></svg><div class="chart-tooltip" id="chart-tooltip" hidden></div><p class="chart-empty" id="chart-empty" hidden>Cadastre o custo pendente para visualizar o resultado.</p></div><div class="chart-dates" id="chart-dates"></div><div class="chart-bottom"><span id="chart-frequency">Valores diários</span><span class="data-caption">Aguardando coleta</span></div><span class="sr-only" id="chart-announcement" aria-live="polite"></span></section>
+      <div id="page-content"></div>
+      <footer class="page-footer"><span>Dados da conta conectada.</span><span id="footer-context">Resultado das vendas antes das despesas fixas.</span></footer>
+    </main>
+  </div>
+  <nav class="mobile-nav" aria-label="Navegação no celular"><a href="#resumo" data-nav="resumo"><i data-icon="layout-dashboard"></i><span>Resumo</span></a><a href="#financeiro" data-nav="financeiro"><i data-icon="wallet"></i><span>Financeiro</span></a><a href="#produtos" data-nav="produtos"><i data-icon="box"></i><span>Produtos</span></a><a href="#publicidade" data-nav="publicidade"><i data-icon="speakerphone"></i><span>Publicidade</span></a><a href="#oportunidades" data-nav="oportunidades" aria-label="Precify, margens e salvos"><img src="/painel/assets/precify.png" alt="" width="22" height="22"><span>Precify</span></a></nav>
+  <dialog id="detail-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><button id="dialog-back" class="icon-button back-button" aria-label="Voltar" hidden><span class="chevron left"></span></button><span id="dialog-eyebrow">SEU PRODUTO</span><button class="icon-button close-button" id="close-dialog" aria-label="Fechar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7"/></svg></button></div><div class="dialog-content" id="dialog-content"></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div><div class="sr-only" id="announcement" role="status" aria-live="polite"></div>
+</body></html>

@@ -21,6 +21,7 @@ def main() -> None:
     schema += '\n' + (schema_path.parent / 'precify_v2.sql').read_text(encoding='utf-8')
     schema += '\n' + (schema_path.parent / 'extension_sessions.sql').read_text(encoding='utf-8')
     schema += '\n' + (schema_path.parent / 'saved_items.sql').read_text(encoding='utf-8')
+    schema += '\n' + (schema_path.parent / 'seller_dashboard.sql').read_text(encoding='utf-8')
     with psycopg2.connect(database_url(), connect_timeout=15) as connection:
         with connection.cursor() as cursor:
             cursor.execute(schema)

@@ -22,7 +22,7 @@ export default function LoginPage() {
         if(tier&&['pro','max'].includes(tier)&&cycle&&['monthly','annual'].includes(cycle)){
           try{sessionStorage.removeItem('novaiPendingCheckout');}catch{}
           window.location.replace('/planos?plano='+tier+'&ciclo='+cycle);
-        }else window.location.replace("/conectado");
+        }else window.location.replace("/dashboard/inicio");
       } else setErrorMessage(result.message || "E-mail ou senha inválidos.");
     } catch { setErrorMessage("Erro ao conectar com o servidor. Tente novamente."); }
     finally { setLoading(false); }
