@@ -118,3 +118,23 @@ CREATE TABLE IF NOT EXISTS precify_seller_profiles (
 );
 
 ALTER TABLE precify_oauth ADD COLUMN IF NOT EXISTS return_url TEXT;
+
+-- NOVAI web subscriptions reuse the same verified Mercado Pago ledger.
+-- Product identity stays separate from the Precify Plus/Pro catalog and prices.
+CREATE TABLE IF NOT EXISTS novai_plans (
+  code TEXT PRIMARY KEY CHECK(code IN ('pro','max')),
+  name TEXT NOT NULL, monthly_cents INTEGER NOT NULL CHECK(monthly_cents>0),
+  annual_cents INTEGER NOT NULL CHECK(annual_cents>0), trial_days INTEGER NOT NULL DEFAULT 7,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO novai_plans(code,name,monthly_cents,annual_cents,trial_days)
+VALUES('pro','NOVAI Pro',5799,67188,7),('max','NOVAI Max',7999,91188,7)
+ON CONFLICT(code) DO NOTHING;
+CREATE TABLE IF NOT EXISTS novai_accounts (
+  user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  trial_started_at TIMESTAMPTZ, trial_ends_at TIMESTAMPTZ, trial_plan_code TEXT REFERENCES novai_plans(code)
+);
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS product_code TEXT NOT NULL DEFAULT 'precify'
+  CHECK(product_code IN ('precify','novai'));
+ALTER TABLE precify_subscriptions ADD COLUMN IF NOT EXISTS novai_plan_code TEXT REFERENCES novai_plans(code);
+CREATE INDEX IF NOT EXISTS novai_subscriptions_user_product ON precify_subscriptions(user_id,product_code);

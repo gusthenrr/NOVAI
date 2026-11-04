@@ -456,6 +456,8 @@ def register_precify(app,socketio=None):
     from precify_billing import billing
     app.register_blueprint(precify)
     app.register_blueprint(billing)
+    from novai_billing import novai_billing
+    app.register_blueprint(novai_billing)
     from account_email import email_api
     app.register_blueprint(email_api)
     app.add_url_rule('/auth/precify/connect','precify_oauth_start',oauth_start)

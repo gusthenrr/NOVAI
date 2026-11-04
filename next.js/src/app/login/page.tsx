@@ -16,7 +16,13 @@ export default function LoginPage() {
       const result = await handleLogin(email, password);
       if (result.success && result.data.token) {
         setToken(result.data.token); setUserValid(false);
-        window.location.replace("/conectado");
+        const query=new URLSearchParams(window.location.search);
+        let tier=query.get('plano'),cycle=query.get('ciclo');
+        try{const saved=JSON.parse(sessionStorage.getItem('novaiPendingCheckout')||'null');tier=tier||saved?.tier;cycle=cycle||saved?.cycle;}catch{}
+        if(tier&&['pro','max'].includes(tier)&&cycle&&['monthly','annual'].includes(cycle)){
+          try{sessionStorage.removeItem('novaiPendingCheckout');}catch{}
+          window.location.replace('/planos?plano='+tier+'&ciclo='+cycle);
+        }else window.location.replace("/conectado");
       } else setErrorMessage(result.message || "E-mail ou senha inválidos.");
     } catch { setErrorMessage("Erro ao conectar com o servidor. Tente novamente."); }
     finally { setLoading(false); }

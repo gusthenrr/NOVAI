@@ -107,16 +107,25 @@ def validate_recurring(recurring,amount,cycle,trial_days=0):
 
 @billing.post('/checkout')
 def checkout():
-    from precify_api import body,public_base
-    user=identity()
-    data=body()
+    from precify_api import body
+    return jsonify(create_checkout(identity(),body()))
+
+
+def create_checkout(user,data,product='precify'):
+    from precify_api import public_base
+    from novai_plans import novai_plan_for,NOVAI_BILLING_TERMS_VERSION
+    from precify_core import account
+    if product not in ('precify','novai'): raise ApiError('invalid_plan')
     tier,cycle=data.get('tier'),data.get('cycle')
     trial=data.get('trial',False)
-    if tier not in ('plus','pro') or cycle not in ('monthly','annual') or type(trial) is not bool or (trial and tier!='pro'):
+    allowed=('plus','pro') if product=='precify' else ('pro','max')
+    if tier not in allowed or cycle not in ('monthly','annual') or type(trial) is not bool or (trial and product=='precify' and tier!='pro'):
         raise ApiError('invalid_plan')
     if not configured():
         raise ApiError('payments_not_configured',503)
-    if trial and data.get('billingTermsVersion')!=BILLING_TERMS_VERSION:
+    terms=NOVAI_BILLING_TERMS_VERSION if product=='novai' else BILLING_TERMS_VERSION
+    if product=='novai' and data.get('acceptedBillingTerms') is not True: raise ApiError('billing_terms_required')
+    if (trial or product=='novai') and data.get('billingTermsVersion')!=terms:
         raise ApiError('billing_terms_required')
     payer=str(data.get('payerEmail',user['email'])).strip().lower()
     if len(payer)>254 or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',payer):
@@ -124,30 +133,40 @@ def checkout():
     # Serialize checkouts across devices, including the provider call.
     with db() as cur:
         cur.execute('SELECT id FROM usuarios WHERE id=%s FOR UPDATE',(user['id'],))
-        state=plan_for(cur,user['id'])
+        account(cur,user['id'])
+        state=novai_plan_for(cur,user['id']) if product=='novai' else plan_for(cur,user['id'])
+        # A Max subscription already includes Precify Pro: never sell both silently.
+        other='precify' if product=='novai' else 'novai'
+        if (product=='precify') or tier=='max':
+            cur.execute("SELECT id FROM precify_subscriptions WHERE user_id=%s AND product_code=%s AND (product_code='precify' OR novai_plan_code='max') AND (status IN ('pending','creating','authorized','paused') OR EXISTS(SELECT 1 FROM precify_payments p WHERE p.subscription_id=precify_subscriptions.id AND p.status='approved' AND p.period_end>NOW())) LIMIT 1",(user['id'],other))
+            if cur.fetchone(): raise ApiError('bundle_subscription_conflict',409)
         if trial and (not state['trialAvailable'] or state['tier']!='free'):
             raise ApiError('trial_already_used',409)
-        cur.execute("SELECT * FROM precify_subscriptions WHERE user_id=%s AND status IN ('pending','authorized','paused','creating') ORDER BY created_at DESC LIMIT 1",(user['id'],))
+        cur.execute("SELECT * FROM precify_subscriptions WHERE user_id=%s AND product_code=%s AND status IN ('pending','authorized','paused','creating') ORDER BY created_at DESC LIMIT 1",(user['id'],product))
         existing=cur.fetchone()
-        if existing and (existing['plan_code']!=tier or existing['cycle']!=cycle or bool(existing['trial_days'])!=trial or existing['status'] in ('authorized','paused')):
+        if existing and ((existing['novai_plan_code'] if product=='novai' else existing['plan_code'])!=tier or existing['cycle']!=cycle or bool(existing['trial_days'])!=trial or existing['status'] in ('authorized','paused')):
             raise ApiError('subscription_exists',409)
         if existing and existing['checkout_url']:
-            return jsonify(url=existing['checkout_url'],subscriptionId=str(existing['id']))
+            if product=='novai' and (type(data.get('expectedAmountCents')) is not int or data['expectedAmountCents']!=existing['amount_cents']): raise ApiError('price_changed',409)
+            return dict(url=existing['checkout_url'],subscriptionId=str(existing['id']))
         # Legacy trials remain valid, but cannot silently turn into immediate charges.
         if state['status']=='trialing':
             raise ApiError('trial_in_progress',409)
-        cur.execute('SELECT * FROM precify_plans WHERE code=%s',(tier,))
+        table='novai_plans' if product=='novai' else 'precify_plans'
+        cur.execute('SELECT * FROM '+table+' WHERE code=%s',(tier,))
         plan=cur.fetchone()
+        if not plan: raise ApiError('invalid_plan')
         amount=plan['monthly_cents'] if cycle=='monthly' else plan['annual_cents']
-        days=7 if trial else 0
+        if product=='novai' and (type(data.get('expectedAmountCents')) is not int or data['expectedAmountCents']!=amount): raise ApiError('price_changed',409)
+        days=(plan['trial_days'] if product=='novai' else 7) if trial else 0
         subscription=str(existing['id']) if existing else str(uuid4())
         if not existing:
-            cur.execute("""INSERT INTO precify_subscriptions(id,user_id,plan_code,cycle,amount_cents,status,trial_days,billing_consent_version,billing_consent_at)
-              VALUES(%s,%s,%s,%s,%s,'creating',%s,%s,NOW())""",
-              (subscription,user['id'],tier,cycle,amount,days,BILLING_TERMS_VERSION if trial else None))
+            cur.execute("""INSERT INTO precify_subscriptions(id,user_id,plan_code,cycle,amount_cents,status,trial_days,billing_consent_version,billing_consent_at,product_code,novai_plan_code)
+              VALUES(%s,%s,%s,%s,%s,'creating',%s,%s,NOW(),%s,%s)""",
+              (subscription,user['id'],'pro' if product=='novai' else tier,cycle,amount,days,terms if trial or product=='novai' else None,product,tier if product=='novai' else None))
         recurring=dict(frequency=1 if cycle=='monthly' else 12,frequency_type='months',currency_id='BRL',transaction_amount=amount/100)
-        payload=dict(reason='Precify '+tier.title()+' '+('mensal' if cycle=='monthly' else 'anual'),
-            auto_recurring=recurring,back_url=public_base()+'/api/precify/billing/return')
+        payload=dict(reason=('NOVAI ' if product=='novai' else 'Precify ')+tier.title()+' '+('mensal' if cycle=='monthly' else 'anual'),
+            auto_recurring=recurring,back_url=public_base()+('/api/novai/billing/return' if product=='novai' else '/api/precify/billing/return'))
         if trial:
             recurring['free_trial']=dict(frequency=days,frequency_type='days')
             payload['payment_methods_allowed']={'payment_types':[{'id':'credit_card'}]}
@@ -167,7 +186,7 @@ def checkout():
         cur.execute("""UPDATE precify_subscriptions SET provider_id=%s,provider_plan_id=%s,
           checkout_url=%s,status='pending',updated_at=NOW() WHERE id=%s""",
           (None if trial else identifier,identifier if trial else None,url,subscription))
-    return jsonify(url=url,subscriptionId=subscription)
+    return dict(url=url,subscriptionId=subscription)
 
 
 @billing.get('/return')
@@ -182,10 +201,10 @@ def history():
     user=identity()
     with db() as cur:
         cur.execute('''SELECT id,plan_code,cycle,amount_cents,currency,status,next_payment_at,cancelled_at,created_at
-          FROM precify_subscriptions WHERE user_id=%s ORDER BY created_at DESC LIMIT 30''',(user['id'],))
+          FROM precify_subscriptions WHERE user_id=%s AND product_code='precify' ORDER BY created_at DESC LIMIT 30''',(user['id'],))
         subscriptions=cur.fetchall()
         cur.execute('''SELECT p.provider_id,p.amount_cents,p.currency,p.status,p.paid_at,p.period_end
-          FROM precify_payments p JOIN precify_subscriptions s ON s.id=p.subscription_id WHERE s.user_id=%s
+          FROM precify_payments p JOIN precify_subscriptions s ON s.id=p.subscription_id WHERE s.user_id=%s AND s.product_code='precify'
           ORDER BY p.created_at DESC LIMIT 30''',(user['id'],))
         payments=cur.fetchall()
     return jsonify(subscriptions=subscriptions,payments=payments)
@@ -195,9 +214,12 @@ def history():
 def cancel():
     from precify_api import body
     user=identity()
-    key=body().get('subscriptionId')
+    return jsonify(cancel_subscription(user,body().get('subscriptionId'),'precify'))
+
+
+def cancel_subscription(user,key,product):
     with db() as cur:
-        cur.execute('SELECT id,provider_id,provider_plan_id,provider_plan_closed,status FROM precify_subscriptions WHERE id::text=%s AND user_id=%s',(str(key),user['id']))
+        cur.execute('SELECT id,provider_id,provider_plan_id,provider_plan_closed,status FROM precify_subscriptions WHERE id::text=%s AND user_id=%s AND product_code=%s',(str(key),user['id'],product))
         row=cur.fetchone()
     if not row:
         raise ApiError('subscription_not_found',404)
@@ -215,7 +237,7 @@ def cancel():
     with db() as cur:
         cur.execute("UPDATE precify_subscriptions SET status='cancelled',cancelled_at=COALESCE(cancelled_at,NOW()),updated_at=NOW() WHERE id=%s",(str(row['id']),))
     notify_plan_changed(user['id'])
-    return jsonify(ok=True)
+    return dict(ok=True)
 
 
 def close_trial_plan(sub):
@@ -284,12 +306,15 @@ def record_subscription(resource,result):
                     if cancelled.get('status') not in ('cancelled','canceled'):
                         raise ApiError('cancellation_not_confirmed',502)
                     raise
-                cur.execute('SELECT trial_started_at FROM precify_accounts WHERE user_id=%s FOR UPDATE',(sub['user_id'],))
+                trial_table='novai_accounts' if sub['product_code']=='novai' else 'precify_accounts'
+                cur.execute('SELECT trial_started_at FROM '+trial_table+' WHERE user_id=%s FOR UPDATE',(sub['user_id'],))
                 if cur.fetchone()['trial_started_at']:
                     cancel_extra=True
                 else:
-                    cur.execute('UPDATE precify_accounts SET trial_started_at=%s,trial_ends_at=%s WHERE user_id=%s',
-                                (start,end,sub['user_id']))
+                    if sub['product_code']=='novai':
+                        cur.execute('UPDATE novai_accounts SET trial_started_at=%s,trial_ends_at=%s,trial_plan_code=%s WHERE user_id=%s',(start,end,sub['novai_plan_code'],sub['user_id']))
+                    else:
+                        cur.execute('UPDATE precify_accounts SET trial_started_at=%s,trial_ends_at=%s WHERE user_id=%s',(start,end,sub['user_id']))
             if not cancel_extra:
                 changed=(sub['status']!=status or sub['trial_started_at']!=start or sub['next_payment_at']!=next_at)
                 cur.execute("""UPDATE precify_subscriptions SET provider_id=%s,status=%s,next_payment_at=%s,

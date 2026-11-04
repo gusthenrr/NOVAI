@@ -187,9 +187,11 @@ def state(row,data=None):
         account=cur.fetchone(); requirements=account_requirements(cur,row['user_id'])
         cur.execute('SELECT email FROM usuarios WHERE id=%s',(row['user_id'],))
         owner=cur.fetchone()
+        from novai_plans import novai_plan_for
+        novai_plan=novai_plan_for(cur,row['user_id'])
     matched='unknown' if not ids or not account else ('match' if str(account['id_ml']) in ids else 'mismatch')
     return dict(authenticated=True,expiresAt=int(min(now()+timedelta(minutes=15),row['expires_at']).timestamp()*1000),
-        accountState=matched,linked=bool(account),accountRequirements=requirements,user=dict(email=owner['email']) if owner else None)
+        accountState=matched,linked=bool(account),accountRequirements=requirements,novaiPlan=novai_plan,user=dict(email=owner['email']) if owner else None)
 
 
 @extension.post('/session')

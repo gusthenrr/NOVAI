@@ -81,9 +81,13 @@ def plan_for(cur, user_id):
     trial = cur.fetchone()
     is_tester = trial['testers'] == 0
     cur.execute('''SELECT s.plan_code,p.period_end FROM precify_subscriptions s JOIN precify_payments p ON p.subscription_id=s.id
-      WHERE s.user_id=%s AND p.status='approved' AND p.period_end>NOW()
+      WHERE s.user_id=%s AND (s.product_code='precify' OR (s.product_code='novai' AND s.novai_plan_code='max')) AND p.status='approved' AND p.period_end>NOW()
       ORDER BY CASE s.plan_code WHEN 'pro' THEN 2 ELSE 1 END DESC,p.period_end DESC LIMIT 1''', (user_id,))
     paid = cur.fetchone()
+    cur.execute("SELECT trial_ends_at FROM novai_accounts WHERE user_id=%s AND trial_plan_code='max' AND trial_ends_at>NOW()",(user_id,))
+    bundle_trial=cur.fetchone()
+    if bundle_trial and (not trial['trial_ends_at'] or bundle_trial['trial_ends_at']>trial['trial_ends_at']):
+        trial=dict(trial,trial_ends_at=bundle_trial['trial_ends_at'])
     testing = bool(trial['trial_ends_at'] and trial['trial_ends_at'] > now())
     # Only a direct database change grants this override; billing records stay intact.
     tier = 'pro' if is_tester or testing else paid['plan_code'] if paid else 'free'
@@ -93,7 +97,7 @@ def plan_for(cur, user_id):
     row = cur.fetchone()
     used = row['searches'] if row else 0
     return dict(tier=tier, status='active' if is_tester else 'trialing' if testing else 'active' if paid else 'free',
-        validUntil=end.isoformat() if end else None, trialAvailable=not is_tester and not trial['trial_started_at'] and not paid,
+        validUntil=end.isoformat() if end else None, trialAvailable=not is_tester and not trial['trial_started_at'] and not bundle_trial and not paid,
         usage=dict(used=used,limit=10 if tier=='free' else None,remaining=max(0,10-used) if tier=='free' else None,resetsAt=reset),
         features=dict(insights=tier=='pro',comparisons=tier in ('plus','pro'),unlimitedSearches=tier!='free'))
 
