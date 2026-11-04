@@ -1,5 +1,6 @@
 """Durable monthly backfill. Small resumable slices, newest month first, no login blocking."""
 import calendar
+import logging
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -8,6 +9,11 @@ from psycopg2.extras import Json
 from flask import current_app
 from precify_core import ApiError, db, now, BR
 from seller_ml import get
+
+log=logging.getLogger('seller_sync.progress')
+log.setLevel(logging.INFO)
+if not log.handlers:log.addHandler(logging.StreamHandler())
+log.propagate=False
 
 ITEM=re.compile(r'MLB\d{6,16}\Z')
 METRICS='clicks,prints,cost,direct_amount,indirect_amount,direct_units_quantity,indirect_units_quantity'
@@ -130,7 +136,7 @@ def step(job):
         # Inclusive millisecond ranges. Split dense windows before hitting ML's 10k cap.
         windows=cursor.get('windows') or [[start.isoformat()+'T00:00:00.000-03:00',end.isoformat()+'T23:59:59.999-03:00']]
         lo,hi=windows[0];offset=cursor.get('offset',0);index=cursor.get('index',0)
-        data=fetch('/orders/search',{'seller':s,'order.date_created.from':lo,'order.date_created.to':hi,'sort':'date_asc','order.status':'paid,partially_refunded,cancelled','limit':50,'offset':offset})
+        data=fetch('/orders/search',{'seller':s,'order.date_created.from':lo,'order.date_created.to':hi,'order.status':'paid,partially_refunded,cancelled','limit':50,'offset':offset})
         rows=data.get('results');total=(data.get('paging') or {}).get('total')
         if not isinstance(rows,list) or not isinstance(total,int): raise ApiError('ml_invalid_orders',502)
         if total>=9950:
@@ -191,7 +197,7 @@ def step(job):
         # Persist group inventory in the cursor once; only public IDs/names are stored.
         if 'groups' not in cursor:
             groups=[];offset=cursor.get('group_offset',0)
-            response=fetch(base+'/ad_groups/search',{'limit':50,'offset':offset})
+            response=fetch(base+'/ad_groups/search',{'limit':50,'offset':offset,'date_from':max(period,today()-timedelta(days=89)).isoformat(),'date_to':end.isoformat(),'metrics':METRICS.upper()})
             rows=response.get('results')
             if not isinstance(rows,list):raise ApiError('ml_invalid_ads',502)
             groups=cursor.get('group_buffer',[])+[{'id':r['id'],'campaign':r['campaign_id']} for r in rows]
@@ -241,20 +247,21 @@ def step(job):
     raise ApiError('invalid_sync_kind')
 
 
-def run_once():
+def run_once(kinds=None):
+    kinds=list(kinds or ('profile','catalog','orders','ads'))
     lease=str(uuid4())
     with db() as cur:
         # One lease per account, recover automatically after crashes. Network never holds a DB lock.
         cur.execute("""WITH due AS (
           SELECT j.id FROM seller_jobs j JOIN contas_mercado_livre c ON c.usuario_id=j.user_id AND c.id_ml=j.seller_id
-          WHERE j.state IN ('queued','retry','running','done') AND j.next_at<=NOW()
+          WHERE j.kind=ANY(%s) AND j.state IN ('queued','retry','running','done') AND j.next_at<=NOW()
           AND (j.lease_until IS NULL OR j.lease_until<NOW())
-          AND NOT EXISTS(SELECT 1 FROM seller_jobs x WHERE x.user_id=j.user_id AND x.lease_until>NOW())
-          ORDER BY CASE WHEN j.kind='profile' THEN 0 WHEN j.state='done' THEN 3 ELSE 1 END,
-          j.period DESC,CASE j.kind WHEN 'orders' THEN 0 WHEN 'catalog' THEN 1 ELSE 2 END
+          AND NOT EXISTS(SELECT 1 FROM seller_jobs x WHERE x.user_id=j.user_id AND x.kind=ANY(%s) AND x.lease_until>NOW())
+          ORDER BY CASE WHEN j.state='done' THEN 3 WHEN j.kind='profile' THEN 0 WHEN j.kind='catalog' THEN 1 ELSE 2 END,
+          j.period DESC,j.next_at
           FOR UPDATE OF j SKIP LOCKED LIMIT 1)
           UPDATE seller_jobs j SET state='running',lease=%s,lease_until=NOW()+INTERVAL '15 minutes'
-          FROM due WHERE j.id=due.id RETURNING j.*""",(lease,));job=cur.fetchone()
+          FROM due WHERE j.id=due.id RETURNING j.*""",(kinds,kinds,lease));job=cur.fetchone()
     if not job:return False
     try:
         cursor,done,warning=step(job)
@@ -265,8 +272,9 @@ def run_once():
             cur.execute("""UPDATE seller_jobs SET cursor=%s,state=%s,error=%s,attempts=0,lease=NULL,lease_until=NULL,
               finished_at=CASE WHEN %s THEN NOW() ELSE finished_at END,next_at=NOW()+(%s*INTERVAL '1 second')
               WHERE id=%s AND lease=%s""",(Json(cursor),'done' if done else 'queued',warning,done,refresh if done else 0,job['id'],lease))
-            if done:
+            if done or job['kind']=='ads':
                 cur.execute('UPDATE seller_sync SET revision=revision+1 WHERE user_id=%s AND seller_id=%s',(job['user_id'],job['seller_id']))
+        if done:log.info('seller_sync completed job=%s kind=%s month=%s warning=%s',job['id'],job['kind'],job['period'],warning or 'none')
     except Exception as exc:
         code=exc.code if isinstance(exc,ApiError) else 'sync_unavailable'
         if job['kind']=='catalog' and code=='ml_http_400':
@@ -283,11 +291,16 @@ def run_once():
 
 def start(app):
     if app.testing:return
+    with app.app_context(),db() as cur:
+        # Revalidate rejected requests after deploying updated API parameters.
+        cur.execute("UPDATE seller_jobs SET next_at=NOW() WHERE state='retry' AND error='ml_http_400'")
     from apscheduler.schedulers.background import BackgroundScheduler
     scheduler=BackgroundScheduler(daemon=True)
-    def tick():
+    def tick(kinds):
         with app.app_context():
-            try:run_once()
+            try:run_once(kinds)
             except Exception:app.logger.warning('seller_sync worker unavailable')
-    scheduler.add_job(tick,'interval',seconds=2,max_instances=1,coalesce=True)
+    # Independent lanes: an expensive order/shipping slice cannot block catalog or Ads.
+    scheduler.add_job(tick,'interval',args=[('profile','catalog','ads')],seconds=2,max_instances=1,coalesce=True)
+    scheduler.add_job(tick,'interval',args=[('orders',)],seconds=2,max_instances=1,coalesce=True)
     scheduler.start();app.extensions['seller_sync']=scheduler

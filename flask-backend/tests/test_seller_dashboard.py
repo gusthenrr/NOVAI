@@ -113,7 +113,7 @@ def test_month_backfill_and_retention_newest_first(app,client,setup):
     with patch('seller_sync.get',return_value={'id':123,'nickname':'Loja','registration_date':'2020-01-01T00:00:00Z'}),app.app_context():assert run_once()
     status=client.get('/api/novai/dashboard/status',headers=setup).json
     assert status['monthsTotal']==13 and status['availableFrom']=='2025-11-04'
-    with app.app_context(),patch('seller_sync.step',return_value=({},True,None)) as fn:run_once()
+    with app.app_context(),patch('seller_sync.step',return_value=({},True,None)) as fn:run_once(('orders',))
     assert fn.call_args.args[0]['kind']=='orders' and fn.call_args.args[0]['period']==date(2026,11,1)
 
 
@@ -221,3 +221,16 @@ def test_first_partial_order_month_is_not_complete(app,client,setup):
 def test_missing_payments_do_not_assert_zero_refund():
     order=fixture_order(103);order['payments']=[]
     assert clean_order(order,123)[2]['refunded'] is None
+
+
+def test_catalog_lane_does_not_wait_for_orders(app,client,setup):
+    post(client,setup,'/sync')
+    with patch('seller_sync.get',return_value={'id':123,'nickname':'Loja','registration_date':'2020-01-01T00:00:00Z'}),app.app_context():run_once(('profile',))
+    with app.app_context(),db() as cur:
+        cur.execute("UPDATE seller_jobs SET state='running',lease='slow-orders',lease_until=NOW()+INTERVAL '10 minutes' WHERE kind='orders' AND period='2026-11-01'")
+    with app.app_context(),patch('seller_sync.step',return_value=({},True,None)) as work:
+        assert run_once(('profile','catalog','ads'))
+        assert work.call_args.args[0]['kind']=='catalog'
+    with app.app_context(),patch('seller_sync.step') as work:
+        assert not run_once(('orders',))
+        assert not work.called

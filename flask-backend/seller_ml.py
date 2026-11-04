@@ -2,6 +2,7 @@
 import re
 import time
 from datetime import timedelta
+from flask import current_app
 from precify_core import ApiError, db, now
 from security_network import ml_http
 
@@ -33,7 +34,16 @@ def get(user_id, seller_id, path, params=None, headers=None):
         if response.status_code==403: raise ApiError('ml_permission_required',403)
         if response.status_code==404: raise ApiError('ml_resource_unavailable',404)
         if response.status_code==429: raise ApiError('ml_rate_limited',429)
-        if not response.ok: raise ApiError('ml_http_'+str(response.status_code),502)
+        if not response.ok:
+            # Only diagnostic fields, never bodies/URLs/headers or customer records.
+            try: detail=response.json()
+            except ValueError: detail={}
+            fields=[detail.get('error'),detail.get('message')] if isinstance(detail,dict) else []
+            safe=' '.join(str(v) for v in fields if isinstance(v,str)).replace(token,'[redacted]')
+            safe=re.sub(r'\S*@\S*|[A-Za-z0-9_-]{30,}|\d{5,}', '[redacted]',safe)
+            safe=re.sub(r'[^A-Za-z0-9_ .,:/()\[\]-]',' ',safe)[:240]
+            current_app.logger.warning('seller_ml resource=%s status=%s detail=%s',re.sub(r'\d+',':id',path),response.status_code,safe)
+            raise ApiError('ml_http_'+str(response.status_code),502)
         try: return response.json()
         except ValueError: raise ApiError('ml_invalid_response',502) from None
     raise ApiError('ml_unavailable',502)
