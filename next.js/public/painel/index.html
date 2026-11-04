@@ -3,8 +3,20 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="novai-dashboard-api" content="__DASHBOARD_API__"><meta name="theme-color" content="#171717"><meta name="description" content="Painel Novai: vendas, produtos e margem em um só lugar.">
-  <title>Resumo · Novai</title><link rel="stylesheet" href="/painel/dashboard.css">
-  <script src="/painel/dashboard-model.js" defer></script><script src="/painel/dashboard.js" defer></script>
+  <title>Painel da Novai</title><script src="/painel/theme.js?v=1006b6fd11e2"></script><link rel="stylesheet" href="/painel/dashboard.css?v=c6dd6edfc4c4"><link rel="stylesheet" href="/painel/theme.css?v=beb5cac54ab0">
+  <!-- NOVAI: REGRA DE COBERTURA DOS ESTOQUES
+  Dias = dias corridos do periodo selecionado, incluindo dias sem vendas.
+  Media diaria Full = unidades liquidas vendidas pelo Full / Dias.
+  Cobertura Full = Math.ceil(saldo disponivel Full / media diaria Full).
+  Deposito: a mesma formula, usando SOMENTE seu saldo e suas vendas.
+  Limites da previa: ate 3 dias = urgente; 4 a 7 = atencao; acima de 7 = em dia.
+  Estoque zero numa modalidade ativa = esgotado. Sem vendas/dados: cobertura indisponivel.
+  Full e somente leitura. Alterar o Deposito nao altera o saldo nem a cobertura do Full.
+  Implementacao: inventoryPolicy e stockCoverageDays no modelo JavaScript incluido abaixo.
+  Producao: usar pedidos reais separados por logistica, nao a divisao simulada da previa.
+  Prazo de compra/agendamento/recebimento e estoque a caminho nao entram nesta conta simples.
+  -->
+  <script src="/painel/ean13.js?v=c438ac82317e" defer></script><script src="/painel/dashboard-model.js?v=e85728b70465" defer></script><script src="/painel/connection-sync.js?v=4bc7f1b65a5a" defer></script><script src="/painel/dashboard.js?v=0fb8b7f53426" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Ir para o conteúdo</a>
@@ -14,29 +26,99 @@
       <a class="nav-item active" href="#resumo" data-nav="resumo"><i data-icon="layout-dashboard"></i><span>Resumo</span></a>
       <a class="nav-item" href="#financeiro" data-nav="financeiro"><i data-icon="wallet"></i><span>Financeiro</span></a>
       <a class="nav-item" href="#produtos" data-nav="produtos"><i data-icon="box"></i><span>Produtos</span><small id="nav-product-count">—</small></a>
+      <a class="nav-item" href="#anuncios" data-nav="anuncios"><i data-icon="receipt-2"></i><span>Anúncios</span></a>
+      <a class="nav-item" href="#estoque" data-nav="estoque"><i data-icon="package"></i><span>Gestão de estoque</span></a>
       <a class="nav-item" href="#publicidade" data-nav="publicidade"><i data-icon="speakerphone"></i><span>Publicidade</span></a>
       <a class="nav-item precify-nav" href="#oportunidades" data-nav="oportunidades" aria-label="Precify, margens e salvos"><img src="/painel/assets/precify.png" alt="" width="25" height="25"><span>Precify</span></a>
+      <a class="nav-item" href="#ferramentas/ean" data-nav="ferramentas"><i data-icon="tools"></i><span>Ferramentas</span></a>
     </nav>
-    <div class="sidebar-end"><a class="nav-item" href="/dashboard/Promotion">Promoções</a><a class="nav-item" href="/dashboard/claims">Reclamações</a><a class="nav-item" href="/Manager">Assistente NOVAI</a><a class="nav-item" href="/conectado"><i data-icon="adjustments-horizontal"></i><span>Configurações</span></a></div>
+    <div class="sidebar-end"><a class="nav-item" href="#configuracoes" data-nav="configuracoes"><i data-icon="adjustments-horizontal"></i><span>Configurações</span></a><a class="nav-item" href="#conexoes" data-nav="conexoes"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 3 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg><span>Conexões</span></a></div>
   </aside>
   <div class="workspace">
     <header class="topbar">
       <a class="mobile-brand" href="#resumo" aria-label="Novai, início"><img src="/painel/assets/novai.svg" alt="Novai" width="44" height="32"></a>
-      <div class="store"><span class="store-mark"><i data-icon="building-store"></i></span><span><strong>Sua loja</strong><small>Mercado Livre</small></span><span class="market-symbol"><img src="/painel/assets/mercado-livre-simbolo.png" alt="Mercado Livre"></span></div>
-      <div class="header-actions"><a class="settings-shortcut" href="/conectado" aria-label="Configurações"><i data-icon="adjustments-horizontal"></i></a><div class="menu-wrap demo-wrap"><button class="demo-trigger" id="demo-trigger" aria-expanded="false" aria-controls="demo-menu"><span class="demo-dot"></span>Dados da sua conta <span class="chevron down"></span></button><div class="dropdown demo-menu" id="demo-menu" hidden><p>Testar estados do painel</p><button data-coverage="complete" aria-pressed="true">Custos completos <span>✓</span></button><button data-coverage="missing" aria-pressed="false">Um produto sem custo <span>✓</span></button><button id="reset-demo">Restaurar a prévia</button></div></div></div>
+      <!-- IDENTIDADE DA CONTA CONECTADA (nao usar dados do vendedor de um anuncio concorrente).
+      O backend autenticado consulta GET https://api.mercadolibre.com/users/me com o token OAuth guardado no servidor.
+      Entregar apenas {name, pictureUrl}: name = nome comercial disponivel ou nickname;
+      pictureUrl = URL HTTPS da foto/logo realmente retornada e vinculada a essa conta, quando disponivel.
+      A API pode devolver logo:null. Lojas oficiais: consultar /users/{USER_ID}/brands e selecionar a marca correta;
+      nao escolher automaticamente a primeira marca e nao montar URL a partir de um ID de logo.
+      Antes de carregar dashboard.js, o servidor pode fornecer window.NOVAI_CONNECTED_ACCOUNT com esses dois campos,
+      ou chamar window.NovaiPanel.applyAccount({name, pictureUrl}) apos receber o perfil autorizado.
+      Nao colocar access_token, refresh_token, documentos ou e-mail neste HTML.
+      Sem foto/falha de carregamento: mostrar as iniciais. Ao sair/trocar conta: applyAccount(null).
+      Sua loja e assets/loja-exemplo.svg sao apenas a identidade da previa local.
+      Docs: https://developers.mercadolivre.com.br/pt_br/usuarios-e-aplicativos/consulta-de-usuarios
+      https://developers.mercadolivre.com.br/pt_br/loja-oficial
+      -->
+      <div class="store" id="store-account" data-account-source="preview"><span class="store-mark store-account-avatar"><img id="store-account-photo" alt="" width="34" height="34" hidden referrerpolicy="no-referrer"><span id="store-account-initials" aria-hidden="true">CF</span></span><span class="store-account-copy"><strong id="store-account-name">Sua loja</strong><small>Mercado Livre</small></span><span class="market-symbol"><img src="/painel/assets/mercado-livre-simbolo.png" alt="Mercado Livre"></span></div>
+      <div class="header-actions"><button type="button" class="theme-toggle" data-toggle-theme aria-label="Ativar tema claro" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/></svg><span data-theme-label>Claro</span></button><a class="settings-shortcut" href="#configuracoes" aria-label="Configurações"><i data-icon="adjustments-horizontal"></i></a><div class="menu-wrap demo-wrap" hidden><button class="demo-trigger" id="demo-trigger" aria-expanded="false" aria-controls="demo-menu"><span class="demo-dot"></span>Dados da conta <span class="chevron down"></span></button><div class="dropdown demo-menu" id="demo-menu" hidden><p>Testar estados do painel</p><button data-coverage="complete" aria-pressed="true">Custos completos <span>✓</span></button><button data-coverage="missing" aria-pressed="false">Um produto sem custo <span>✓</span></button><button type="button" data-demo-sync>Testar sincronização</button><button type="button" data-demo-sync-error>Testar falha na sincronização</button><button id="reset-demo">Restaurar a prévia</button></div></div></div>
     </header>
     <main id="main" tabindex="-1">
-      <div class="page-head"><div><div class="page-eyebrow" id="page-eyebrow">VISÃO DA LOJA</div><h1 id="page-title">Resumo</h1></div><div class="menu-wrap period-wrap"><button id="period-trigger" class="period-trigger" aria-expanded="false" aria-controls="period-menu"><i data-icon="calendar-month"></i><span id="period-label">Últimos 7 dias</span><span class="chevron down"></span></button><div class="period-range" id="period-range"></div><div class="dropdown period-menu" id="period-menu" hidden><button data-days="7" aria-pressed="true">Últimos 7 dias <span>✓</span></button><button data-days="15" aria-pressed="false">Últimos 15 dias <span>✓</span></button><button data-days="30" aria-pressed="false">Últimos 30 dias <span>✓</span></button><button id="all-period">Todo o histórico disponível</button><button id="custom-trigger" aria-expanded="false">Personalizado <span class="chevron"></span></button><form id="custom-form" hidden><label>Início<input type="date" id="start"  required></label><label>Fim<input type="date" id="end"  required></label><p id="date-error" role="alert"></p><button class="button primary" type="submit">Aplicar período</button></form></div></div></div>
-      <section id="sync-status" class="sync-banner" role="status" aria-live="polite"><div><strong id="sync-title">Preparando seu painel…</strong><p id="sync-description">Você pode navegar enquanto os dados são coletados.</p><progress id="sync-progress" max="1"></progress><small id="sync-coverage"></small></div><button class="button secondary" id="sync-retry">Atualizar</button><a class="button secondary" id="sync-login" href="/login" hidden>Entrar</a><a class="button secondary" id="sync-connect" href="/conectado" hidden>Conectar Mercado Livre</a></section><div class="route-tabs" id="route-tabs" hidden></div>
+      <header class="page-head">
+        <div><div class="page-eyebrow" id="page-eyebrow">VISÃO DA LOJA</div><h1 id="page-title"><img id="page-precify-mark" src="/painel/assets/precify.png" width="32" height="32" alt="" hidden><span id="page-title-label">Resumo</span></h1></div>
+        <div class="page-actions"><div class="menu-wrap period-wrap">
+          <button type="button" id="period-trigger" class="period-trigger" aria-expanded="false" aria-controls="period-menu" aria-labelledby="period-label" aria-describedby="period-range">
+            <span class="period-icon" aria-hidden="true"><i data-icon="calendar-month"></i></span>
+            <span class="period-copy"><span id="period-label">Últimos 7 dias</span><span class="period-range" id="period-range"></span></span>
+            <span class="chevron down" aria-hidden="true"></span>
+          </button>
+          <div class="dropdown period-menu" id="period-menu" hidden>
+            <p>Período da análise</p>
+            <div class="period-presets" role="group" aria-label="Períodos rápidos">
+              <button type="button" data-days="7" aria-pressed="true">Últimos 7 dias</button>
+              <button type="button" data-days="15" aria-pressed="false">Últimos 15 dias</button>
+              <button type="button" data-days="30" aria-pressed="false">Últimos 30 dias</button>
+              <button type="button" data-days="60" aria-pressed="false">Últimos 60 dias</button>
+            </div>
+            <button type="button" id="custom-trigger" aria-expanded="false" aria-controls="custom-form">Personalizado <span class="chevron" aria-hidden="true"></span></button>
+            <form id="custom-form" hidden>
+              <label>Início<input type="date" id="start" required></label>
+              <label>Fim<input type="date" id="end" required></label>
+              <div class="period-calendar" role="group" aria-label="Calendário">
+                <div class="calendar-heading">
+                  <button type="button" data-month-step="-1" aria-label="Mês anterior"><span class="chevron left" aria-hidden="true"></span></button>
+                  <strong id="calendar-month" aria-live="polite"></strong>
+                  <button type="button" data-month-step="1" aria-label="Próximo mês"><span class="chevron" aria-hidden="true"></span></button>
+                </div>
+                <div class="calendar-week" aria-hidden="true"><span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span></div>
+                <div class="calendar-days" id="calendar-days"></div>
+              </div>
+              <p id="date-error" role="alert"></p>
+              <div class="calendar-actions"><button type="button" class="button secondary" id="cancel-dates">Cancelar</button><button class="button primary" type="submit">Aplicar</button></div>
+            </form>
+          </div>
+        </div><label id="finance-year-control" class="finance-year-control" hidden><span>Ano</span><select id="expense-year" aria-label="Ano da gestão financeira e DRE"></select></label><button id="page-export" type="button" class="page-export" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17v3h16v-3M12 3v12m-4-4 4 4 4-4"/></svg><span>Exportar CSV</span></button></div>
+      </header>
+      <nav class="route-tabs" id="route-tabs" aria-label="Seções desta página" hidden></nav>
+      <section id="finance-controls" class="finance-controls" aria-label="Filtros do resumo financeiro" hidden></section>
+      <!-- Sincronizacao real: informar progresso por NovaiPanel.connection; nunca usar tempo ficticio para concluir chamadas reais. -->
+      <aside id="connection-sync-notice" class="connection-sync-notice" hidden aria-labelledby="connection-sync-title"><span class="connection-notice-icon" aria-hidden="true"><span class="connection-spinner"></span><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></span><div class="connection-notice-copy"><div class="connection-notice-title"><strong id="connection-sync-title"></strong><span id="connection-sync-preview">Simulação</span></div><p id="connection-sync-copy"></p><span id="connection-sync-detail" role="status" aria-live="polite" aria-atomic="true"></span></div><a class="text-button" href="#conexoes">Ver conexão <span class="chevron" aria-hidden="true"></span></a><button class="icon-button close-button" id="connection-sync-close" aria-label="Fechar aviso de sincronização" hidden><svg viewBox="0 0 24 24"><path d="m7 7 10 10M7 17 17 7"/></svg></button></aside>
       <section class="metric-strip" id="metrics" aria-label="Indicadores do período"></section>
       <p class="comparison-note" id="comparison-note"></p>
       <section id="tasks-section" class="tasks-section" aria-labelledby="tasks-title"><div class="section-heading"><h2 id="tasks-title">Para revisar</h2><button class="text-button" id="attention-all">Ver pendências <span id="attention-count"></span><span class="chevron"></span></button></div><div class="tasks-row" id="attention-list"></div></section>
-      <section id="chart-section" class="panel chart-panel" aria-labelledby="chart-title"><div class="panel-heading"><div><h2 id="chart-title">Evolução do período</h2><p id="chart-caption">Uma visão por dia.</p></div><div class="segments" role="group" aria-label="Métrica do gráfico"><button data-chart="gross" aria-pressed="true">Faturamento</button><button data-chart="result" aria-pressed="false">Resultado</button><button data-chart="orders" aria-pressed="false">Vendas</button></div></div><div class="chart-container" id="chart-container" tabindex="0" role="group" aria-label="Gráfico do período. Use as setas para consultar os valores."><svg id="chart" role="img" aria-label="Evolução no período selecionado"></svg><div class="chart-tooltip" id="chart-tooltip" hidden></div><p class="chart-empty" id="chart-empty" hidden>Cadastre o custo pendente para visualizar o resultado.</p></div><div class="chart-dates" id="chart-dates"></div><div class="chart-bottom"><span id="chart-frequency">Valores diários</span><span class="data-caption">Aguardando coleta</span></div><span class="sr-only" id="chart-announcement" aria-live="polite"></span></section>
+      <section id="chart-section" class="panel chart-panel" aria-labelledby="chart-title"><div class="panel-heading"><div><h2 id="chart-title">Evolução do período</h2><p id="chart-caption">Uma visão por dia.</p></div><div class="segments" role="group" aria-label="Métrica do gráfico"><button data-chart="gross" aria-pressed="true">Faturamento</button><button data-chart="result" aria-pressed="false">Resultado</button><button data-chart="orders" aria-pressed="false">Vendas</button></div></div><div class="chart-container" id="chart-container" tabindex="0" role="group" aria-label="Gráfico do período. Use as setas para consultar os valores."><svg id="chart" role="img" aria-label="Evolução no período selecionado"></svg><div class="chart-tooltip" id="chart-tooltip" hidden></div><p class="chart-empty" id="chart-empty" hidden>Cadastre o custo pendente para visualizar o resultado.</p></div><div class="chart-dates" id="chart-dates"></div><div id="ad-chart-legend" class="ad-chart-legend" role="group" aria-label="Métricas exibidas no gráfico" hidden></div><div class="chart-bottom"><span id="chart-frequency">Valores diários</span><span class="data-caption">Até 30 out 2026</span></div><span class="sr-only" id="chart-announcement" aria-live="polite"></span></section>
       <div id="page-content"></div>
       <footer class="page-footer"><span>Dados da conta conectada.</span><span id="footer-context">Resultado das vendas antes das despesas fixas.</span></footer>
     </main>
   </div>
-  <nav class="mobile-nav" aria-label="Navegação no celular"><a href="#resumo" data-nav="resumo"><i data-icon="layout-dashboard"></i><span>Resumo</span></a><a href="#financeiro" data-nav="financeiro"><i data-icon="wallet"></i><span>Financeiro</span></a><a href="#produtos" data-nav="produtos"><i data-icon="box"></i><span>Produtos</span></a><a href="#publicidade" data-nav="publicidade"><i data-icon="speakerphone"></i><span>Publicidade</span></a><a href="#oportunidades" data-nav="oportunidades" aria-label="Precify, margens e salvos"><img src="/painel/assets/precify.png" alt="" width="22" height="22"><span>Precify</span></a></nav>
+    <nav class="mobile-nav" aria-label="Navegação no celular">
+    <a href="#resumo" data-nav="resumo"><i data-icon="layout-dashboard"></i><span>Resumo</span></a>
+    <a href="#produtos" data-nav="produtos"><i data-icon="box"></i><span>Produtos</span></a>
+    <a href="#anuncios" data-nav="anuncios"><i data-icon="receipt-2"></i><span>Anúncios</span></a>
+    <a href="#estoque" data-nav="estoque"><i data-icon="package"></i><span>Estoque</span></a>
+    <div class="menu-wrap mobile-more">
+      <button id="more-trigger" type="button" aria-expanded="false" aria-controls="more-menu"><i data-icon="adjustments-horizontal"></i><span>Mais</span></button>
+      <div id="more-menu" class="dropdown" hidden>
+        <a href="#financeiro" data-nav="financeiro">Financeiro</a>
+        <a href="#publicidade" data-nav="publicidade">Publicidade</a>
+        <a href="#oportunidades" data-nav="oportunidades">Precify</a>
+        <a href="#ferramentas/ean" data-nav="ferramentas">Ferramentas</a>
+        <a href="#configuracoes" data-nav="configuracoes">Configurações</a><a href="#conexoes" data-nav="conexoes">Conexões</a>
+      </div>
+    </div>
+  </nav>
   <dialog id="detail-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><button id="dialog-back" class="icon-button back-button" aria-label="Voltar" hidden><span class="chevron left"></span></button><span id="dialog-eyebrow">SEU PRODUTO</span><button class="icon-button close-button" id="close-dialog" aria-label="Fechar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7"/></svg></button></div><div class="dialog-content" id="dialog-content"></div></dialog>
+  <dialog id="dre-expanded-dialog" class="dre-expanded-dialog" aria-label="DRE expandida"></dialog>
   <div class="toast" id="toast" role="status" hidden></div><div class="sr-only" id="announcement" role="status" aria-live="polite"></div>
 </body></html>

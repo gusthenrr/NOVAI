@@ -9,7 +9,16 @@ from novai_billing import web_identity,guard,headers,payload
 from seller_sync import connection,enqueue,today,ITEM,money
 
 panel=Blueprint('seller_dashboard',__name__,url_prefix='/api/novai/dashboard')
-panel.before_request(guard)
+@panel.before_request
+def panel_guard():
+    # Bulk imports have a dedicated bounded JSON limit; auth/origin rules remain identical.
+    if request.path.endswith('/preferences'):
+        from novai_billing import frontend
+        if request.method=='POST' and (request.content_length is None or request.content_length>2*1024*1024):raise ApiError('request_too_large',413)
+        if request.method in ('POST','OPTIONS') and request.headers.get('Origin')!=frontend():raise ApiError('origin_denied',403)
+        if request.method=='OPTIONS':return '',204
+        if request.method=='POST' and not request.is_json:raise ApiError('invalid_json')
+    else:return guard()
 panel.after_request(headers)
 @panel.errorhandler(ApiError)
 def error(exc):return jsonify(error=exc.code),exc.status
@@ -80,9 +89,10 @@ def product(key,data,costs):
         unitCost=costs.get(key,{}).get('cost'),taxPercent=costs.get(key,{}).get('tax'),reputation=None,unitShipping=None,cover=None,lastSale=None,**zero())
 
 
-def aggregate(cur,u,s,start,end,products,costs,status):
+def aggregate(cur,u,s,start,end,products,costs,status,include_records=False):
+    records={};ad_records=[]
     by={p['id']:dict(p) for p in products};days={};events=[];order_ids=set();cancel_ids=set();daily_orders={};daily_cancelled={}
-    cur.execute('''SELECT o.order_id,o.day,o.data,h.cost AS shipment_cost,h.units AS shipment_units
+    cur.execute('''SELECT o.order_id,o.day,o.data,h.cost AS shipment_cost,h.units AS shipment_units,h.logistic_type
       FROM seller_orders o LEFT JOIN seller_shipping h ON h.user_id=o.user_id AND h.seller_id=o.seller_id AND h.shipment_id=o.shipment_id
       WHERE o.user_id=%s AND o.seller_id=%s AND o.day BETWEEN %s AND %s ORDER BY o.day''',(u,s,start,end))
     # Stream SQL rows rather than copying the full seller history into memory.
@@ -100,14 +110,25 @@ def aggregate(cur,u,s,start,end,products,costs,status):
                 refund=0 if cancelled else None if record['refunded'] is None else round(record['refunded']*share,2)
                 net=0 if cancelled else None if refund is None else round(amount-refund,2)
                 unit_cost=costs.get(key,{}).get('cost');tax_rate=costs.get(key,{}).get('tax')
-                cost=None if cancelled else None if unit_cost is None else round(unit_cost*q,2)
-                fees=None if cancelled else None if line['fee'] is None else round(line['fee']*q,2)
+                cost=0 if cancelled else None if unit_cost is None else round(unit_cost*q,2)
+                fees=0 if cancelled else None if line['fee'] is None else round(line['fee']*q,2)
                 tax=0 if cancelled else None if tax_rate is None or net is None else round(net*tax_rate/100,2)
                 # Split a shipment across ALL its seller units (including other orders), never per-order duplicate costs.
-                shipping=None if cancelled else None if source['shipment_cost'] is None or not source['shipment_units'] else round(float(source['shipment_cost'])*q/float(source['shipment_units']),2)
+                shipping=0 if cancelled else None if source['shipment_cost'] is None or not source['shipment_units'] else round(float(source['shipment_cost'])*q/float(source['shipment_units']),2)
                 row=dict(orders=int(not cancelled and key not in seen),units=0 if cancelled else q,cancelledOrders=int(cancelled and key not in seen),gross=amount,cancelled=amount if cancelled else 0,refunded=refund,net=net,fees=fees,tax=tax,shipping=shipping,cost=cost)
                 seen.add(key)
-                for target in (p,daily):
+                targets=[p,daily]
+                if include_records:
+                    r=records.setdefault((key,key_day),dict(id=key,day=key_day,orderIds=[],cancelIds=[],fullUnits=0,warehouseUnits=0,**zero()))
+                    ids=r['cancelIds' if cancelled else 'orderIds']
+                    if source['order_id'] not in ids:ids.append(source['order_id'])
+                    if not cancelled:
+                        logistic=source['logistic_type']
+                        if not logistic:r['fullUnits']=r['warehouseUnits']=None
+                        elif logistic=='fulfillment':r['fullUnits']=plus(r['fullUnits'],q)
+                        else:r['warehouseUnits']=plus(r['warehouseUnits'],q)
+                    targets.append(r)
+                for target in targets:
                     for k,v in row.items():target[k]=plus(target[k],v)
                 if not cancelled:p['lastSale']=key_day
                 if cancelled or refund:
@@ -122,6 +143,7 @@ def aggregate(cur,u,s,start,end,products,costs,status):
         c=campaigns.setdefault(r['campaign_id'],dict(id=r['campaign_id'],name=r['campaign_name'],products=[],productMetrics={},**zero()))
         if p['id'] not in c['products']:c['products'].append(p['id'])
         vals=dict(ads=m.get('cost'),clicks=m.get('clicks'),impressions=m.get('prints'),adRevenue=plus(m.get('direct_amount'),m.get('indirect_amount')),adUnits=plus(m.get('direct_units_quantity'),m.get('indirect_units_quantity')))
+        if include_records:ad_records.append(dict(id=p['id'],day=r['day'].isoformat(),campaignId=r['campaign_id'],campaignName=r['campaign_name'],**vals))
         ad_products.add(p['id']);ad_days.add(r['day'].isoformat())
         for k,v in vals.items():ad_totals[k]=plus(ad_totals[k],v)
         cp=c['productMetrics'].setdefault(p['id'],dict.fromkeys(ADS,0))
@@ -171,7 +193,7 @@ def aggregate(cur,u,s,start,end,products,costs,status):
         c['products']=[by[k] for k in c['products']]
         c['adResult']=attributed if ads_complete and orders_complete else None
     return dict(**total,incomplete=total['result'] is None,complete=orders_complete,adsComplete=ads_complete,adsPartial=bool(ad_products) and not ads_complete,
-        products=list(by.values()),days=sorted(days.values(),key=lambda x:x['day']),events=sorted(events,key=lambda x:x['day'],reverse=True),campaigns=list(campaigns.values()),lossAfterShipping=None)
+        products=list(by.values()),days=sorted(days.values(),key=lambda x:x['day']),events=sorted(events,key=lambda x:x['day'],reverse=True),campaigns=list(campaigns.values()),lossAfterShipping=None,**(dict(records=list(records.values()),adRecords=ad_records) if include_records else {}))
 
 
 @panel.post('/sync')
@@ -253,3 +275,7 @@ def connect_account():
     from precify_api import create_oauth_ticket
     user=web_identity();rate_limit('seller-connect:'+str(user['id']),limit=10)
     return jsonify(url=create_oauth_ticket(user['id'],frontend()+'/dashboard/inicio'))
+
+# Route registration is kept after the shared aggregation helpers to avoid circular initialization.
+from seller_panel_features import register as register_panel_features
+register_panel_features(panel)

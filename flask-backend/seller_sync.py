@@ -80,7 +80,7 @@ def clean_order(order,seller):
     refunds=[money(p.get('transaction_amount_refunded')) for p in payments if p.get('status') in ('approved','refunded','in_mediation','charged_back')]
     refund=None if not refunds or any(v is None for v in refunds) else round(sum(refunds),2)
     if any(p.get('status')=='charged_back' for p in payments): refund=None
-    return identifier,day,dict(status=order.get('status'),lines=lines,refunded=refund,shipment=str((order.get('shipping') or {}).get('id') or '') or None)
+    return identifier,day,dict(createdAt=order.get('date_created'),status=order.get('status'),lines=lines,refunded=refund,shipment=str((order.get('shipping') or {}).get('id') or '') or None)
 
 
 def step(job):
@@ -163,7 +163,7 @@ def step(job):
             shipment=facts['shipment']
             if shipment:
                 with db() as cur:
-                    cur.execute('SELECT status FROM seller_shipping WHERE user_id=%s AND seller_id=%s AND shipment_id=%s',(u,s,shipment));known=cur.fetchone()
+                    cur.execute('SELECT status,logistic_type FROM seller_shipping WHERE user_id=%s AND seller_id=%s AND shipment_id=%s',(u,s,shipment));known=cur.fetchone()
                 if not known or known['status']!='ready':
                     cost=None;units=None;status='unavailable'
                     try:
@@ -178,6 +178,15 @@ def step(job):
                         if exc.status not in (403,404):raise
                     with db() as cur:
                         cur.execute('INSERT INTO seller_shipping(user_id,seller_id,shipment_id,cost,units,status) VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(user_id,seller_id,shipment_id) DO UPDATE SET cost=EXCLUDED.cost,units=EXCLUDED.units,status=EXCLUDED.status',(u,s,shipment,cost,units,status))
+                if not known or not known.get('logistic_type'):
+                    try:
+                        detail=fetch('/shipments/'+shipment)
+                        logistic=(detail.get('logistic') or {}).get('type') or detail.get('logistic_type')
+                        # Only logistics is retained; addresses/recipient data are discarded.
+                        if logistic in ('fulfillment','drop_off','cross_docking','xd_drop_off','self_service','not_specified','custom'):
+                            with db() as cur:cur.execute('UPDATE seller_shipping SET logistic_type=%s WHERE user_id=%s AND seller_id=%s AND shipment_id=%s',(logistic,u,s,shipment))
+                    except ApiError as exc:
+                        if exc.status not in (403,404):raise
             index+=1
         if index>=len(rows):offset+=len(rows);index=0
         if offset>=total:

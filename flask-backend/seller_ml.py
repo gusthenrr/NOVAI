@@ -8,6 +8,15 @@ from security_network import ml_http
 
 
 def get(user_id, seller_id, path, params=None, headers=None):
+    return request(user_id,seller_id,path,params,headers)
+
+
+def update_price(user_id,seller_id,item_id,price):
+    if not re.fullmatch(r'MLB\d{6,16}',item_id):raise ApiError('invalid_item_id')
+    return request(user_id,seller_id,'/items/'+item_id,method='PUT',data={'price':price})
+
+
+def request(user_id, seller_id, path, params=None, headers=None, method='GET',data=None):
     from precify_api import ml_token
     if not re.fullmatch(r'/[A-Za-z0-9_/-]+',path) or '//' in path:
         raise ApiError('invalid_ml_resource')
@@ -18,8 +27,8 @@ def get(user_id, seller_id, path, params=None, headers=None):
         if not account or account['id_ml']!=seller_id: raise ApiError('ml_account_changed',409)
         token=ml_token(user_id)  # checks expiry + serializes refresh via row lock, on EVERY request
         try:
-            response=ml_http.get('https://api.mercadolibre.com'+path,
-                params=params,headers={**(headers or {}),'Authorization':'Bearer '+token})
+            send=ml_http.get if method=='GET' else ml_http.put
+            response=send('https://api.mercadolibre.com'+path,params=params,headers={**(headers or {}),'Authorization':'Bearer '+token},**({'json':data} if method=='PUT' else {}))
         except ml_http.RequestException:
             raise ApiError('ml_unavailable',502) from None
         if response.status_code==401 and attempt==0:
@@ -28,7 +37,7 @@ def get(user_id, seller_id, path, params=None, headers=None):
                 cur.execute('UPDATE contas_mercado_livre SET expiracao_token=%s WHERE usuario_id=%s AND acess_token=%s',
                     ((now()-timedelta(seconds=1)).replace(tzinfo=None),user_id,token))
             continue
-        if response.status_code in (429,500,502,503,504) and attempt<2:
+        if method=='GET' and response.status_code in (429,500,502,503,504) and attempt<2:
             time.sleep(1+attempt);continue
         if response.status_code==401: raise ApiError('ml_reconnect_required',409)
         if response.status_code==403: raise ApiError('ml_permission_required',403)

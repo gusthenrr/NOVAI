@@ -54,3 +54,20 @@ CREATE TABLE IF NOT EXISTS seller_expenses (
  PRIMARY KEY(user_id,seller_id,id),
  FOREIGN KEY(user_id,seller_id) REFERENCES seller_sync(user_id,seller_id) ON DELETE CASCADE
 );
+
+-- Panel v4: additive settings, optimistic revision, visit cache and stock provenance.
+ALTER TABLE seller_expenses ADD COLUMN IF NOT EXISTS expense_type TEXT NOT NULL DEFAULT 'fixed';
+ALTER TABLE seller_expenses ADD COLUMN IF NOT EXISTS installments INTEGER;
+ALTER TABLE seller_shipping ADD COLUMN IF NOT EXISTS logistic_type TEXT;
+CREATE TABLE IF NOT EXISTS seller_panel_settings (
+ user_id BIGINT NOT NULL,seller_id BIGINT NOT NULL,version BIGINT NOT NULL DEFAULT 0,
+ data JSONB NOT NULL DEFAULT '{}',updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ PRIMARY KEY(user_id,seller_id),
+ FOREIGN KEY(user_id,seller_id) REFERENCES seller_sync(user_id,seller_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS seller_visit_cache (
+ user_id BIGINT NOT NULL,seller_id BIGINT NOT NULL,item_id TEXT NOT NULL,start_day DATE NOT NULL,end_day DATE NOT NULL,
+ data JSONB NOT NULL,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ PRIMARY KEY(user_id,seller_id,item_id,start_day,end_day),
+ FOREIGN KEY(user_id,seller_id) REFERENCES seller_sync(user_id,seller_id) ON DELETE CASCADE
+);
