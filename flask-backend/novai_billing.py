@@ -10,7 +10,8 @@ novai_billing=Blueprint('novai_billing',__name__,url_prefix='/api/novai/billing'
 
 
 def frontend():
-    value=os.environ.get('FRONTEND_URL','https://appealing-dream-production-1594.up.railway.app').rstrip('/')
+    value=(os.environ.get('FRONTEND_URL') or 'https://appealing-dream-production-1594.up.railway.app').strip().rstrip('/')
+    if '://' not in value: value='https://'+value
     parsed=urlsplit(value)
     if parsed.scheme!='https' or not parsed.netloc or parsed.username or parsed.password:
         raise ApiError('site_not_configured',503)
@@ -36,8 +37,10 @@ def headers(response):
     response.headers['Cache-Control']='no-store'
     response.headers['Referrer-Policy']='no-referrer'
     response.headers['X-Content-Type-Options']='nosniff'
-    if request.headers.get('Origin')==frontend():
-        response.headers['Access-Control-Allow-Origin']=frontend()
+    try: origin=frontend()
+    except ApiError: return response
+    if request.headers.get('Origin')==origin:
+        response.headers['Access-Control-Allow-Origin']=origin
         response.headers['Access-Control-Allow-Headers']='Authorization, Content-Type'
         response.headers['Access-Control-Allow-Methods']='GET, POST, OPTIONS'
         response.vary.add('Origin')

@@ -141,3 +141,14 @@ def test_replayed_wrong_amount_and_revoked_site_token_cannot_grant_access(app,cl
     assert plan(app)['tier']=='free'
     with app.app_context(),db() as cur:cur.execute('UPDATE usuarios SET auth_version=auth_version+1 WHERE id=%s',(app.test_user,))
     assert client.get('/api/novai/billing/account',headers=web).status_code==401
+
+
+def test_railway_scheme_less_frontend_and_invalid_configuration(app,client,web,monkeypatch):
+    monkeypatch.setenv('FRONTEND_URL','novai-site.example')
+    response=client.get('/api/novai/billing/plans',headers={'Origin':ORIGIN})
+    assert response.status_code==200 and response.headers['Access-Control-Allow-Origin']==ORIGIN
+    preflight=client.options('/api/novai/billing/checkout',headers={'Origin':ORIGIN,'Access-Control-Request-Method':'POST'})
+    assert preflight.status_code==204
+    monkeypatch.setenv('FRONTEND_URL','http://insecure.example')
+    response=checkout(client,web)
+    assert response.status_code==503 and response.json['error']=='site_not_configured'
