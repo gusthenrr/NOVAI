@@ -40,6 +40,7 @@
     action.textContent=busy?'Aguarde…':!loggedIn?'Entrar para continuar':trial?'Autorizar cartão e iniciar 7 dias grátis':'Continuar no Mercado Pago';
     action.disabled=busy||!catalog||catalog.paymentsEnabled!==true||(loggedIn&&(!accountKnown||!account||!consent.checked));
     consent.disabled=busy||!catalog;
+    document.querySelectorAll('.choose-plan,[data-period],#change-plan').forEach(button=>{button.disabled=busy;});
   }
   function manage(){
     manager.replaceChildren();manager.hidden=!account;
