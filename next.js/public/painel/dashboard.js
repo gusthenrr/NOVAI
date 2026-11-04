@@ -188,6 +188,7 @@
   }
 
   function renderChart(){
+    if(!current)return;
     const ads=state.route==='publicidade',options=ads?[['adRevenue','Receita Ads'],['ads','Investimento'],['adResult','Resultado']]:[['gross','Faturamento'],['result','Resultado'],['orders','Vendas']];
     const key=state.chart[state.route]||options[0][0];
     $('#chart-section .segments').innerHTML=options.map(([id,label])=>'<button data-chart="'+id+'" aria-pressed="'+(id===key)+'">'+label+'</button>').join('');
