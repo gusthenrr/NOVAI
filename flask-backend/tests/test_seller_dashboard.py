@@ -89,7 +89,7 @@ def test_missing_tax_cost_ads_are_unknown_not_zero(app,client,setup):
         cur.execute('DELETE FROM seller_costs')
         cur.execute("UPDATE seller_jobs SET finished_at=NULL,state='queued' WHERE kind='ads'")
     c=snap(client,setup).json['current']
-    assert c['cost'] is None and c['tax'] is None and c['ads'] is None and c['result'] is None
+    assert c['cost'] is None and c['tax'] is None and c['ads']==20 and c['adsPartial'] and c['result'] is None
     assert c['gross']==400 and c['complete']
 
 
@@ -122,7 +122,8 @@ def test_restart_upsert_no_duplicates_and_month_progress(app,client,setup):
     with app.app_context(),db() as cur:
         cur.execute("UPDATE seller_jobs SET state='queued',finished_at=NULL,next_at=NOW() WHERE kind='orders' AND period='2026-11-01'")
         cur.execute("UPDATE seller_jobs SET next_at=NOW()+INTERVAL '1 day' WHERE kind!='orders' OR period!='2026-11-01'")
-    with patch('seller_sync.get',return_value={'paging':{'total':2},'results':[fixture_order(100),fixture_order(101)]}),app.app_context():run_once()
+    with patch('seller_sync.get',return_value={'paging':{'total':2},'results':[fixture_order(100),fixture_order(101)]}),app.app_context():
+        run_once();run_once()
     assert snap(client,setup).json['current']['gross']==400
     with app.app_context(),db() as cur:
         cur.execute("SELECT state,cursor FROM seller_jobs WHERE kind='orders' AND period='2026-11-01'");r=cur.fetchone();assert r['state']=='done' and r['cursor']=={}
@@ -170,7 +171,8 @@ def test_invalid_cost_and_expense_numbers(app,client,setup):
 def test_partial_ads_month_not_treated_as_whole_month(app,client,setup):
     seed(app)
     with app.app_context(),db() as cur:cur.execute("UPDATE seller_jobs SET coverage_from='2026-11-03' WHERE kind='ads' AND period='2026-11-01'")
-    assert snap(client,setup).json['current']['ads'] is None
+    c=snap(client,setup).json['current']
+    assert c['ads']==20 and c['adsPartial'] and not c['adsComplete'] and c['result'] is None
 
 
 def test_leased_job_not_processed_twice_and_recovers(app,client,setup):
@@ -188,7 +190,7 @@ def test_permission_failure_isolated_from_orders(app,client,setup):
         cur.execute("UPDATE seller_jobs SET next_at=NOW(),state='queued',finished_at=NULL WHERE kind='ads' AND period='2026-11-01'")
     with app.app_context(),patch('seller_sync.step',side_effect=ApiError('ml_permission_required',403)):run_once()
     c=snap(client,setup).json
-    assert c['current']['gross']==400 and c['current']['ads'] is None
+    assert c['current']['gross']==400 and c['current']['ads']==20 and c['current']['adsPartial']
     assert 'ml_permission_required' in c['progress']['warnings']
 
 
@@ -234,3 +236,28 @@ def test_catalog_lane_does_not_wait_for_orders(app,client,setup):
     with app.app_context(),patch('seller_sync.step') as work:
         assert not run_once(('orders',))
         assert not work.called
+
+
+def test_ads_collected_before_orders_are_visible_but_profit_is_pending(app,client,setup):
+    seed(app)
+    with app.app_context(),db() as cur:
+        cur.execute('DELETE FROM seller_orders')
+        cur.execute("UPDATE seller_jobs SET finished_at=NULL,state='queued' WHERE kind='orders'")
+    data=snap(client,setup).json
+    assert data['current']['ads']==20 and data['current']['adRevenue']==100
+    assert data['current']['gross'] is None and data['current']['result'] is None
+    assert data['progress']['sources']['ads']['ready']
+    assert not data['progress']['sources']['orders']['ready']
+
+
+def test_order_search_uses_supported_filters_and_separate_cancellations(app,setup):
+    seed(app)
+    with app.app_context(),db() as cur:
+        cur.execute("SELECT * FROM seller_jobs WHERE kind='orders' AND period='2026-11-01'");job=cur.fetchone()
+    with patch('seller_sync.get',return_value={'paging':{'total':0},'results':[]}) as upstream,app.app_context():
+        cursor,done,_=step(job)
+        assert not done and cursor['order_status']=='cancelled'
+        assert 'order.status' not in upstream.call_args.args[3]
+        job['cursor']=cursor
+        assert step(job)[1]
+        assert upstream.call_args.args[3]['order.status']=='cancelled'

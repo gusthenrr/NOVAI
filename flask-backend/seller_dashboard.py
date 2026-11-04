@@ -37,9 +37,14 @@ def progress(cur,u,s):
     orders=[j for j in jobs if j['kind']=='orders']
     completed=sum(j['finished_at'] is not None for j in orders)
     pending=[j for j in jobs if j['state'] in ('queued','running','retry')]
+    sources={}
+    for kind in ('profile','catalog','orders','ads'):
+        rows=[j for j in jobs if j['kind']==kind and j['error']!='ads_retention_90_days']
+        done=sum(bool(j['finished_at']) for j in rows)
+        sources[kind]=dict(total=len(rows),completed=done,ready=bool(rows) and done==len(rows),pending=any(j['state'] in ('queued','running','retry') for j in rows),failed=any(j['error'] for j in rows))
     return dict(initialized=initialized,nickname=(account or {}).get('nickname'),reputation=(account or {}).get('reputation'),registeredOn=str(account['registered_on']) if account and account['registered_on'] else None,
         availableFrom=str(account['available_from']) if account and account['available_from'] else None,revision=(account or {}).get('revision',0),
-        monthsCompleted=completed,monthsTotal=len(orders),collecting=bool(pending) or not initialized,
+        sources=sources,monthsCompleted=completed,monthsTotal=len(orders),collecting=bool(pending) or not initialized,
         currentMonth=str(pending[0]['period']) if pending else None,
         warnings=list(dict.fromkeys(j['error'] for j in jobs if j['error'])),
         jobs=[dict(kind=j['kind'],month=j['period'].isoformat(),state=j['state'],error=j['error'],collected=bool(j['finished_at']),coverageFrom=j['coverage_from'].isoformat() if j['coverage_from'] else None) for j in jobs])
@@ -111,12 +116,14 @@ def aggregate(cur,u,s,start,end,products,costs,status):
             (daily_cancelled if cancelled else daily_orders).setdefault(key_day,set()).add(source['order_id'])
     # Actual campaigns, never fabricated category groupings.
     cur.execute('SELECT day,campaign_id,campaign_name,item_id,data FROM seller_ads WHERE user_id=%s AND seller_id=%s AND day BETWEEN %s AND %s',(u,s,start,end))
-    campaigns={}
+    campaigns={};ad_totals=dict.fromkeys(ADS,0);ad_products=set();ad_days=set()
     for r in cur.fetchall():
         m=r['data'];daily=days.setdefault(r['day'].isoformat(),dict(day=r['day'].isoformat(),**zero()));p=by.setdefault(r['item_id'],product(r['item_id'],{},costs))
         c=campaigns.setdefault(r['campaign_id'],dict(id=r['campaign_id'],name=r['campaign_name'],products=[],productMetrics={},**zero()))
         if p['id'] not in c['products']:c['products'].append(p['id'])
         vals=dict(ads=m.get('cost'),clicks=m.get('clicks'),impressions=m.get('prints'),adRevenue=plus(m.get('direct_amount'),m.get('indirect_amount')),adUnits=plus(m.get('direct_units_quantity'),m.get('indirect_units_quantity')))
+        ad_products.add(p['id']);ad_days.add(r['day'].isoformat())
+        for k,v in vals.items():ad_totals[k]=plus(ad_totals[k],v)
         cp=c['productMetrics'].setdefault(p['id'],dict.fromkeys(ADS,0))
         for target in (p,daily,c,cp):
             for k,v in vals.items():target[k]=plus(target[k],v)
@@ -126,10 +133,10 @@ def aggregate(cur,u,s,start,end,products,costs,status):
         p['complete']=orders_complete
         level=status.get('reputation') or ''
         p['reputation']='green' if level.startswith(('4','5')) else 'yellow' if level.startswith('3') else 'red' if level.startswith(('1','2')) else None
-        if not ads_complete:
+        if not ads_complete and p['id'] not in ad_products:
             for k in ADS:p[k]=None
         costs_sum=[p[k] for k in ('cost','fees','tax','shipping','ads')]
-        p['result']=None if p['net'] is None or any(v is None for v in costs_sum) else round(p['net']-sum(costs_sum),2)
+        p['result']=None if not orders_complete or not ads_complete or p['net'] is None or any(v is None for v in costs_sum) else round(p['net']-sum(costs_sum),2)
         # Attribution estimate, not causal incremental profit; unknown costs stay unknown.
         p['adResult']=None if p['result'] is None or p['adRevenue'] is None or (not p['net'] and p['adRevenue']) else round(p['adRevenue']-(sum(costs_sum[:-1])*p['adRevenue']/p['net'] if p['net'] else 0)-p['ads'],2)
         p['cover']=math.ceil(p['stock']/(p['units']/elapsed)) if orders_complete and p['units'] and p['stock'] is not None else None
@@ -137,9 +144,8 @@ def aggregate(cur,u,s,start,end,products,costs,status):
         p['resultPerUnit']=round(p['result']/p['units'],2) if p['result'] is not None and p['units'] else None
         for k in FIELDS:total[k]=plus(total[k],p[k])
     total['orders']=len(order_ids);total['cancelledOrders']=len(cancel_ids)
-    if not ads_complete:
-        for k in ADS:total[k]=None
-        total['result']=total['adResult']=None
+    for k in ADS:total[k]=ad_totals[k] if ads_complete or ad_products else None
+    if not ads_complete or not orders_complete:total['result']=total['adResult']=None
     if not orders_complete and not order_ids and not cancel_ids:
         for k in ('orders','units','gross','cancelled','cancelledOrders','refunded','net','fees','tax','shipping','cost','result','adResult'):total[k]=None
     # Only fill a zero day if the entire order month has been collected.
@@ -150,10 +156,10 @@ def aggregate(cur,u,s,start,end,products,costs,status):
     for row in days.values():
         row['orders']=len(daily_orders.get(row['day'],set()));row['cancelledOrders']=len(daily_cancelled.get(row['day'],set()))
         known_ads=complete_window(status,parse_day(row['day']),parse_day(row['day']),'ads')
-        if not known_ads:
+        if not known_ads and row['day'] not in ad_days:
             for k in ADS:row[k]=None
         vals=[row[k] for k in ('cost','fees','tax','shipping','ads')]
-        row['result']=None if row['net'] is None or any(v is None for v in vals) else round(row['net']-sum(vals),2)
+        row['result']=None if not known_ads or not complete_window(status,parse_day(row['day']),parse_day(row['day']),'orders') or row['net'] is None or any(v is None for v in vals) else round(row['net']-sum(vals),2)
         row['adResult']=None if row['result'] is None or row['adRevenue'] is None else round(row['adRevenue']-(sum(vals[:-1])*row['adRevenue']/row['net'] if row['net'] else 0)-row['ads'],2)
     for c in campaigns.values():
         attributed=0
@@ -163,10 +169,8 @@ def aggregate(cur,u,s,start,end,products,costs,status):
                 attributed=None;break
             attributed=plus(attributed,round(m['adRevenue']-(sum(variable)*m['adRevenue']/p['net'] if p['net'] else 0)-m['ads'],2))
         c['products']=[by[k] for k in c['products']]
-        c['adResult']=attributed if ads_complete else None
-        if not ads_complete:
-            for k in ADS:c[k]=None
-    return dict(**total,incomplete=total['result'] is None,complete=orders_complete,adsComplete=ads_complete,
+        c['adResult']=attributed if ads_complete and orders_complete else None
+    return dict(**total,incomplete=total['result'] is None,complete=orders_complete,adsComplete=ads_complete,adsPartial=bool(ad_products) and not ads_complete,
         products=list(by.values()),days=sorted(days.values(),key=lambda x:x['day']),events=sorted(events,key=lambda x:x['day'],reverse=True),campaigns=list(campaigns.values()),lossAfterShipping=None)
 
 

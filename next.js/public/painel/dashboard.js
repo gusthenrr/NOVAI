@@ -67,7 +67,7 @@
     recalculate();
     const [eyebrow,title]=titles[state.route];$('#page-eyebrow').textContent=eyebrow;$('#page-title').textContent=title;document.title=title+' · Novai';
     const realSaved=window.NovaiSavedPanel?.enabled&&state.route==='oportunidades';
-    $('.demo-wrap').hidden=true;$('.page-footer>span:first-child').textContent=realSaved?'Salvos compartilhados com o Precify e a extensão.':(current.complete?'Dados da conta conectada.':'Dados parciais: período ainda não totalmente disponível.');
+    $('.demo-wrap').hidden=true;$('.page-footer>span:first-child').textContent=realSaved?'Salvos compartilhados com o Precify e a extensão.':(current.complete&&current.adsComplete?'Dados da conta conectada.':'Dados parciais: período ainda não totalmente disponível.');
     for(const a of $$('[data-nav]')){const active=a.dataset.nav===state.route;a.classList.toggle('active',active);if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');}
     $('#period-label').textContent=state.period?'Últimos '+state.period+' dias':'Personalizado';$('#period-range').textContent=range(state.start,state.end);
     $('.data-caption').textContent='Até '+date(state.end,true);
@@ -77,6 +77,7 @@
     $('#route-tabs').hidden=!routeTabs[state.route];$('#route-tabs').innerHTML=(routeTabs[state.route]||[]).map(([id,label])=>'<button data-route-tab="'+id+'" aria-pressed="'+(id===state.tab)+'">'+label+'</button>').join('');
     $('#metrics').hidden=['produtos','oportunidades'].includes(state.route);
     $('#comparison-note').hidden=state.route==='oportunidades';$('#comparison-note').textContent=comparable?'Comparação com '+range(M.shift(state.start,-M.daysBetween(state.start,state.end)),M.shift(state.start,-1))+'.':'Comparação indisponível: um dos períodos ainda não foi completamente coletado.';
+    if(current.adsPartial)$('#comparison-note').textContent+=' Publicidade parcial: mostrando os valores já recebidos.';
     $('#tasks-section').hidden=state.route!=='resumo'||!alerts.length;$('#attention-count').textContent='('+alerts.length+')';$('#attention-list').innerHTML=alerts.slice(0,2).map((a,i)=>task(a,i)).join('');
     $('#chart-section').hidden=!(state.route==='resumo'||state.route==='publicidade'&&state.tab==='anuncios');
     $('#page-content').innerHTML='';
@@ -348,9 +349,12 @@
   function errorText(error){return ({session_required:'Entre novamente na sua conta NOVAI.',session_expired:'Sua sessão expirou. Entre novamente.',ml_connection_required:'Conecte sua conta do Mercado Livre para iniciar a coleta.',ml_reconnect_required:'Reconecte o Mercado Livre para continuar a coleta.',ml_account_changed:'A conta conectada mudou. Atualize o painel.',ml_permission_required:'O Mercado Livre não autorizou este recurso.'})[error.code]||'Não foi possível atualizar agora. Seus dados já coletados continuam salvos.';}
   function showError(error){$('#sync-title').textContent=errorText(error);$('#sync-login').hidden=!['session_required','session_expired'].includes(error.code);$('#sync-connect').hidden=!['ml_connection_required','ml_reconnect_required'].includes(error.code);$('#sync-description').textContent='Tente atualizar após resolver a conexão.';$('#sync-progress').hidden=true;}
   function showProgress(p){
+    const sources=p.sources||{};
+    const stages=[['profile','Loja'],['catalog','Produtos'],['ads','Publicidade'],['orders','Pedidos']].map(([k,label])=>label+': '+(sources[k]?.failed?'com pendências':sources[k]?.ready&&!sources[k]?.pending?'disponível':sources[k]?.completed?'atualizando':'coletando')).join(' · ');
     const blocked=p.jobs?.some(j=>['blocked','retry','unavailable'].includes(j.state));
     $('#sync-title').textContent=p.collecting?'Coletando o histórico da sua loja…':blocked?'Coleta com pendências':'Coleta disponível atualizada';
     $('#sync-description').textContent=p.collecting?`${p.monthsCompleted} de ${p.monthsTotal} meses de pedidos coletados. Você pode navegar; o painel atualiza a cada mês concluído.`:blocked?'Parte dos dados não pôde ser consultada. Os valores disponíveis continuam no painel.':'Dados salvos na sua conta. A coleta continua sendo atualizada em segundo plano.';
+    $('#sync-description').textContent+=' '+stages+'. Informações já recebidas aparecem sem esperar os pedidos; valores parciais podem mudar.';
     $('#sync-progress').hidden=!p.collecting;$('#sync-progress').max=Math.max(1,p.monthsTotal);$('#sync-progress').value=p.monthsCompleted;
     $('#sync-coverage').textContent=(p.availableFrom?'Pedidos disponíveis desde '+date(p.availableFrom,true)+'. ':'')+'A API disponibiliza até 12 meses de pedidos e 90 dias de Ads. O histórico coletado fica preservado. Custos ou permissões ausentes aparecem como pendentes.';
     $('#sync-connect').hidden=!p.warnings?.some(x=>['ml_connection_required','ml_reconnect_required'].includes(x));

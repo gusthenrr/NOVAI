@@ -136,7 +136,12 @@ def step(job):
         # Inclusive millisecond ranges. Split dense windows before hitting ML's 10k cap.
         windows=cursor.get('windows') or [[start.isoformat()+'T00:00:00.000-03:00',end.isoformat()+'T23:59:59.999-03:00']]
         lo,hi=windows[0];offset=cursor.get('offset',0);index=cursor.get('index',0)
-        data=fetch('/orders/search',{'seller':s,'order.date_created.from':lo,'order.date_created.to':hi,'order.status':'paid,partially_refunded,cancelled','limit':50,'offset':offset})
+        order_status=cursor.get('order_status')
+        params={'seller':s,'order.date_created.from':lo,'order.date_created.to':hi,'limit':50,'offset':offset}
+        # partially_refunded may occur in results but is rejected as a search filter.
+        # Search unfiltered first, then cancellations (which ML may hide by default).
+        if order_status:params['order.status']=order_status
+        data=fetch('/orders/search',params)
         rows=data.get('results');total=(data.get('paging') or {}).get('total')
         if not isinstance(rows,list) or not isinstance(total,int): raise ApiError('ml_invalid_orders',502)
         if total>=9950:
@@ -144,10 +149,12 @@ def step(job):
             if (b-a).total_seconds()<1:raise ApiError('ml_pagination_limit',409)
             mid=a+(b-a)/2;mid=mid.replace(microsecond=(mid.microsecond//1000)*1000)
             windows[:1]=[[lo,mid.isoformat(timespec='milliseconds')],[(mid+timedelta(milliseconds=1)).isoformat(timespec='milliseconds'),hi]]
-            return {'windows':windows},False,None
+            return {'windows':windows,'order_status':order_status},False,None
         if not rows and offset<total:raise ApiError('ml_incomplete_orders',502)
         # Five enriched orders per durable slice: failures do not discard previous pages.
         for order in rows[index:index+5]:
+            if order.get('status') not in ('paid','partially_refunded','cancelled'):
+                index+=1;continue
             identifier,day,facts=clean_order(order,s)
             with db() as cur:
                 for line in facts['lines']:
@@ -175,8 +182,10 @@ def step(job):
         if index>=len(rows):offset+=len(rows);index=0
         if offset>=total:
             windows.pop(0);offset=0;index=0
-            if not windows:return {},True,None
-        return {'windows':windows,'offset':offset,'index':index},False,None
+            if not windows:
+                if not order_status:return {'order_status':'cancelled'},False,None
+                return {},True,None
+        return {'windows':windows,'offset':offset,'index':index,'order_status':order_status},False,None
     if kind=='ads':
         # Ads retention is 90 days, independently of the orders retention.
         if month_end(period)<today()-timedelta(days=89):return {},True,None if job.get('finished_at') and job.get('error') not in ('ads_retention_90_days',) else 'ads_retention_90_days'
@@ -213,8 +222,13 @@ def step(job):
         if not groups:return {},True,'no_ads_account'
         group=groups[idx];campaign=str(group['campaign']);names=cursor.get('names',{})
         if campaign not in names:
-            meta=fetch('/advertising/MLB/product_ads/campaigns/'+campaign)
-            names[campaign]=str(meta.get('name') or campaign);cursor['names']=names
+            meta={}
+            if campaign!='0':
+                try:meta=fetch('/advertising/MLB/product_ads/campaigns/'+campaign,{'date_from':day.isoformat(),'date_to':end.isoformat()})
+                except ApiError as exc:
+                    # A missing display name must not discard successfully fetched ad metrics.
+                    if exc.code not in ('ml_http_400','ml_resource_unavailable'):raise
+            names[campaign]=str(meta.get('name') or ('Sem campanha atual' if campaign=='0' else 'Campanha '+campaign));cursor['names']=names
         response=fetch('/advertising/MLB/product_ads/ad_groups/'+str(group['id'])+'/ads',{'date_from':day.isoformat(),'date_to':day.isoformat(),'metrics':METRICS,'limit':50,'offset':offset})
         rows=response.get('results');total=response.get('paging',{}).get('total')
         if not isinstance(rows,list) or not isinstance(total,int):raise ApiError('ml_invalid_ads',502)
