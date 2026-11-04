@@ -1532,25 +1532,26 @@
   const extensionSession=!!window.chrome?.runtime?.id&&location.protocol==='chrome-extension:';
   const accessPage=()=>'/conectado';
   const accountLink='/conectado';
-  const syncLabels={disconnected:'Desconectado',connected:'Conectado',syncing:'Sincronizando',ready:'Conectado',error:'Sincronização interrompida'};
+  const syncLabels={disconnected:'Desconectado',connected:'Conectado',syncing:'Sincronizando',ready:'Conectado',partial:'Dados parciais',error:'Requer atenção'};
   const syncTime=value=>value?new Date(value).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):'';
   function renderConnections(){
     const s=connection.snapshot(),connected=s.status!=='disconnected';
     const name=$('#store-account-name').textContent,photo=$('#store-account-photo');
     const identity=connected?'<div class="connection-owner"><span class="connection-owner-avatar">'+(!photo.hidden?'<img src="'+esc(photo.src)+'" alt="" width="40" height="40">':'<span>'+esc($('#store-account-initials').textContent)+'</span>')+'</span><div><strong>'+esc(name)+'</strong><span>Conta vinculada</span></div></div>':'';
-    const detail=s.status==='syncing'?'<div class="connection-import"><span class="connection-spinner" aria-hidden="true"></span><div><strong>Recebendo seus dados</strong><p>'+esc(s.stage)+'</p></div></div>':s.status==='ready'?'<p class="connection-updated">Última atualização às '+syncTime(s.updatedAt)+'.</p>':s.status==='error'?'<p class="connection-error">Não foi possível concluir. Tente novamente.</p>':'';
-    const cta=s.status==='syncing'?'<a class="button primary" href="#resumo">Ir para o resumo '+arrow+'</a>':s.status==='ready'?'<a class="button primary" href="#resumo">Abrir resumo '+arrow+'</a>':'<a class="button primary" href="'+accessPage()+'"'+(accessPage()===accountLink?' target="_blank" rel="noopener noreferrer"':'')+'>'+ (connected?'Gerenciar conexão':'Conectar Mercado Livre')+' '+arrow+'</a>';
+    const report=window.NovaiConnectionSync.describe(M.account.progress,M.error);
+    const detail=s.status==='partial'?'<p class="connection-partial">'+esc(report.copy)+' '+esc(report.detail)+'</p>':s.status==='syncing'?'<div class="connection-import"><span class="connection-spinner" aria-hidden="true"></span><div><strong>Recebendo seus dados</strong><p>'+esc(s.stage)+'</p></div></div>':s.status==='ready'?'<p class="connection-updated">Última atualização às '+syncTime(s.updatedAt)+'.</p>':s.status==='error'?'<p class="connection-error">'+esc(report.copy)+' '+esc(report.detail)+'</p>':'';
+    const cta=s.status==='syncing'?'<a class="button primary" href="#resumo">Ir para o resumo '+arrow+'</a>':['ready','partial'].includes(s.status)?'<a class="button primary" href="#resumo">Abrir resumo '+arrow+'</a>':'<a class="button primary" href="'+accessPage()+'"'+(accessPage()===accountLink?' target="_blank" rel="noopener noreferrer"':'')+'>'+ (connected?'Gerenciar conexão':'Conectar Mercado Livre')+' '+arrow+'</a>';
     $('#page-content').innerHTML='<section class="connections-view" aria-labelledby="connections-intro"><p id="connections-intro" class="connections-intro">Conecte sua conta para acompanhar a operação.</p><article class="panel connection-panel" data-connection-state="'+s.status+'"><div class="connection-provider"><span class="connection-market-logo" aria-hidden="true"><img src="/painel/assets/mercado-livre-simbolo.png" alt=""></span><h2>Mercado Livre</h2><span class="connection-state '+s.status+'"><span aria-hidden="true"></span>'+syncLabels[s.status]+'</span></div>'+identity+detail+'<div class="connection-panel-actions">'+cta+('<button type="button" class="button secondary" data-retry-sync>Atualizar coleta</button>')+'</div>'+(s.mode==='preview'?'<p class="connection-preview-note">Teste visual com dados de exemplo. Nenhuma conta real é alterada.</p>':'')+'</article><p class="connection-help">Você pode continuar usando o painel durante a sincronização.</p></section>';
   }
   function renderConnectionNotice(){
     const s=connection.snapshot(),notice=$('#connection-sync-notice');
-    notice.hidden=state.route==='conexoes'||syncNoticeDismissed||!['syncing','ready','error'].includes(s.status);
+    notice.hidden=state.route==='conexoes'||syncNoticeDismissed||!['syncing','ready','partial','error'].includes(s.status);
     notice.dataset.state=s.status;
-    const title=s.status==='syncing'?'Recebendo dados do Mercado Livre':s.status==='ready'?'Seus dados estão atualizados':'A sincronização não foi concluída';
-    $('#connection-sync-title').textContent=title;
-    $('#connection-sync-copy').textContent=s.status==='syncing'?'Você pode continuar usando o painel.':s.status==='ready'?'Tudo pronto para acompanhar sua operação.':'Abra Conexões para tentar novamente.';
-    $('#connection-sync-detail').textContent=s.status==='syncing'?s.stage:'';
-    $('#connection-sync-detail').hidden=s.status!=='syncing';
+    const report=window.NovaiConnectionSync.describe(M.account.progress,M.error);
+    $('#connection-sync-title').textContent=report.title;
+    $('#connection-sync-copy').textContent=report.copy;
+    $('#connection-sync-detail').textContent=report.detail;
+    $('#connection-sync-detail').hidden=!report.detail;
     $('#connection-sync-preview').hidden=s.mode!=='preview';
     $('#connection-sync-close').hidden=s.status==='syncing';
   }
@@ -1640,13 +1641,12 @@
   function showLiveProgress(){
     const p=M.account.progress,error=M.error;
     if(!M.account.connected){connectionAdapter.disconnected();return;}
-    const stage=p?`${p.monthsCompleted} de ${p.monthsTotal} meses de pedidos. Produtos e Ads aparecem conforme recebidos.`:'Preparando coleta…';
-    if(liveRun==null)liveRun=connectionAdapter.start({stage});
-    if(error){connectionAdapter.fail(liveRun);liveRun=null;}
-    else if(p?.collecting){if(connection.snapshot().status!=='syncing')liveRun=connectionAdapter.start({stage});else connectionAdapter.progress(liveRun,stage);}
-    else if(p?.warnings?.some(x=>x!=='ads_retention_90_days'&&x!=='no_ads_account')){connectionAdapter.fail(liveRun);liveRun=null;}
+    const report=window.NovaiConnectionSync.describe(p,error),stage=report.detail;
+    if(connection.snapshot().status!=='syncing')liveRun=connectionAdapter.start({stage});
+    if(report.status==='syncing')connectionAdapter.progress(liveRun,stage);
+    else if(report.status==='partial')connection.partial(liveRun,stage);
+    else if(report.status==='error')connectionAdapter.fail(liveRun);
     else connectionAdapter.complete(liveRun);
-    if(error){$('#connection-sync-copy').textContent=error.code==='preferences_changed'?'Os cadastros mudaram em outra aba. Atualize a página.':'Parte dos dados está indisponível. Seus cadastros continuam salvos.';}
     if(p?.nickname)applyAccount({name:p.nickname});
   }
   function applyStored(){

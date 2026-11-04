@@ -1225,3 +1225,10 @@ html[data-theme=light] .ean-barcode-preview{color:#111}
 .cost-import-overwrite{color:var(--text)}
 #cost-import-options>label:not(.checkbox){color:var(--muted)}
 .connection-sync-notice{min-height:108px}
+
+/* Partial collection keeps the account connected and available data usable. */
+.connection-state.partial,.connection-partial{color:#b98500}
+.connection-partial{font-size:14px;margin:18px 0 0}
+.connection-sync-notice[data-state=partial] .connection-spinner{display:none}
+.connection-sync-notice[data-state=partial] .connection-notice-icon{color:#b98500}
+.connection-sync-notice[data-state=partial] .connection-notice-icon:after{content:'!';display:grid;place-items:center;border:2px solid currentColor;border-radius:50%;width:22px;height:22px;font-size:15px;font-weight:700}
