@@ -15,6 +15,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
+  icons: { icon: { url: "/site-apresentacao/assets/favicon.svg?v=rounded-20261105", type: "image/svg+xml" } },
   title: "NOVAI — Sua conta e seus resultados",
   description: "Analise anúncios, acompanhe sua conta e calcule suas margens com a NOVAI.",
 };
